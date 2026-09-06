@@ -117,6 +117,26 @@ jobs:
           vp run dist:desktop:artifact --platform mac --target dmg --arch arm64 --build-version "$version" --verbose
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Verify the packaged app and update feed
+        if: steps.plan.outputs.build == 'true'
+        env:
+          BUILD_VERSION: ${{ steps.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          unpacked="$RUNNER_TEMP/micro-package-check"
+          ditto -x -k "release/T3-Code-$BUILD_VERSION-arm64.zip" "$unpacked"
+          codesign --verify --deep --strict --verbose=2 "$unpacked/T3 Code (Alpha).app"
+          node --input-type=module - "$unpacked/T3 Code (Alpha).app/Contents/Resources/app-update.yml" <<'JS'
+          import fs from "node:fs";
+          import assert from "node:assert/strict";
+          import { createRequire } from "node:module";
+          const YAML = createRequire(`${process.cwd()}/apps/server/package.json`)("yaml");
+          const feed = YAML.parse(fs.readFileSync(process.argv[2], "utf8"));
+          assert.equal(`${feed.owner}/${feed.repo}`, process.env.GITHUB_REPOSITORY);
+          const update = YAML.parse(fs.readFileSync("release/latest-mac.yml", "utf8"));
+          assert.equal(update.version, process.env.BUILD_VERSION);
+          JS
+
       - name: Publish the verified source
         run: git push origin HEAD:main
 
@@ -129,7 +149,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          assets=(release/*.dmg release/*.zip release/*.yml release/*.blockmap)
+          assets=(release/*.dmg release/*.zip release/latest-mac.yml release/*.blockmap)
           (( ${#assets[@]} >= 2 )) || { echo 'Desktop artifacts are missing' >&2; exit 1; }
           commit="$(git rev-parse HEAD)"
           {
@@ -137,7 +157,7 @@ jobs:
             echo
             echo "Version: $BUILD_VERSION. Includes upstream release $UPSTREAM_TAG and the fork's retained changes."
             echo
-            echo "Apple Silicon macOS build. Unsigned and not notarized; manual installation may be required."
+            echo "Apple Silicon macOS build. Ad-hoc signed, not notarized; manual installation may be required."
             echo "Close T3 before replacing your app. Select this installation in Micro Manager's desktop app setting."
             echo
             echo "Source: https://github.com/$GITHUB_REPOSITORY/commit/$commit"

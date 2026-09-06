@@ -34,7 +34,8 @@ automation's normal fast-forward push to fail instead of overwriting changes.
 ## Installing a build
 
 Download the DMG or ZIP from this fork's latest release. Builds are currently
-unsigned and not notarized. Source updates and downloadable builds are
+ad-hoc signed and not notarized. The workflow verifies the packaged signature
+and that its update feed points to this fork before publication. Source updates and downloadable builds are
 automatic; unattended macOS installation is not guaranteed. The packaged update
 feed points to `nielsb02/t3code`, so it does not offer the unpatched upstream app.
 The app's own update controls remain user initiated.
