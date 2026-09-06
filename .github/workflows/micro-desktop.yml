@@ -1,0 +1,152 @@
+name: Micro desktop release
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "37 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: micro-desktop-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'nielsb02/t3code'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Verify the sync policy
+        run: python3 .github/scripts/micro_sync_test.py
+
+      - name: Configure commit identity
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Find the latest upstream release
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(gh api repos/pingdotgg/t3code/releases/latest --jq .tag_name)"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Unexpected release tag" >&2; exit 1; }
+          git fetch --no-tags https://github.com/pingdotgg/t3code.git "+refs/tags/$tag:refs/remotes/upstream/release"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Merge upstream while retaining the desktop patch
+        id: sync
+        run: python3 .github/scripts/micro_sync.py refs/remotes/upstream/release
+
+      - name: Record the monthly update check
+        env:
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          python3 - <<'PY'
+          import datetime, json, os
+          from pathlib import Path
+          state = {"upstreamRelease": os.environ["UPSTREAM_TAG"], "checkedMonth": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m")}
+          Path(".github/micro-sync-state.json").write_text(json.dumps(state, indent=2) + "\n")
+          PY
+          git add .github/micro-sync-state.json
+          if ! git diff --cached --quiet; then
+            git -c core.hooksPath=/dev/null commit -m 'chore: record upstream release check'
+          fi
+
+      - name: Decide whether a build is needed
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SOURCE_CHANGED: ${{ steps.sync.outputs.changed }}
+        run: |
+          if [[ "$EVENT_NAME" != schedule || "$SOURCE_CHANGED" == true ]]; then
+            echo 'build=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'build=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Vite+
+        if: steps.plan.outputs.build == 'true'
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+
+      - name: Install desktop dependencies
+        if: steps.plan.outputs.build == 'true'
+        run: vp install --filter=@t3tools/desktop... --filter=@t3tools/web... --filter=t3... --filter=@t3tools/scripts...
+
+      - name: Verify desktop opening and affected types
+        if: steps.plan.outputs.build == 'true'
+        run: |
+          vp test run apps/web/src/desktopAppActivation.test.ts apps/desktop/src/app/DesktopAppActivation.test.ts apps/desktop/src/app/DesktopAppActivationBroker.test.ts
+          vp run --filter @t3tools/contracts --filter @t3tools/web --filter @t3tools/desktop typecheck
+
+      - name: Setup Rust
+        if: steps.plan.outputs.build == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Build Apple Silicon desktop
+        id: build
+        if: steps.plan.outputs.build == 'true'
+        env:
+          T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          base_version="$(node -p "require('./apps/desktop/package.json').version")"
+          version="${base_version}-micro.${GITHUB_RUN_NUMBER}"
+          node scripts/update-release-package-versions.ts "$version"
+          cp .env.example .env
+          vp run dist:desktop:artifact --platform mac --target dmg --arch arm64 --build-version "$version" --verbose
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the verified source
+        run: git push origin HEAD:main
+
+      - name: Publish desktop downloads
+        if: steps.plan.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_VERSION: ${{ steps.build.outputs.version }}
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(release/*.dmg release/*.zip release/*.yml release/*.blockmap)
+          (( ${#assets[@]} >= 2 )) || { echo 'Desktop artifacts are missing' >&2; exit 1; }
+          commit="$(git rev-parse HEAD)"
+          {
+            echo "T3 Code with exact desktop session opening for Micro Manager."
+            echo
+            echo "Version: $BUILD_VERSION. Includes upstream release $UPSTREAM_TAG and the fork's retained changes."
+            echo
+            echo "Apple Silicon macOS build. Unsigned and not notarized; manual installation may be required."
+            echo "Close T3 before replacing your app. Select this installation in Micro Manager's desktop app setting."
+            echo
+            echo "Source: https://github.com/$GITHUB_REPOSITORY/commit/$commit"
+            echo "Updates: https://github.com/$GITHUB_REPOSITORY/blob/main/docs/operations/micro-fork.md"
+          } > "$RUNNER_TEMP/micro-release-notes.md"
+          gh release create "micro-v$BUILD_VERSION" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --target "$commit" --title "T3 Code Micro $BUILD_VERSION" --notes-file "$RUNNER_TEMP/micro-release-notes.md" --latest
+
+      - name: Explain a failed update
+        if: failure()
+        run: |
+          echo '### Micro update needs attention' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No new desktop release was published. Review the failed step; the previous download remains available.' >> "$GITHUB_STEP_SUMMARY"
