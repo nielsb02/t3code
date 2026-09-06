@@ -6,6 +6,7 @@ import type {
   ExecutionEnvironmentPlatformOs,
   ProjectId,
   ScopedProjectRef,
+  ScopedThreadRef,
   ThreadId,
 } from "@t3tools/contracts";
 
@@ -21,6 +22,9 @@ export interface DesktopAppActivationTarget {
 }
 
 export interface DesktopAppActivationDependencies {
+  readonly isEnvironmentConnected: (environmentId: EnvironmentId) => boolean;
+  readonly findThread: (ref: ScopedThreadRef) => { readonly projectId: ProjectId } | null;
+  readonly navigateThread: (ref: ScopedThreadRef) => Promise<void>;
   readonly getTarget: () => DesktopAppActivationTarget | null;
   readonly findProject: (
     environmentId: EnvironmentId,
@@ -45,7 +49,7 @@ function failure(
 }
 
 function desktopPlatformToEnvironmentOs(
-  platform: DesktopAppActivationRequest["platform"],
+  platform: Extract<DesktopAppActivationRequest, { type: "open-workspace" }>["platform"],
 ): ExecutionEnvironmentPlatformOs {
   return platform === "win32" ? "windows" : platform;
 }
@@ -58,6 +62,41 @@ export async function handleDesktopAppActivationRequest(
   request: DesktopAppActivationRequest,
   dependencies: DesktopAppActivationDependencies,
 ): Promise<DesktopAppActivationResponse> {
+  if (request.type === "open-thread") {
+    const ref = { environmentId: request.environmentId, threadId: request.threadId };
+    if (!dependencies.isEnvironmentConnected(ref.environmentId)) {
+      return failure(
+        request.requestId,
+        "environment-unavailable",
+        "Connect this environment in the T3 desktop app first.",
+      );
+    }
+    const thread = dependencies.findThread(ref);
+    if (thread === null) {
+      return failure(
+        request.requestId,
+        "thread-open-failed",
+        "This session is not available in the T3 desktop app.",
+      );
+    }
+    try {
+      await dependencies.navigateThread(ref);
+      return {
+        version: 1,
+        requestId: request.requestId,
+        ok: true,
+        projectId: thread.projectId,
+        environmentId: ref.environmentId,
+        threadId: ref.threadId,
+      };
+    } catch (error) {
+      return failure(
+        request.requestId,
+        "thread-open-failed",
+        errorMessage(error, "T3 Code could not open the session."),
+      );
+    }
+  }
   const target = dependencies.getTarget();
   if (target === null) {
     return failure(

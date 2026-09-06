@@ -22,6 +22,9 @@ function dependencies(
   overrides: Partial<DesktopAppActivationDependencies> = {},
 ): DesktopAppActivationDependencies {
   return {
+    isEnvironmentConnected: (id) => id === environmentId,
+    findThread: () => ({ projectId: existingProjectId }),
+    navigateThread: vi.fn(async () => undefined),
     getTarget: () => ({ environmentId, platform: "linux" }),
     findProject: () => ({
       id: existingProjectId,
@@ -36,6 +39,76 @@ function dependencies(
 }
 
 describe("desktop app activation", () => {
+  const openExisting = {
+    version: 1,
+    requestId: "open-existing",
+    type: "open-thread",
+    environmentId,
+    threadId,
+  } as const;
+
+  it("navigates to the exact existing session without creating a project or thread", async () => {
+    const deps = dependencies();
+    const response = await handleDesktopAppActivationRequest(openExisting, deps);
+    expect(response).toEqual({
+      version: 1,
+      requestId: "open-existing",
+      ok: true,
+      environmentId,
+      threadId,
+      projectId: existingProjectId,
+    });
+    expect(deps.navigateThread).toHaveBeenCalledWith({ environmentId, threadId });
+    expect(deps.createProject).not.toHaveBeenCalled();
+    expect(deps.openThread).not.toHaveBeenCalled();
+  });
+
+  it("does not substitute the primary environment for an unavailable target", async () => {
+    const deps = dependencies();
+    const response = await handleDesktopAppActivationRequest(
+      { ...openExisting, environmentId: EnvironmentId.make("other") },
+      deps,
+    );
+    expect(response).toMatchObject({ ok: false, code: "environment-unavailable" });
+    expect(deps.navigateThread).not.toHaveBeenCalled();
+  });
+
+  it("reports a missing session without creating a replacement", async () => {
+    const deps = dependencies({ findThread: () => null });
+    const response = await handleDesktopAppActivationRequest(openExisting, deps);
+    expect(response).toMatchObject({ ok: false, code: "thread-open-failed" });
+    expect(deps.navigateThread).not.toHaveBeenCalled();
+    expect(deps.openThread).not.toHaveBeenCalled();
+  });
+
+  it("reports a navigation failure instead of acknowledging an unopened session", async () => {
+    const deps = dependencies({
+      navigateThread: vi.fn(async () => {
+        throw new Error("Navigation failed.");
+      }),
+    });
+    const response = await handleDesktopAppActivationRequest(openExisting, deps);
+    expect(response).toMatchObject({
+      ok: false,
+      code: "thread-open-failed",
+      message: "Navigation failed.",
+    });
+  });
+
+  it("uses the requested connected environment even when it is not the primary", async () => {
+    const otherId = EnvironmentId.make("other");
+    const deps = dependencies({
+      isEnvironmentConnected: () => true,
+      findThread: vi.fn(() => ({ projectId: existingProjectId })),
+    });
+    const response = await handleDesktopAppActivationRequest(
+      { ...openExisting, environmentId: otherId },
+      deps,
+    );
+    expect(response).toMatchObject({ ok: true, environmentId: otherId, threadId });
+    expect(deps.findThread).toHaveBeenCalledWith({ environmentId: otherId, threadId });
+    expect(deps.navigateThread).toHaveBeenCalledWith({ environmentId: otherId, threadId });
+  });
   it("reuses an existing project and opens a new thread", async () => {
     const deps = dependencies();
 

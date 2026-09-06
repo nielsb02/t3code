@@ -1,19 +1,23 @@
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { DesktopAppActivationRequest } from "@t3tools/contracts";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useEffectEvent, useRef } from "react";
 
 import { handleDesktopAppActivationRequest } from "../../desktopAppActivation";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { findProjectByPath, inferProjectTitleFromPath } from "../../lib/projectPaths";
 import { newProjectId } from "../../lib/utils";
-import { readProjects, waitForProject } from "../../state/entities";
-import { usePrimaryEnvironment } from "../../state/environments";
+import { readProjects, readThreadShell, waitForProject } from "../../state/entities";
+import { useEnvironments, usePrimaryEnvironment } from "../../state/environments";
 import { projectEnvironment } from "../../state/projects";
 import { useEnvironmentQuery } from "../../state/query";
 import { environmentShell } from "../../state/shell";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { buildThreadRouteParams } from "../../threadRoutes";
 
 export function DesktopAppActivationCoordinator() {
+  const navigate = useNavigate();
+  const { environments } = useEnvironments();
   const primaryEnvironment = usePrimaryEnvironment();
   const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
   const openThread = useNewThreadHandler();
@@ -32,6 +36,19 @@ export function DesktopAppActivationCoordinator() {
 
   const processRequest = useEffectEvent(async (request: DesktopAppActivationRequest) =>
     handleDesktopAppActivationRequest(request, {
+      isEnvironmentConnected: (environmentId) =>
+        environments.some(
+          (environment) =>
+            environment.environmentId === environmentId &&
+            environment.connection.phase === "connected",
+        ),
+      findThread: (ref) => {
+        const thread = readThreadShell(ref);
+        return thread?.archivedAt == null ? thread : null;
+      },
+      navigateThread: async (ref) => {
+        await navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(ref) });
+      },
       getTarget: () => {
         if (
           primaryEnvironment?.connection.phase !== "connected" ||

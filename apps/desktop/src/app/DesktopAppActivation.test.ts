@@ -5,6 +5,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import {
+  EnvironmentId,
   ProjectId,
   ThreadId,
   type DesktopAppActivationRequest,
@@ -62,6 +63,75 @@ function exchange(address: string, payload: DesktopAppActivationRequest) {
 }
 
 describe("desktop app control server", () => {
+  it.effect("roundtrips an open-thread request and a renderer rejection", () =>
+    Effect.gen(function* () {
+      const platform = yield* HostProcessPlatform;
+      const userId = yield* HostProcessUserId;
+      yield* Effect.promise(async () => {
+        const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-thread-open-"));
+        const target = makeTarget(NodePath.join(root, "userdata"), platform, userId);
+        const environmentId = EnvironmentId.make("target-environment");
+        const threadId = ThreadId.make("thread/with space 雪");
+        const projectId = ProjectId.make("project-1");
+        const navigated: Array<{ environmentId: EnvironmentId; threadId: ThreadId }> = [];
+        const server = await startDesktopAppControlServer({
+          ...target,
+          userId,
+          cancel: () => undefined,
+          handle: async (input) => {
+            if (input.type !== "open-thread") throw new Error("Unexpected request type");
+            if (input.threadId !== threadId) {
+              return {
+                version: 1,
+                requestId: input.requestId,
+                ok: false,
+                code: "thread-open-failed",
+                message: "Missing session",
+              };
+            }
+            navigated.push({ environmentId: input.environmentId, threadId: input.threadId });
+            return {
+              version: 1,
+              requestId: input.requestId,
+              ok: true,
+              environmentId: input.environmentId,
+              threadId: input.threadId,
+              projectId,
+            };
+          },
+        });
+        openServers.push(server);
+        const payload = {
+          version: 1,
+          requestId: "exact-session",
+          type: "open-thread",
+          environmentId,
+          threadId,
+        } as const;
+        expect(await exchange(target.address, payload)).toEqual({
+          version: 1,
+          requestId: "exact-session",
+          ok: true,
+          projectId,
+          environmentId,
+          threadId,
+        });
+        expect(navigated).toEqual([{ environmentId, threadId }]);
+        expect(
+          await exchange(target.address, {
+            ...payload,
+            requestId: "missing-session",
+            threadId: ThreadId.make("missing"),
+          }),
+        ).toMatchObject({ ok: false, code: "thread-open-failed" });
+        expect(navigated).toHaveLength(1);
+        await server.close();
+        openServers.splice(openServers.indexOf(server), 1);
+        await NodeFSP.rm(root, { recursive: true, force: true });
+      });
+    }),
+  );
+
   it.effect("roundtrips a request and removes its socket on shutdown", () =>
     Effect.gen(function* () {
       const platform = yield* HostProcessPlatform;
