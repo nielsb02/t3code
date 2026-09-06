@@ -143,7 +143,7 @@ jobs:
             echo "Source: https://github.com/$GITHUB_REPOSITORY/commit/$commit"
             echo "Updates: https://github.com/$GITHUB_REPOSITORY/blob/main/docs/operations/micro-fork.md"
           } > "$RUNNER_TEMP/micro-release-notes.md"
-          gh release create "micro-v$BUILD_VERSION" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --target "$commit" --title "T3 Code Micro $BUILD_VERSION" --notes-file "$RUNNER_TEMP/micro-release-notes.md" --latest
+          gh release create "v$BUILD_VERSION" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --target "$commit" --title "T3 Code Micro $BUILD_VERSION" --notes-file "$RUNNER_TEMP/micro-release-notes.md" --latest
 
       - name: Explain a failed update
         if: failure()
