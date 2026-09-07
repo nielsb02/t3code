@@ -1,8 +1,15 @@
 # T3 Code — Micro Manager fork
 
-This fork adds exact desktop session opening for
+This fork adds desktop session opening and controls for
 [Micro Manager](https://github.com/nielsb02/t3-micro-manager). A Creator Micro key
-can select the session in the existing T3 desktop window.
+can select the session in the existing T3 desktop window. The dial and joystick
+navigate chat and composer settings, and spare buttons can open a new thread,
+settle the current one, toggle the terminal, or open the command palette.
+
+Choose the installed fork in **Micro Manager → Configure → Connection → Desktop
+app**, then enable and apply the controls on your T3 layer. These controls work
+while the selected T3 app is frontmost. See [Micro controls](../docs/user/micro-controls.md)
+for the dial behavior.
 
 [Desktop downloads](https://github.com/nielsb02/t3code/releases/latest) ·
 [Update automation](https://github.com/nielsb02/t3code/actions/workflows/micro-desktop.yml) ·

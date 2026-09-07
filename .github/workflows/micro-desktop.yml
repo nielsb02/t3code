@@ -91,11 +91,31 @@ jobs:
         if: steps.plan.outputs.build == 'true'
         run: vp install --filter=@t3tools/desktop... --filter=@t3tools/web... --filter=t3... --filter=@t3tools/scripts...
 
-      - name: Verify desktop opening and affected types
+      - name: Verify Micro controls, settlement actions, and affected types
         if: steps.plan.outputs.build == 'true'
         run: |
-          vp test run apps/web/src/desktopAppActivation.test.ts apps/desktop/src/app/DesktopAppActivation.test.ts apps/desktop/src/app/DesktopAppActivationBroker.test.ts
-          vp run --filter @t3tools/contracts --filter @t3tools/web --filter @t3tools/desktop typecheck
+          vp test run \
+            apps/desktop/src/app/DesktopAppActivation.test.ts \
+            apps/desktop/src/app/DesktopAppActivationBroker.test.ts \
+            apps/web/src/desktopAppActivation.test.ts \
+            apps/web/src/microControls.test.ts \
+            apps/web/src/projectScripts.test.ts \
+            apps/web/src/session-logic.test.ts \
+            apps/web/src/components/chat/MessagesTimeline.logic.test.ts \
+            packages/contracts/src/t3ProjectFile.test.ts \
+            apps/server/src/project/ProjectSettleScriptRunner.test.ts \
+            apps/server/src/project/WorktreeOperationGuard.test.ts \
+            apps/server/src/project/AgentSessionImporter.test.ts \
+            apps/server/src/git/GitManager.test.ts \
+            apps/server/src/git/GitWorkflowService.test.ts \
+            apps/server/src/orchestration/Layers/OrchestrationEngine.test.ts \
+            apps/server/src/orchestration/Layers/CheckpointReactor.test.ts \
+            apps/server/src/orchestration/Layers/ProjectionPipeline.test.ts \
+            apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts \
+            apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.test.ts \
+            apps/server/src/cli/app.test.ts \
+            apps/server/src/server.test.ts
+          vp run --filter @t3tools/contracts --filter @t3tools/shared --filter @t3tools/web --filter @t3tools/desktop --filter t3 typecheck
 
       - name: Setup Rust
         if: steps.plan.outputs.build == 'true'
@@ -153,7 +173,10 @@ jobs:
           (( ${#assets[@]} >= 2 )) || { echo 'Desktop artifacts are missing' >&2; exit 1; }
           commit="$(git rev-parse HEAD)"
           {
-            echo "T3 Code with exact desktop session opening for Micro Manager."
+            echo "T3 Code with desktop session opening, dial and joystick navigation, and assignable actions for Micro Manager."
+            echo
+            echo "Choose this app in Micro Manager, then configure and apply the controls on your T3 layer. Dial and action controls operate while this T3 app is frontmost."
+            echo "Projects can also opt into commands that run when manually settling a worktree. Existing projects are not opted in automatically."
             echo
             echo "Version: $BUILD_VERSION. Includes upstream release $UPSTREAM_TAG and the fork's retained changes."
             echo

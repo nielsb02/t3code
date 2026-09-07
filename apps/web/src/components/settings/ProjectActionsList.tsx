@@ -43,6 +43,11 @@ export function ProjectActionsList({
                 preview · desktop only
               </span>
             ) : null}
+            {script.runOnThreadSettle ? (
+              <span className="shrink-0 rounded-sm border border-border/60 px-1.5 py-px text-[11px] font-normal text-muted-foreground">
+                manual settle
+              </span>
+            ) : null}
           </span>
         }
         description={<code className="block max-w-full truncate font-mono">{script.command}</code>}

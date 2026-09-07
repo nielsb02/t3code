@@ -41,6 +41,7 @@ import type { SourceControlProvider } from "../sourceControl/SourceControlProvid
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as ServerConfig from "../config.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
+import * as WorktreeOperationGuard from "../project/WorktreeOperationGuard.ts";
 import * as ProviderRegistry from "../provider/Services/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as GitManager from "./GitManager.ts";
@@ -630,6 +631,7 @@ function makeManager(input?: {
   textGeneration?: Partial<FakeGitTextGeneration>;
   serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
   setupScriptRunner?: ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"];
+  worktreeGuard?: WorktreeOperationGuard.WorktreeOperationGuard["Service"];
   gitConfigReads?: string[];
 }) {
   const { service: gitHubCli, ghCalls } = createGitHubCliWithFakeGh(input?.ghScenario);
@@ -683,6 +685,9 @@ function makeManager(input?: {
   );
 
   const managerLayer = Layer.mergeAll(
+    input?.worktreeGuard
+      ? Layer.succeed(WorktreeOperationGuard.WorktreeOperationGuard, input.worktreeGuard)
+      : WorktreeOperationGuard.layer,
     Layer.succeed(TextGeneration.TextGeneration, textGeneration),
     Layer.mock(ProviderRegistry.ProviderRegistry)({
       getProviders: Effect.succeed([]),
@@ -4788,59 +4793,79 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
-  it.effect("reuses an existing dedicated worktree for the PR head branch", () =>
-    Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
-      yield* initRepo(repoDir);
-      yield* runGit(repoDir, ["checkout", "-b", "feature/pr-existing-worktree"]);
-      NodeFS.writeFileSync(NodePath.join(repoDir, "existing.txt"), "existing\n");
-      yield* runGit(repoDir, ["add", "existing.txt"]);
-      yield* runGit(repoDir, ["commit", "-m", "Existing worktree branch"]);
-      yield* runGit(repoDir, ["checkout", "main"]);
-      const worktreePath = NodePath.join(
-        repoDir,
-        "..",
-        `pr-existing-${NodePath.basename(repoDir)}`,
-      );
-      yield* runGit(repoDir, ["worktree", "add", worktreePath, "feature/pr-existing-worktree"]);
+  it.effect(
+    "reuses an existing dedicated PR worktree only after cleanup releases the checkout",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        yield* initRepo(repoDir);
+        yield* runGit(repoDir, ["checkout", "-b", "feature/pr-existing-worktree"]);
+        NodeFS.writeFileSync(NodePath.join(repoDir, "existing.txt"), "existing\n");
+        yield* runGit(repoDir, ["add", "existing.txt"]);
+        yield* runGit(repoDir, ["commit", "-m", "Existing worktree branch"]);
+        yield* runGit(repoDir, ["checkout", "main"]);
+        const worktreePath = NodePath.join(
+          repoDir,
+          "..",
+          `pr-existing-${NodePath.basename(repoDir)}`,
+        );
+        yield* runGit(repoDir, ["worktree", "add", worktreePath, "feature/pr-existing-worktree"]);
 
-      const setupCalls: ProjectSetupScriptRunner.ProjectSetupScriptRunnerInput[] = [];
-      const { manager } = yield* makeManager({
-        ghScenario: {
-          pullRequest: {
-            number: 78,
-            title: "Existing worktree PR",
-            url: "https://github.com/pingdotgg/codething-mvp/pull/78",
-            baseRefName: "main",
-            headRefName: "feature/pr-existing-worktree",
-            state: "open",
+        const worktreeGuard = yield* WorktreeOperationGuard.make;
+        const setupCalls: ProjectSetupScriptRunner.ProjectSetupScriptRunnerInput[] = [];
+        const { manager } = yield* makeManager({
+          worktreeGuard,
+          ghScenario: {
+            pullRequest: {
+              number: 78,
+              title: "Existing worktree PR",
+              url: "https://github.com/pingdotgg/codething-mvp/pull/78",
+              baseRefName: "main",
+              headRefName: "feature/pr-existing-worktree",
+              state: "open",
+            },
           },
-        },
-        setupScriptRunner: {
-          runForThread: (setupInput) =>
-            Effect.sync(() => {
-              setupCalls.push(setupInput);
-              return { status: "no-script" as const };
-            }),
-        },
-      });
+          setupScriptRunner: {
+            runForThread: (setupInput) =>
+              Effect.sync(() => {
+                setupCalls.push(setupInput);
+                return { status: "no-script" as const };
+              }),
+          },
+        });
 
-      const result = yield* preparePullRequestThread(manager, {
-        cwd: repoDir,
-        reference: "78",
-        mode: "worktree",
-        threadId: asThreadId("thread-pr-existing-worktree"),
-      });
+        const releaseCleanup = yield* worktreeGuard.tryAcquireCleanup(worktreePath);
+        const headBefore = (yield* runGit(worktreePath, ["rev-parse", "HEAD"])).stdout;
+        const blocked = yield* preparePullRequestThread(manager, {
+          cwd: repoDir,
+          reference: "78",
+          mode: "worktree",
+          threadId: asThreadId("thread-pr-existing-worktree"),
+        }).pipe(Effect.flip);
+        expect(blocked).toMatchObject({
+          _tag: "GitManagerError",
+          detail: expect.stringContaining("manual settle action"),
+        });
+        expect(setupCalls).toHaveLength(0);
+        expect((yield* runGit(worktreePath, ["rev-parse", "HEAD"])).stdout).toBe(headBefore);
+        releaseCleanup!();
 
-      expect(result.worktreePath && NodeFS.realpathSync.native(result.worktreePath)).toBe(
-        NodeFS.realpathSync.native(worktreePath),
-      );
-      expect(result.branch).toBe("feature/pr-existing-worktree");
-      // Nothing to fetch from, so the checkout keeps the commit it had and setup stays out of a
-      // worktree another thread may be sitting in.
-      expect(setupCalls).toHaveLength(0);
-      expect(result.isOnPullRequestHead).toBe(false);
-    }),
+        const result = yield* preparePullRequestThread(manager, {
+          cwd: repoDir,
+          reference: "78",
+          mode: "worktree",
+          threadId: asThreadId("thread-pr-existing-worktree"),
+        });
+
+        expect(result.worktreePath && NodeFS.realpathSync.native(result.worktreePath)).toBe(
+          NodeFS.realpathSync.native(worktreePath),
+        );
+        expect(result.branch).toBe("feature/pr-existing-worktree");
+        // Nothing to fetch from, so the checkout keeps the commit it had and setup stays out of a
+        // worktree another thread may be sitting in.
+        expect(setupCalls).toHaveLength(0);
+        expect(result.isOnPullRequestHead).toBe(false);
+      }),
   );
 
   it.effect("refreshes a reused PR worktree onto the updated pull request head", () =>

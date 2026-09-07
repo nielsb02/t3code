@@ -2052,3 +2052,9 @@ code {
     transform: scaleX(0.9);
   }
 }
+/* The dial highlights controls without moving the text cursor out of the composer. */
+[data-micro-dial-highlighted="true"] {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 3px;
+  border-radius: 6px;
+}

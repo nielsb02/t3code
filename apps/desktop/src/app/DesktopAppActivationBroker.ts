@@ -53,6 +53,11 @@ export class DesktopAppActivationBroker {
         failure(request.requestId, "invalid-request", "The request id is already in use."),
       );
     }
+    if (request.type === "micro-control" && this.#renderer === null) {
+      return Promise.resolve(
+        failure(request.requestId, "renderer-unavailable", "The T3 Code window is not ready."),
+      );
+    }
 
     const response = new Promise<DesktopAppActivationResponse>((resolve) => {
       const timeout = setTimeout(() => {
@@ -60,7 +65,7 @@ export class DesktopAppActivationBroker {
           failure(
             request.requestId,
             "request-timeout",
-            "The desktop app did not finish opening the project in time.",
+            "The desktop app did not finish the request in time.",
           ),
         );
       }, this.#requestTimeoutMs);
@@ -72,7 +77,7 @@ export class DesktopAppActivationBroker {
       });
     });
 
-    this.#activate();
+    if (request.type !== "micro-control") this.#activate();
     this.#flush();
     return response;
   }
@@ -85,12 +90,12 @@ export class DesktopAppActivationBroker {
   clearRenderer(): void {
     this.#renderer = null;
     for (const pending of this.#pending.values()) {
-      if (pending.dispatched) {
+      if (pending.dispatched || pending.request.type === "micro-control") {
         this.#settle(
           failure(
             pending.request.requestId,
             "renderer-unavailable",
-            "The T3 Code window closed before it opened the project.",
+            "The T3 Code window became unavailable before it completed the request.",
           ),
         );
       }
@@ -98,6 +103,23 @@ export class DesktopAppActivationBroker {
   }
 
   complete(response: DesktopAppActivationResponse): void {
+    const pending = this.#pending.get(response.requestId);
+    if (!pending?.dispatched) return;
+    if (
+      response.ok &&
+      (pending.request.type === "micro-control"
+        ? !("action" in response) || response.action !== pending.request.action
+        : "action" in response)
+    ) {
+      this.#settle(
+        failure(
+          response.requestId,
+          "internal-error",
+          "The renderer response did not match the request.",
+        ),
+      );
+      return;
+    }
     this.#settle(response);
   }
 
@@ -129,7 +151,7 @@ export class DesktopAppActivationBroker {
         renderer(pending.request);
       } catch {
         pending.dispatched = false;
-        this.#renderer = null;
+        this.clearRenderer();
       }
       return;
     }

@@ -42,6 +42,12 @@ export const T3ProjectFileScript = Schema.Struct({
         "When true, the script runs automatically after a worktree is created for a new thread.",
     }),
   ),
+  runOnThreadSettle: Schema.optionalKey(
+    Schema.Boolean.annotate({
+      description:
+        "Run after a new manual settlement of a worktree thread. Never runs for automatic settlement, local checkouts, or shared active worktrees. The command may delete runtime resources and data; worktree files are preserved by T3 Code.",
+    }),
+  ),
   previewUrl: Schema.optionalKey(
     trimmedNonEmpty({
       description:

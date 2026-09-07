@@ -61,6 +61,27 @@ function makeActivity(overrides: {
   };
 }
 
+it.each(["started", "completed", "failed", "skipped"] as const)(
+  "shows manual settle %s output in an otherwise empty thread",
+  (status) => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        kind: `settle-script.${status}`,
+        summary: `Manual settle action ${status}`,
+        tone: status === "failed" ? "error" : "info",
+        payload: { detail: "Cleanup command output" },
+      }),
+    ]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      label: `Manual settle action ${status}`,
+      detail: "Cleanup command output",
+      tone: status === "failed" ? "error" : "info",
+    });
+    expect(deriveTimelineEntries([], [], entries)).toMatchObject([{ kind: "work" }]);
+  },
+);
+
 describe("deriveActivePlanState", () => {
   it("returns the latest plan update for the active turn", () => {
     const activities: OrchestrationThreadActivity[] = [

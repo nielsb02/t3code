@@ -114,6 +114,7 @@ export function DraftHeroHeadline({
           render={
             <MenuTrigger
               aria-label={hasResolvedProject ? "Change project" : "Choose a project"}
+              data-micro-dial-control={draftId ? "project" : undefined}
               className="pointer-events-auto inline-block max-w-64 truncate border-foreground/60 border-b border-dotted align-baseline text-foreground transition-colors hover:border-foreground/80 focus-visible:rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             />
           }
@@ -126,7 +127,11 @@ export function DraftHeroHeadline({
           </TooltipPopup>
         ) : null}
       </Tooltip>
-      <MenuPopup align="center" className="max-h-80 min-w-40! w-max max-w-64 overflow-y-auto">
+      <MenuPopup
+        align="center"
+        className="max-h-80 min-w-40! w-max max-w-64 overflow-y-auto"
+        data-micro-dial-popup={draftId ? "project" : undefined}
+      >
         <MenuRadioGroup
           value={activeProjectKey}
           onValueChange={(value) => {

@@ -5,7 +5,7 @@ import type {
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
-import { OrchestrationCommand } from "@t3tools/contracts";
+import { CommandId, EventId, OrchestrationCommand } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
@@ -14,6 +14,8 @@ import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
 import * as Metric from "effect/Metric";
 import * as Option from "effect/Option";
@@ -45,6 +47,8 @@ import { createEmptyReadModel, projectEvent } from "../projector.ts";
 import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ThreadBackgroundLivenessService } from "../ThreadBackgroundLiveness.ts";
+import { WorktreeOperationGuard } from "../../project/WorktreeOperationGuard.ts";
+import { ProjectSettleScriptRunner } from "../../project/ProjectSettleScriptRunner.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -88,7 +92,13 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const projectionPipeline = yield* OrchestrationProjectionPipeline;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const threadBackgroundLiveness = yield* ThreadBackgroundLivenessService;
+  const settleScriptRunner = yield* ProjectSettleScriptRunner;
+  const worktreeOperations = yield* WorktreeOperationGuard;
   const crypto = yield* Crypto.Crypto;
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const scope = yield* Effect.scope;
+  const settlingWorktrees = new Map<string, { threadId: ThreadId; projectId: ProjectId }>();
 
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
   let commandReadModel = createEmptyReadModel(yield* nowIso);
@@ -107,6 +117,78 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       }
       return nextReadModel;
     });
+
+  const assertCheckoutAvailable = Effect.fn("OrchestrationEngine.assertCheckoutAvailable")(
+    function* (command: OrchestrationCommand) {
+      if (settlingWorktrees.size === 0) return;
+      const checkouts: string[] = [];
+      let targetThreadId: ThreadId | undefined;
+      const projectRoot = (projectId: ProjectId) =>
+        commandReadModel.projects.find((project) => project.id === projectId)?.workspaceRoot;
+      if (
+        command.type === "project.delete" ||
+        (command.type === "project.meta.update" && command.workspaceRoot !== undefined)
+      ) {
+        if ([...settlingWorktrees.values()].some((busy) => busy.projectId === command.projectId)) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail:
+              "A worktree in this project is running a manual settle action. Wait for it to finish.",
+          });
+        }
+      }
+      if (command.type === "project.create" || command.type === "project.meta.update") {
+        if (command.workspaceRoot !== undefined) checkouts.push(command.workspaceRoot);
+      } else if (command.type === "thread.create") {
+        targetThreadId = command.threadId;
+        const cwd = command.worktreePath ?? projectRoot(command.projectId);
+        if (cwd) checkouts.push(cwd);
+      } else if (
+        command.type === "thread.unsettle" ||
+        command.type === "thread.unarchive" ||
+        command.type === "thread.turn.start" ||
+        command.type === "thread.delete" ||
+        command.type === "thread.archive" ||
+        command.type === "thread.checkpoint.revert" ||
+        command.type === "thread.runtime-mode.set" ||
+        command.type === "thread.approval.respond" ||
+        command.type === "thread.user-input.respond" ||
+        (command.type === "thread.meta.update" &&
+          (command.worktreePath !== undefined || command.branch !== undefined)) ||
+        (command.type === "thread.session.set" &&
+          (command.session.status === "starting" || command.session.status === "running"))
+      ) {
+        targetThreadId = command.threadId;
+        const thread = commandReadModel.threads.find((thread) => thread.id === command.threadId);
+        const cwd = thread && (thread.worktreePath ?? projectRoot(thread.projectId));
+        if (cwd) checkouts.push(cwd);
+        if (command.type === "thread.meta.update" && command.worktreePath !== undefined) {
+          const nextCwd = command.worktreePath ?? (thread && projectRoot(thread.projectId));
+          if (nextCwd) checkouts.push(nextCwd);
+        }
+        if (command.type === "thread.turn.start") {
+          const create = command.bootstrap?.createThread;
+          const nextCwd = create && (create.worktreePath ?? projectRoot(create.projectId));
+          if (nextCwd) checkouts.push(nextCwd);
+          const prepareCwd = command.bootstrap?.prepareWorktree?.projectCwd;
+          if (prepareCwd) checkouts.push(prepareCwd);
+        }
+      }
+      let busy = [...settlingWorktrees.values()].find((entry) => entry.threadId === targetThreadId);
+      for (const cwd of checkouts) {
+        const canonical = yield* fs
+          .realPath(cwd)
+          .pipe(Effect.orElseSucceed(() => path.resolve(cwd)));
+        busy ??= settlingWorktrees.get(canonical);
+      }
+      if (busy) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `This worktree is running a manual settle action for thread ${busy.threadId}. Wait for it to finish before reusing or changing the checkout.`,
+        });
+      }
+    },
+  );
 
   const processEnvelope = (envelope: CommandEnvelope): Effect.Effect<void> => {
     const dispatchStartSequence = commandReadModel.snapshotSequence;
@@ -170,6 +252,8 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             detail: existingReceipt.value.error ?? "Previously rejected.",
           });
         }
+
+        yield* assertCheckoutAvailable(envelope.command);
 
         if (
           envelope.command.type === "thread.auto-settle" &&
@@ -237,6 +321,14 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           ),
         );
         const plannedEvents = Array.isArray(eventBase) ? eventBase : [eventBase];
+        const manualThreadId =
+          envelope.command.type === "thread.settle" ? envelope.command.threadId : null;
+        const manualSettlementThreadId =
+          manualThreadId !== null &&
+          commandReadModel.threads.find((thread) => thread.id === manualThreadId)
+            ?.settledOverride !== "settled"
+            ? manualThreadId
+            : null;
         // Stamp the dispatching client's origin onto every event the command
         // produced. The decider stays pure; attribution is an engine concern.
         const eventBases =
@@ -311,6 +403,94 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                 }),
               ),
               Duration.millis(Math.max(0, (yield* Clock.currentTimeMillis) - envelope.startedAtMs)),
+            );
+          }
+        }
+        if (manualSettlementThreadId !== null) {
+          const appendSettleActivity = Effect.fn("OrchestrationEngine.appendSettleActivity")(
+            function* (
+              status: "started" | "completed" | "failed" | "skipped",
+              detail: string,
+              scriptId?: string,
+            ) {
+              const createdAt = yield* nowIso;
+              const id = EventId.make(yield* crypto.randomUUIDv4);
+              yield* dispatch({
+                type: "thread.activity.append",
+                commandId: CommandId.make(`${envelope.command.commandId}:settle-action:${id}`),
+                threadId: manualSettlementThreadId,
+                createdAt,
+                activity: {
+                  id,
+                  kind: `settle-script.${status}`,
+                  summary: `Manual settle action ${status}`,
+                  tone: status === "failed" ? "error" : "info",
+                  turnId: null,
+                  createdAt,
+                  payload: { detail, ...(scriptId ? { scriptId } : {}) },
+                },
+              });
+            },
+          );
+          let plan = yield* settleScriptRunner.prepare({
+            threadId: manualSettlementThreadId,
+            readModel: commandReadModel,
+          });
+          let releaseCheckout: (() => void) | null = null;
+          if (plan.kind === "ready") {
+            releaseCheckout = yield* worktreeOperations.tryAcquireCleanup(plan.cwd);
+            if (releaseCheckout === null) {
+              plan = {
+                kind: "skipped",
+                detail:
+                  "Another checkout operation or manual settle action is already running in this worktree.",
+              };
+            }
+          }
+          if (plan.kind !== "none") {
+            const cleanupPlan = plan;
+            if (cleanupPlan.kind === "ready") {
+              const thread = commandReadModel.threads.find(
+                (thread) => thread.id === manualSettlementThreadId,
+              )!;
+              // Reserve while still in the command worker; unrelated checkouts keep processing.
+              settlingWorktrees.set(cleanupPlan.cwd, {
+                threadId: thread.id,
+                projectId: thread.projectId,
+              });
+            }
+            yield* Effect.forkIn(
+              Effect.gen(function* () {
+                if (cleanupPlan.kind !== "ready") {
+                  yield* appendSettleActivity(cleanupPlan.kind, cleanupPlan.detail);
+                  return;
+                }
+                for (const script of cleanupPlan.scripts) {
+                  yield* appendSettleActivity(
+                    "started",
+                    `${script.name} in ${cleanupPlan.cwd}`,
+                    script.id,
+                  );
+                  const result = yield* settleScriptRunner.execute({
+                    script,
+                    cwd: cleanupPlan.cwd,
+                    env: cleanupPlan.env,
+                  });
+                  yield* appendSettleActivity(result.kind, result.detail, script.id);
+                  if (result.kind === "failed") break;
+                }
+              }).pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logError("Manual settle action could not be recorded", cause),
+                ),
+                Effect.ensuring(
+                  Effect.sync(() => {
+                    if (cleanupPlan.kind === "ready") settlingWorktrees.delete(cleanupPlan.cwd);
+                    releaseCheckout?.();
+                  }),
+                ),
+              ),
+              scope,
             );
           }
         }

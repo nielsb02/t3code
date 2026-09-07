@@ -776,6 +776,9 @@ export function BranchToolbarBranchSelector({
             render={<Button variant="ghost" size="xs" />}
             className="min-w-0 max-w-full font-normal text-muted-foreground/70 text-xs! hover:text-foreground/80"
             disabled={isInitialBranchesLoadPending || isBranchActionPending}
+            data-micro-dial-control={
+              isInitialBranchesLoadPending || isBranchActionPending ? undefined : "branch"
+            }
           >
             <GitBranchIcon className="size-3 shrink-0 opacity-70" />
             <span
@@ -798,6 +801,7 @@ export function BranchToolbarBranchSelector({
         side="top"
         className="flex w-80 flex-col"
         {...composerFloatingLayerProps}
+        data-micro-dial-popup="branch"
       >
         <div className="shrink-0 px-3 pt-2.5">
           <div className="relative -translate-y-px border-b border-border/70 pb-1.5 transition-colors focus-within:border-ring">

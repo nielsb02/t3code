@@ -28,6 +28,23 @@ describe("T3ProjectFile", () => {
     expect(decoded.scripts?.[1]).toEqual({ name: "Test", command: "pnpm test" });
   });
 
+  it("preserves explicit manual settle opt-in without opting in existing scripts", () => {
+    expect(
+      decode({
+        scripts: [
+          { name: "Cleanup", command: "cleanup", runOnThreadSettle: true },
+          { name: "Test", command: "test" },
+        ],
+      }).scripts,
+    ).toEqual([
+      { name: "Cleanup", command: "cleanup", runOnThreadSettle: true },
+      { name: "Test", command: "test" },
+    ]);
+    expect(() =>
+      decode({ scripts: [{ name: "Cleanup", command: "cleanup", runOnThreadSettle: "yes" }] }),
+    ).toThrow();
+  });
+
   it("decodes an empty object and ignores unknown fields", () => {
     expect(decode({})).toEqual({});
     expect(decode({ futureField: true })).toEqual({});

@@ -7,6 +7,10 @@ import { OrchestrationProjectionPipelineLive } from "./Layers/ProjectionPipeline
 import { OrchestrationProjectionSnapshotQueryLive } from "./Layers/ProjectionSnapshotQuery.ts";
 import * as ThreadBackgroundLiveness from "./ThreadBackgroundLiveness.ts";
 import * as ThreadPlanProgress from "./ThreadPlanProgress.ts";
+import * as WorktreeOperationGuard from "../project/WorktreeOperationGuard.ts";
+import * as ProjectSettleScriptRunner from "../project/ProjectSettleScriptRunner.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 
 export const OrchestrationEventInfrastructureLayerLive = Layer.mergeAll(
   OrchestrationEventStoreLive,
@@ -32,5 +36,14 @@ export const OrchestrationInfrastructureLayerLive = Layer.mergeAll(
 
 export const OrchestrationLayerLive = Layer.mergeAll(
   OrchestrationInfrastructureLayerLive,
-  OrchestrationEngineLive.pipe(Layer.provide(OrchestrationInfrastructureLayerLive)),
+  OrchestrationEngineLive.pipe(
+    Layer.provide(OrchestrationInfrastructureLayerLive),
+    Layer.provide(WorktreeOperationGuard.layer),
+    Layer.provide(
+      ProjectSettleScriptRunner.layer.pipe(
+        Layer.provide(ThreadBackgroundLiveness.layer),
+        Layer.provide(ServerSettings.layer.pipe(Layer.provide(ServerSecretStore.layer))),
+      ),
+    ),
+  ),
 );

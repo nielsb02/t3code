@@ -40,12 +40,13 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             variant="ghost"
             className={size === "xs" ? "shrink-0" : "shrink-0 px-2"}
             aria-label="More composer controls"
+            data-micro-dial-control={props.hidden ? undefined : "options"}
           />
         }
       >
         <ComposerControlIcon icon={EllipsisIcon} size={size} />
       </MenuTrigger>
-      <MenuPopup align="start" {...composerFloatingLayerProps}>
+      <MenuPopup align="start" {...composerFloatingLayerProps} data-micro-dial-popup="options">
         {props.traitsMenuContent ? (
           <>
             {props.traitsMenuContent}
@@ -62,8 +63,12 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
                 props.onToggleInteractionMode();
               }}
             >
-              <MenuRadioItem value="default">Chat</MenuRadioItem>
-              <MenuRadioItem value="plan">Plan</MenuRadioItem>
+              <MenuRadioItem value="default" closeOnClick>
+                Chat
+              </MenuRadioItem>
+              <MenuRadioItem value="plan" closeOnClick>
+                Plan
+              </MenuRadioItem>
             </MenuRadioGroup>
             <MenuDivider />
           </>
@@ -76,10 +81,18 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             props.onRuntimeModeChange(value as RuntimeMode);
           }}
         >
-          <MenuRadioItem value="approval-required">Supervised</MenuRadioItem>
-          <MenuRadioItem value="auto-accept-edits">Auto-accept edits</MenuRadioItem>
-          <MenuRadioItem value="auto">Auto</MenuRadioItem>
-          <MenuRadioItem value="full-access">Full access</MenuRadioItem>
+          <MenuRadioItem value="approval-required" closeOnClick>
+            Supervised
+          </MenuRadioItem>
+          <MenuRadioItem value="auto-accept-edits" closeOnClick>
+            Auto-accept edits
+          </MenuRadioItem>
+          <MenuRadioItem value="auto" closeOnClick>
+            Auto
+          </MenuRadioItem>
+          <MenuRadioItem value="full-access" closeOnClick>
+            Full access
+          </MenuRadioItem>
         </MenuRadioGroup>
       </MenuPopup>
     </Menu>

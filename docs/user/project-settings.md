@@ -33,3 +33,19 @@ upstream.
 T3 Code only pulls when it can fast-forward and the checkout has no changed files, untracked files,
 or local commits. It skips checkouts on another branch or without an upstream. If a checkout has
 local work, resolve it yourself before automatic pulls can resume.
+
+## Clean up resources when settling a worktree
+
+Select a project, edit an action, and enable **Run when manually settling a worktree**. Use this
+for a project command that stops its runtime and removes disposable data. Review the command
+before enabling it: it runs with your server account's permissions and may delete resources.
+Shared machine actions do not enable settlement cleanup; each project must opt in. Imported
+`t3.json` actions can opt in with `"runOnThreadSettle": true`.
+
+The action runs in the thread's worktree with `T3CODE_PROJECT_ROOT`, `T3CODE_WORKTREE_PATH`, and
+`T3CODE_THREAD_ID` available. It runs on a new manual settlement, never on automatic settlement
+or imported history. Local checkouts and worktrees shared with active threads are skipped.
+T3 Code keeps the Git worktree and records progress, output, skips, and failures in the thread.
+Each command has a two-minute timeout. While cleanup runs, other threads remain usable, and
+T3 Code prevents this checkout from being resumed or changed. A failed command leaves the thread
+settled; inspect its output before retrying the action yourself.

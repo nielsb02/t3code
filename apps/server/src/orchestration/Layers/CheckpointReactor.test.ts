@@ -1,3 +1,5 @@
+import * as WorktreeOperationGuard from "../../project/WorktreeOperationGuard.ts";
+import { noProjectSettleScripts } from "../../project/ProjectSettleScriptRunner.testing.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -316,6 +318,8 @@ describe("CheckpointReactor", () => {
       options?.providerName ?? ProviderDriverKind.make("codex"),
     );
     const orchestrationLayer = OrchestrationEngineLive.pipe(
+      Layer.provide(WorktreeOperationGuard.layer),
+      Layer.provide(noProjectSettleScripts),
       Layer.provide(OrchestrationProjectionSnapshotQueryLive),
       Layer.provide(ThreadBackgroundLiveness.layer),
       Layer.provide(ThreadPlanProgress.layer),
@@ -363,6 +367,7 @@ describe("CheckpointReactor", () => {
     });
 
     const layer = CheckpointReactorLive.pipe(
+      Layer.provide(WorktreeOperationGuard.layer),
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(projectionSnapshotLayer),
       Layer.provideMerge(RuntimeReceiptBusTest),

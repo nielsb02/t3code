@@ -31,6 +31,7 @@ import {
 import * as GitManager from "./GitManager.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import { WorktreeOperationGuard } from "../project/WorktreeOperationGuard.ts";
 
 export class GitWorkflowService extends Context.Service<
   GitWorkflowService,
@@ -143,6 +144,7 @@ function nonRepositoryListRefs(): VcsListRefsResult {
 }
 
 export const make = Effect.gen(function* () {
+  const worktreeOperations = yield* WorktreeOperationGuard;
   const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const git = yield* GitVcsDriver.GitVcsDriver;
   const gitManager = yield* GitManager.GitManager;
@@ -308,9 +310,26 @@ export const make = Effect.gen(function* () {
         ),
       ),
     createWorktree: (input) =>
-      ensureGitCommand("GitWorkflowService.createWorktree", input.cwd).pipe(
-        Effect.andThen(git.createWorktree(input)),
-      ),
+      worktreeOperations
+        .withMutation(
+          [input.cwd, ...(input.path ? [input.path] : [])],
+          ensureGitCommand("GitWorkflowService.createWorktree", input.cwd).pipe(
+            Effect.andThen(git.createWorktree(input)),
+          ),
+        )
+        .pipe(
+          Effect.catchTag(
+            "WorktreeCleanupBusyError",
+            (cause) =>
+              new GitCommandError({
+                operation: "GitWorkflowService.createWorktree",
+                command: "worktree add",
+                cwd: input.cwd,
+                detail: cause.message,
+                cause,
+              }),
+          ),
+        ),
     fetchRemote: (input) =>
       ensureGitCommand("GitWorkflowService.fetchRemote", input.cwd).pipe(
         Effect.andThen(git.fetchRemote(input)),
@@ -328,9 +347,26 @@ export const make = Effect.gen(function* () {
         Effect.andThen(git.resolveRemoteTrackingCommit(input)),
       ),
     removeWorktree: (input) =>
-      ensureGitCommand("GitWorkflowService.removeWorktree", input.cwd).pipe(
-        Effect.andThen(git.removeWorktree(input)),
-      ),
+      worktreeOperations
+        .withMutation(
+          [input.path],
+          ensureGitCommand("GitWorkflowService.removeWorktree", input.cwd).pipe(
+            Effect.andThen(git.removeWorktree(input)),
+          ),
+        )
+        .pipe(
+          Effect.catchTag(
+            "WorktreeCleanupBusyError",
+            (cause) =>
+              new GitCommandError({
+                operation: "GitWorkflowService.removeWorktree",
+                command: "worktree remove",
+                cwd: input.cwd,
+                detail: cause.message,
+                cause,
+              }),
+          ),
+        ),
     pruneWorktrees: (input) =>
       ensureGitCommand("GitWorkflowService.pruneWorktrees", input.cwd).pipe(
         Effect.andThen(git.pruneWorktrees(input)),

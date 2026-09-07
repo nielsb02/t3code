@@ -4,6 +4,7 @@ import type {
   DesktopAppActivationResponse,
   EnvironmentId,
   ExecutionEnvironmentPlatformOs,
+  MicroControlAction,
   ProjectId,
   ScopedProjectRef,
   ScopedThreadRef,
@@ -22,6 +23,7 @@ export interface DesktopAppActivationTarget {
 }
 
 export interface DesktopAppActivationDependencies {
+  readonly executeMicroControl: (action: MicroControlAction) => boolean;
   readonly isEnvironmentConnected: (environmentId: EnvironmentId) => boolean;
   readonly findThread: (ref: ScopedThreadRef) => { readonly projectId: ProjectId } | null;
   readonly navigateThread: (ref: ScopedThreadRef) => Promise<void>;
@@ -62,6 +64,24 @@ export async function handleDesktopAppActivationRequest(
   request: DesktopAppActivationRequest,
   dependencies: DesktopAppActivationDependencies,
 ): Promise<DesktopAppActivationResponse> {
+  if (request.type === "micro-control") {
+    try {
+      if (!dependencies.executeMicroControl(request.action)) {
+        return failure(
+          request.requestId,
+          "micro-control-unavailable",
+          "Focus an active chat in T3 Code before using Micro controls.",
+        );
+      }
+      return { version: 1, requestId: request.requestId, ok: true, action: request.action };
+    } catch (error) {
+      return failure(
+        request.requestId,
+        "internal-error",
+        errorMessage(error, "T3 Code could not execute the Micro control."),
+      );
+    }
+  }
   if (request.type === "open-thread") {
     const ref = { environmentId: request.environmentId, threadId: request.threadId };
     if (!dependencies.isEnvironmentConnected(ref.environmentId)) {

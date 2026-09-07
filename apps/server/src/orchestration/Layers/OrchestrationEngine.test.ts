@@ -1,3 +1,6 @@
+import * as WorktreeOperationGuard from "../../project/WorktreeOperationGuard.ts";
+import { ProjectSettleScriptRunner } from "../../project/ProjectSettleScriptRunner.ts";
+import { noProjectSettleScripts } from "../../project/ProjectSettleScriptRunner.testing.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
@@ -27,7 +30,7 @@ import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { PersistenceSqlError } from "../../persistence/Errors.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
@@ -60,7 +63,10 @@ const asMessageId = (value: string): MessageId => MessageId.make(value);
 const asTurnId = (value: string): TurnId => TurnId.make(value);
 const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.make(value);
 
-function makeOrchestrationLayer(databasePath?: string) {
+function makeOrchestrationLayer(
+  databasePath?: string,
+  settleScripts: Layer.Layer<ProjectSettleScriptRunner> = noProjectSettleScripts,
+) {
   const persistence = databasePath
     ? makeSqlitePersistenceLive(databasePath)
     : SqlitePersistenceMemory;
@@ -69,6 +75,8 @@ function makeOrchestrationLayer(databasePath?: string) {
   });
   return Layer.mergeAll(
     OrchestrationEngineLive.pipe(
+      Layer.provide(WorktreeOperationGuard.layer),
+      Layer.provide(settleScripts),
       Layer.provide(OrchestrationProjectionSnapshotQueryLive),
       Layer.provide(OrchestrationProjectionPipelineLive),
     ),
@@ -81,16 +89,24 @@ function makeOrchestrationLayer(databasePath?: string) {
     Layer.provide(RepositoryIdentityResolver.layer),
     Layer.provide(persistence),
     Layer.provideMerge(ServerConfigLayer),
+    Layer.provideMerge(WorktreeOperationGuard.layer),
     Layer.provideMerge(NodeServices.layer),
   );
 }
 
-async function createOrchestrationSystem(databasePath?: string) {
-  const runtime = ManagedRuntime.make(makeOrchestrationLayer(databasePath));
+async function createOrchestrationSystem(
+  databasePath?: string,
+  settleScripts?: Layer.Layer<ProjectSettleScriptRunner>,
+) {
+  const runtime = ManagedRuntime.make(makeOrchestrationLayer(databasePath, settleScripts));
   const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
   const snapshotQuery = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
+  const worktreeOperations = await runtime.runPromise(
+    Effect.service(WorktreeOperationGuard.WorktreeOperationGuard),
+  );
   return {
     engine,
+    worktreeOperations,
     readModel: () => runtime.runPromise(snapshotQuery.getSnapshot()),
     readThread: (threadId: ThreadId) =>
       runtime.runPromise(snapshotQuery.getThreadDetailById(threadId)),
@@ -115,6 +131,349 @@ const hasMetricSnapshot = (
   );
 
 describe("OrchestrationEngine", () => {
+  it.each(["completed", "failed"] as const)(
+    "runs new manual settle hooks asynchronously and records %s",
+    async (resultKind) => {
+      const execute = vi.fn(() => Effect.succeed({ kind: resultKind, detail: "fixture result" }));
+      const prepare = vi.fn(() =>
+        Effect.succeed({
+          kind: "ready" as const,
+          scripts: [
+            {
+              id: "cleanup",
+              name: "Cleanup",
+              command: "fixture-only",
+              icon: "configure" as const,
+              runOnWorktreeCreate: false,
+              runOnThreadSettle: true,
+            },
+          ],
+          cwd: "/fixture/worktree",
+          env: {},
+        }),
+      );
+      const system = await createOrchestrationSystem(
+        undefined,
+        Layer.succeed(ProjectSettleScriptRunner, { prepare, execute }),
+      );
+      const projectId = ProjectId.make("settle-project");
+      const threadId = ThreadId.make("settle-thread");
+      try {
+        await system.run(
+          system.engine.dispatch({
+            type: "project.create",
+            commandId: CommandId.make("p"),
+            projectId,
+            title: "Project",
+            workspaceRoot: "/fixture",
+            createdAt: now(),
+          }),
+        );
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make("t"),
+            threadId,
+            projectId,
+            title: "Thread",
+            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: "task",
+            worktreePath: "/fixture/worktree",
+            createdAt: now(),
+          }),
+        );
+        const settle = {
+          type: "thread.settle" as const,
+          commandId: CommandId.make("settle"),
+          threadId,
+        };
+        await system.run(system.engine.dispatch(settle));
+        await vi.waitFor(async () => {
+          const thread = Option.getOrThrow(await system.readThread(threadId));
+          expect(thread.settledOverride).toBe("settled");
+          expect(thread.activities.map((activity) => activity.kind)).toEqual([
+            "settle-script.started",
+            `settle-script.${resultKind}`,
+          ]);
+        });
+        await system.run(system.engine.dispatch(settle));
+        await system.run(
+          system.engine.dispatch({ ...settle, commandId: CommandId.make("settle-again") }),
+        );
+        expect(prepare).toHaveBeenCalledTimes(1);
+        expect(execute).toHaveBeenCalledTimes(1);
+      } finally {
+        await system.dispose();
+      }
+    },
+  );
+
+  it("keeps other threads responsive while rejecting reuse of a cleaning worktree", async () => {
+    let finishCleanup!: () => void;
+    const cleanupFinished = new Promise<void>((resolve) => {
+      finishCleanup = resolve;
+    });
+    const execute = vi.fn(() =>
+      Effect.promise(() => cleanupFinished).pipe(
+        Effect.as({ kind: "completed" as const, detail: "done" }),
+      ),
+    );
+    const system = await createOrchestrationSystem(
+      undefined,
+      Layer.succeed(ProjectSettleScriptRunner, {
+        prepare: () =>
+          Effect.succeed({
+            kind: "ready",
+            scripts: [
+              {
+                id: "cleanup",
+                name: "Cleanup",
+                command: "fixture",
+                icon: "configure",
+                runOnWorktreeCreate: false,
+                runOnThreadSettle: true,
+              },
+            ],
+            cwd: "/fixture/worktree",
+            env: {},
+          }),
+        execute,
+      }),
+    );
+    const projectId = ProjectId.make("p");
+    const threadId = ThreadId.make("cleaning");
+    const createThread = (id: string, cwd: string): OrchestrationCommand => ({
+      type: "thread.create",
+      commandId: CommandId.make(`create-${id}`),
+      threadId: ThreadId.make(id),
+      projectId,
+      title: id,
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: "task",
+      worktreePath: cwd,
+      createdAt: now(),
+    });
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("p"),
+          projectId,
+          title: "Project",
+          workspaceRoot: "/fixture",
+          createdAt: now(),
+        }),
+      );
+      await system.run(system.engine.dispatch(createThread("cleaning", "/fixture/worktree")));
+      await system.run(system.engine.dispatch(createThread("other", "/fixture/other")));
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.settle",
+          commandId: CommandId.make("settle"),
+          threadId,
+        }),
+      );
+      await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+      const dispatch = (command: OrchestrationCommand) =>
+        system.run(system.engine.dispatch(command));
+      await dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("other-title"),
+        threadId: ThreadId.make("other"),
+        title: "Still responsive",
+      });
+      const blocked: OrchestrationCommand[] = [
+        { type: "thread.unsettle", commandId: CommandId.make("resume"), threadId, reason: "user" },
+        {
+          type: "thread.turn.start",
+          commandId: CommandId.make("start"),
+          threadId,
+          message: { messageId: MessageId.make("m"), role: "user", text: "hello", attachments: [] },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          createdAt: now(),
+        },
+        createThread("new", "/fixture/worktree"),
+        {
+          type: "thread.meta.update",
+          commandId: CommandId.make("repoint"),
+          threadId: ThreadId.make("other"),
+          worktreePath: "/fixture/worktree",
+        },
+        { type: "thread.delete", commandId: CommandId.make("delete"), threadId },
+      ];
+      for (const command of blocked)
+        await expect(dispatch(command)).rejects.toThrow("manual settle action");
+      finishCleanup();
+      await vi.waitFor(async () =>
+        expect(
+          Option.getOrThrow(await system.readThread(threadId)).activities.some(
+            (a) => a.kind === "settle-script.completed",
+          ),
+        ).toBe(true),
+      );
+      await dispatch({
+        type: "thread.unsettle",
+        commandId: CommandId.make("resume-after"),
+        threadId,
+        reason: "user",
+      });
+    } finally {
+      finishCleanup();
+      await system.dispose();
+    }
+  });
+
+  it("skips cleanup when a checkout mutation already holds the shared reservation", async () => {
+    const execute = vi.fn(() => Effect.succeed({ kind: "completed" as const, detail: "done" }));
+    const system = await createOrchestrationSystem(
+      undefined,
+      Layer.succeed(ProjectSettleScriptRunner, {
+        prepare: () =>
+          Effect.succeed({
+            kind: "ready",
+            scripts: [
+              {
+                id: "cleanup",
+                name: "Cleanup",
+                command: "fixture",
+                icon: "configure",
+                runOnWorktreeCreate: false,
+              },
+            ],
+            cwd: "/fixture/worktree",
+            env: {},
+          }),
+        execute,
+      }),
+    );
+    const projectId = ProjectId.make("p");
+    const threadId = ThreadId.make("t");
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("p"),
+          projectId,
+          title: "Project",
+          workspaceRoot: "/fixture",
+          createdAt: now(),
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("t"),
+          threadId,
+          projectId,
+          title: "Thread",
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: "task",
+          worktreePath: "/fixture/worktree",
+          createdAt: now(),
+        }),
+      );
+      await system.run(
+        system.worktreeOperations.withMutation(
+          ["/fixture/worktree"],
+          system.engine.dispatch({
+            type: "thread.settle",
+            commandId: CommandId.make("settle"),
+            threadId,
+          }),
+        ),
+      );
+      await vi.waitFor(async () =>
+        expect(Option.getOrThrow(await system.readThread(threadId)).activities).toMatchObject([
+          {
+            kind: "settle-script.skipped",
+            payload: { detail: expect.stringContaining("checkout operation") },
+          },
+        ]),
+      );
+      expect(execute).not.toHaveBeenCalled();
+    } finally {
+      await system.dispose();
+    }
+  });
+
+  it("never prepares hooks for automatic settlement or imported history", async () => {
+    const prepare = vi.fn(() => Effect.succeed({ kind: "none" as const }));
+    const system = await createOrchestrationSystem(
+      undefined,
+      Layer.succeed(ProjectSettleScriptRunner, {
+        prepare,
+        execute: () => Effect.die("unexpected cleanup"),
+      }),
+    );
+    const projectId = ProjectId.make("p");
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("p"),
+          projectId,
+          title: "Project",
+          workspaceRoot: "/fixture",
+          createdAt: now(),
+        }),
+      );
+      for (const id of ["auto", "import"]) {
+        const threadId = ThreadId.make(id);
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make(id),
+            threadId,
+            projectId,
+            title: id,
+            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: "task",
+            worktreePath: `/fixture/${id}`,
+            createdAt: now(),
+          }),
+        );
+        if (id === "auto")
+          await system.run(
+            system.engine.dispatch({
+              type: "thread.auto-settle",
+              commandId: CommandId.make("auto-settle"),
+              threadId,
+              snapshotSequence: await system.run(system.engine.latestSequence),
+              settledAt: now(),
+            }),
+          );
+        else
+          await system.run(
+            system.engine.dispatch({
+              type: "thread.history.import",
+              commandId: CommandId.make("import-history"),
+              threadId,
+              messages: [
+                {
+                  messageId: MessageId.make("imported"),
+                  role: "user",
+                  text: "historic",
+                  createdAt: now(),
+                },
+              ],
+            }),
+          );
+      }
+      expect(prepare).not.toHaveBeenCalled();
+    } finally {
+      await system.dispose();
+    }
+  });
+
   it.each(["running", "stopped"] as const)(
     "sends async answers with a %s session and rejects old duplicate replies",
     async (status) => {
@@ -389,6 +748,8 @@ describe("OrchestrationEngine", () => {
     let fullSnapshotReadCount = 0;
 
     const layer = OrchestrationEngineLive.pipe(
+      Layer.provide(WorktreeOperationGuard.layer),
+      Layer.provide(noProjectSettleScripts),
       Layer.provide(
         Layer.succeed(ProjectionSnapshotQuery, {
           getUserInputActivity: () => Effect.die("unused"),
@@ -1460,6 +1821,8 @@ describe("OrchestrationEngine", () => {
 
     const runtime = ManagedRuntime.make(
       OrchestrationEngineLive.pipe(
+        Layer.provide(WorktreeOperationGuard.layer),
+        Layer.provide(noProjectSettleScripts),
         Layer.provide(OrchestrationProjectionSnapshotQueryLive),
         Layer.provide(ThreadBackgroundLiveness.layer),
         Layer.provide(ThreadPlanProgress.layer),
@@ -1568,6 +1931,8 @@ describe("OrchestrationEngine", () => {
 
     const runtime = ManagedRuntime.make(
       OrchestrationEngineLive.pipe(
+        Layer.provide(WorktreeOperationGuard.layer),
+        Layer.provide(noProjectSettleScripts),
         Layer.provide(OrchestrationProjectionSnapshotQueryLive),
         Layer.provide(ThreadBackgroundLiveness.layer),
         Layer.provide(ThreadPlanProgress.layer),
@@ -1717,6 +2082,8 @@ describe("OrchestrationEngine", () => {
 
     const runtime = ManagedRuntime.make(
       OrchestrationEngineLive.pipe(
+        Layer.provide(WorktreeOperationGuard.layer),
+        Layer.provide(noProjectSettleScripts),
         Layer.provide(OrchestrationProjectionSnapshotQueryLive),
         Layer.provide(ThreadBackgroundLiveness.layer),
         Layer.provide(ThreadPlanProgress.layer),

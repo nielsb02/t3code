@@ -8,18 +8,21 @@ import {
   EnvironmentId,
   ProjectId,
   ThreadId,
+  DesktopAppActivationResponse,
   type DesktopAppActivationRequest,
-  type DesktopAppActivationResponse,
+  type MicroControlAction,
 } from "@t3tools/contracts";
 import { resolveDesktopAppControlAddress } from "@t3tools/shared/desktopAppControl";
 import { HostProcessPlatform, HostProcessUserId } from "@t3tools/shared/hostProcess";
 import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import { afterEach, describe, expect } from "vite-plus/test";
 
 import { startDesktopAppControlServer } from "./DesktopAppActivation.ts";
 
 const openServers: Array<{ close: () => Promise<void> }> = [];
+const decodeResponse = Schema.decodeUnknownSync(DesktopAppActivationResponse);
 
 afterEach(async () => {
   await Promise.all(openServers.splice(0).map((server) => server.close()));
@@ -45,24 +48,109 @@ function request(requestId: string, platform: NodeJS.Platform): DesktopAppActiva
   };
 }
 
-function exchange(address: string, payload: DesktopAppActivationRequest) {
+function exchange(address: string, payload: unknown) {
+  return exchangeLine(address, JSON.stringify(payload));
+}
+
+function exchangeLine(address: string, line: string) {
   return new Promise<DesktopAppActivationResponse>((resolve, reject) => {
     const socket = NodeNet.createConnection(address);
     socket.setEncoding("utf8");
     let buffer = "";
     socket.once("error", reject);
-    socket.once("connect", () => socket.write(`${JSON.stringify(payload)}\n`));
+    socket.once("connect", () => socket.write(`${line}\n`));
     socket.on("data", (chunk) => {
       buffer += chunk;
       const newline = buffer.indexOf("\n");
       if (newline === -1) return;
       socket.destroy();
-      resolve(JSON.parse(buffer.slice(0, newline)) as DesktopAppActivationResponse);
+      try {
+        resolve(decodeResponse(JSON.parse(buffer.slice(0, newline))));
+      } catch (error) {
+        reject(error);
+      }
     });
   });
 }
 
 describe("desktop app control server", () => {
+  it.effect("roundtrips every Micro action and rejects malformed requests before dispatch", () =>
+    Effect.gen(function* () {
+      const platform = yield* HostProcessPlatform;
+      const userId = yield* HostProcessUserId;
+      yield* Effect.promise(async () => {
+        const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-micro-control-"));
+        const target = makeTarget(NodePath.join(root, "userdata"), platform, userId);
+        const received: MicroControlAction[] = [];
+        const server = await startDesktopAppControlServer({
+          ...target,
+          userId,
+          cancel: () => undefined,
+          handle: async (input) => {
+            if (input.type !== "micro-control") throw new Error("Unexpected request type");
+            received.push(input.action);
+            return { version: 1, requestId: input.requestId, ok: true, action: input.action };
+          },
+        });
+        openServers.push(server);
+        try {
+          const actions: MicroControlAction[] = [
+            "dial-clockwise",
+            "dial-counterclockwise",
+            "dial-press",
+            "composer-toggle",
+            "new-thread",
+            "new-project",
+            "latest-message",
+            "settle-thread",
+            "terminal-toggle",
+            "command-palette",
+          ];
+          for (const action of actions) {
+            expect(
+              await exchange(target.address, {
+                version: 1,
+                requestId: action,
+                type: "micro-control",
+                action,
+              }),
+            ).toEqual({ version: 1, requestId: action, ok: true, action });
+          }
+          expect(received).toEqual(actions);
+
+          const payload = {
+            version: 1,
+            requestId: "invalid-micro",
+            type: "micro-control",
+            action: "dial-press",
+          };
+          for (const invalid of [
+            { ...payload, version: 2 },
+            { ...payload, action: "dial-up" },
+            { ...payload, action: undefined },
+            { ...payload, action: null },
+            { ...payload, type: "micro" },
+          ]) {
+            expect(await exchange(target.address, invalid)).toMatchObject({
+              requestId: payload.requestId,
+              ok: false,
+              code: "invalid-request",
+            });
+          }
+          expect(await exchangeLine(target.address, "{invalid")).toMatchObject({
+            ok: false,
+            code: "invalid-request",
+          });
+          expect(received).toEqual(actions);
+        } finally {
+          await server.close();
+          openServers.splice(openServers.indexOf(server), 1);
+          await NodeFSP.rm(root, { recursive: true, force: true });
+        }
+      });
+    }),
+  );
+
   it.effect("roundtrips an open-thread request and a renderer rejection", () =>
     Effect.gen(function* () {
       const platform = yield* HostProcessPlatform;

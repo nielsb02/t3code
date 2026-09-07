@@ -1,8 +1,10 @@
+import { ProjectId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import {
   projectScriptCwd,
   projectScriptRuntimeEnv,
   setupProjectScript,
+  settleProjectScripts,
 } from "@t3tools/shared/projectScripts";
 
 import {
@@ -14,6 +16,45 @@ import {
 } from "./projectScripts";
 
 describe("projectScripts helpers", () => {
+  it("keeps settle actions explicitly opted in and out of the default run action", () => {
+    const cleanup = buildProjectScript("cleanup", {
+      name: "Cleanup",
+      command: "cleanup",
+      icon: "configure",
+      runOnWorktreeCreate: false,
+      runOnThreadSettle: true,
+      previewUrl: null,
+      autoOpenPreview: false,
+    });
+    const ordinary = buildProjectScript("test", {
+      name: "Test",
+      command: "test",
+      icon: "test",
+      runOnWorktreeCreate: false,
+      runOnThreadSettle: false,
+      previewUrl: null,
+      autoOpenPreview: false,
+    });
+    expect(cleanup.runOnThreadSettle).toBe(true);
+    expect(ordinary.runOnThreadSettle).toBeUndefined();
+    expect(primaryProjectScript([cleanup, ordinary])).toBe(ordinary);
+    expect(primaryProjectScript([cleanup])).toBeNull();
+    const project = { id: ProjectId.make("project"), scripts: [cleanup] };
+    expect(settleProjectScripts({ projectScriptOverrides: {} }, project)).toEqual([cleanup]);
+    expect(
+      settleProjectScripts({ projectScriptOverrides: { [project.id]: null } }, project),
+    ).toEqual([]);
+    expect(
+      settleProjectScripts({ projectScriptOverrides: { [project.id]: [ordinary] } }, project),
+    ).toEqual([]);
+    expect(
+      settleProjectScripts(
+        { projectScriptOverrides: { [project.id]: [cleanup] } },
+        { ...project, scripts: [] },
+      ),
+    ).toEqual([cleanup]);
+  });
+
   it("builds scripts with preview settings", () => {
     expect(
       buildProjectScript("dev", {

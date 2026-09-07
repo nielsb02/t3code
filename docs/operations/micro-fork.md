@@ -1,7 +1,7 @@
 # Maintaining the Micro Manager fork
 
-The `main` branch contains upstream T3 Code plus the `open-thread` desktop
-activation request. The fork's GitHub Actions workflow runs daily at 04:37 UTC,
+The `main` branch contains upstream T3 Code plus desktop session opening, Micro
+controls, and opt-in project settlement actions. The fork's GitHub Actions workflow runs daily at 04:37 UTC,
 on pushes to `main`, and manually from **Actions → Micro desktop release**.
 
 The initial fork includes development commits newer than upstream v0.0.38. The
@@ -9,7 +9,7 @@ scheduled job tracks published upstream releases and retains those commits;
 it never resets the fork to an older release.
 
 For each new upstream release, the workflow merges its tag, runs the desktop
-opening tests and affected type checks, and builds an Apple Silicon macOS DMG
+opening, Micro control, and settlement action tests and affected type checks, and builds an Apple Silicon macOS DMG
 and ZIP. Only a successful build advances `main` and publishes a new release.
 A failed source merge is aborted. A failed test or build leaves the published
 source and previous release intact. GitHub sends workflow failure notifications
@@ -53,8 +53,8 @@ resolve source conflicts without dropping the desktop opening change, and run:
 
 ```sh
 python3 .github/scripts/micro_sync_test.py
-vp test run apps/web/src/desktopAppActivation.test.ts apps/desktop/src/app/DesktopAppActivation.test.ts apps/desktop/src/app/DesktopAppActivationBroker.test.ts
-vp run --filter @t3tools/contracts --filter @t3tools/web --filter @t3tools/desktop typecheck
+vp test run apps/web/src/desktopAppActivation.test.ts apps/web/src/microControls.test.ts apps/desktop/src/app/DesktopAppActivation.test.ts apps/desktop/src/app/DesktopAppActivationBroker.test.ts apps/server/src/project/ProjectSettleScriptRunner.test.ts apps/server/src/project/WorktreeOperationGuard.test.ts apps/server/src/orchestration/Layers/OrchestrationEngine.test.ts
+vp run --filter @t3tools/contracts --filter @t3tools/shared --filter @t3tools/web --filter @t3tools/desktop --filter t3 typecheck
 ```
 
 Push the fix to this fork's `main` and run **Micro desktop release** again. The

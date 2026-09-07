@@ -1006,13 +1006,18 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
                 size={size}
                 className={size === "xs" ? undefined : "font-medium"}
                 aria-label="Runtime mode"
+                data-micro-dial-control={props.hidden ? undefined : "permissions"}
               />
             }
           >
             <ComposerControlIcon icon={RuntimeModeIcon} size={size} />
             <SelectValue>{runtimeModeOption.label}</SelectValue>
           </TooltipTrigger>
-          <SelectPopup alignItemWithTrigger={false} {...composerFloatingLayerProps}>
+          <SelectPopup
+            alignItemWithTrigger={false}
+            {...composerFloatingLayerProps}
+            data-micro-dial-popup="permissions"
+          >
             {runtimeModeOptions.map((mode) => {
               const option = runtimeModeConfig[mode];
               const OptionIcon = option.icon;

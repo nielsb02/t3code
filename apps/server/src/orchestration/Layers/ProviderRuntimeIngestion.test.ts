@@ -1,3 +1,5 @@
+import * as WorktreeOperationGuard from "../../project/WorktreeOperationGuard.ts";
+import { noProjectSettleScripts } from "../../project/ProjectSettleScriptRunner.testing.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -275,6 +277,8 @@ describe("ProviderRuntimeIngestion", () => {
     const provider = createProviderServiceHarness();
     const sqlCounter = makeSqlStatementCounter();
     const orchestrationLayer = OrchestrationEngineLive.pipe(
+      Layer.provide(WorktreeOperationGuard.layer),
+      Layer.provide(noProjectSettleScripts),
       Layer.provide(OrchestrationProjectionSnapshotQueryLive),
       Layer.provide(OrchestrationProjectionPipelineLive),
       Layer.provide(OrchestrationEventStoreLive),

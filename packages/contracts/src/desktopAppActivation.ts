@@ -7,6 +7,27 @@ export const DESKTOP_APP_ACTIVATION_PROTOCOL_VERSION = 1 as const;
 export const DesktopAppActivationPlatform = Schema.Literals(["darwin", "linux", "win32"]);
 export type DesktopAppActivationPlatform = typeof DesktopAppActivationPlatform.Type;
 
+export const MicroDialAction = Schema.Literals([
+  "dial-clockwise",
+  "dial-counterclockwise",
+  "dial-press",
+  "composer-toggle",
+]);
+export type MicroDialAction = typeof MicroDialAction.Type;
+
+export const MicroControlAction = Schema.Union([
+  MicroDialAction,
+  Schema.Literals([
+    "new-thread",
+    "new-project",
+    "latest-message",
+    "settle-thread",
+    "terminal-toggle",
+    "command-palette",
+  ]),
+]);
+export type MicroControlAction = typeof MicroControlAction.Type;
+
 export const DesktopAppOpenWorkspaceRequest = Schema.Struct({
   version: Schema.Literal(DESKTOP_APP_ACTIVATION_PROTOCOL_VERSION),
   requestId: TrimmedNonEmptyString,
@@ -21,9 +42,18 @@ export const DesktopAppOpenThreadRequest = Schema.Struct({
   environmentId: EnvironmentId,
   threadId: ThreadId,
 });
+export const DesktopAppMicroControlRequest = Schema.Struct({
+  version: Schema.Literal(DESKTOP_APP_ACTIVATION_PROTOCOL_VERSION),
+  requestId: TrimmedNonEmptyString,
+  type: Schema.Literal("micro-control"),
+  action: MicroControlAction,
+});
+export type DesktopAppMicroControlRequest = typeof DesktopAppMicroControlRequest.Type;
+
 export const DesktopAppActivationRequest = Schema.Union([
   DesktopAppOpenWorkspaceRequest,
   DesktopAppOpenThreadRequest,
+  DesktopAppMicroControlRequest,
 ]);
 export type DesktopAppActivationRequest = typeof DesktopAppActivationRequest.Type;
 
@@ -34,12 +64,13 @@ export const DesktopAppActivationErrorCode = Schema.Literals([
   "platform-mismatch",
   "project-create-failed",
   "thread-open-failed",
+  "micro-control-unavailable",
   "request-timeout",
   "internal-error",
 ]);
 export type DesktopAppActivationErrorCode = typeof DesktopAppActivationErrorCode.Type;
 
-export const DesktopAppActivationSuccess = Schema.Struct({
+export const DesktopAppOpenSuccess = Schema.Struct({
   version: Schema.Literal(DESKTOP_APP_ACTIVATION_PROTOCOL_VERSION),
   requestId: TrimmedNonEmptyString,
   ok: Schema.Literal(true),
@@ -47,6 +78,18 @@ export const DesktopAppActivationSuccess = Schema.Struct({
   threadId: ThreadId,
   environmentId: Schema.optional(EnvironmentId),
 });
+export const DesktopAppMicroControlSuccess = Schema.Struct({
+  version: Schema.Literal(DESKTOP_APP_ACTIVATION_PROTOCOL_VERSION),
+  requestId: TrimmedNonEmptyString,
+  ok: Schema.Literal(true),
+  action: MicroControlAction,
+});
+export type DesktopAppMicroControlSuccess = typeof DesktopAppMicroControlSuccess.Type;
+
+export const DesktopAppActivationSuccess = Schema.Union([
+  DesktopAppOpenSuccess,
+  DesktopAppMicroControlSuccess,
+]);
 export type DesktopAppActivationSuccess = typeof DesktopAppActivationSuccess.Type;
 
 export const DesktopAppActivationFailure = Schema.Struct({

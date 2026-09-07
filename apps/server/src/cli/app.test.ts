@@ -198,11 +198,16 @@ describe("t3 app", () => {
         yield* runCli(["app"], { T3CODE_HOME: baseDir });
         yield* runCli(["app", explicitPath, "--base-dir", baseDir]);
 
-        expect(desktop.received.map((request) => request.workspaceRoot)).toEqual([
-          workingDirectory,
-          explicitPath,
-        ]);
-        expect(desktop.received.every((request) => request.platform === platform)).toBe(true);
+        expect(
+          desktop.received.map((request) =>
+            request.type === "open-workspace" ? request.workspaceRoot : undefined,
+          ),
+        ).toEqual([workingDirectory, explicitPath]);
+        expect(
+          desktop.received.every(
+            (request) => request.type === "open-workspace" && request.platform === platform,
+          ),
+        ).toBe(true);
       }).pipe(Effect.scoped),
     ),
   );
@@ -252,6 +257,29 @@ describe("t3 app", () => {
         expect(flagError).toMatchObject({ _tag: "DesktopAppUnreachableError" });
         expect(envError).toMatchObject({ _tag: "DesktopAppUnreachableError" });
         expect(development.received).toHaveLength(0);
+      }).pipe(Effect.scoped),
+    ),
+  );
+
+  it.effect("rejects a Micro acknowledgement for an open-workspace request", () =>
+    withTempDirectory("t3-app-wrong-action-", (root) =>
+      Effect.gen(function* () {
+        const baseDir = NodePath.join(root, "t3-home");
+        yield* fakeDesktop({
+          baseDir,
+          reply: (request) => ({
+            version: 1,
+            requestId: request.requestId,
+            ok: true,
+            action: "dial-press",
+          }),
+        });
+
+        const error = yield* runCli(["app", "--base-dir", baseDir]).pipe(Effect.flip);
+        expect(error).toMatchObject({
+          _tag: "DesktopAppUnreachableError",
+          cause: { message: "The desktop app response did not match this request." },
+        });
       }).pipe(Effect.scoped),
     ),
   );

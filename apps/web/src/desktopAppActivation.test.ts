@@ -1,4 +1,4 @@
-import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ThreadId, type MicroControlAction } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
@@ -22,6 +22,7 @@ function dependencies(
   overrides: Partial<DesktopAppActivationDependencies> = {},
 ): DesktopAppActivationDependencies {
   return {
+    executeMicroControl: vi.fn(() => true),
     isEnvironmentConnected: (id) => id === environmentId,
     findThread: () => ({ projectId: existingProjectId }),
     navigateThread: vi.fn(async () => undefined),
@@ -39,6 +40,61 @@ function dependencies(
 }
 
 describe("desktop app activation", () => {
+  it.each<MicroControlAction>([
+    "dial-clockwise",
+    "dial-counterclockwise",
+    "dial-press",
+    "composer-toggle",
+    "new-thread",
+    "new-project",
+    "latest-message",
+    "settle-thread",
+    "terminal-toggle",
+    "command-palette",
+  ])("dispatches %s and acknowledges the same accepted action", async (action) => {
+    const deps = dependencies({ getTarget: () => null });
+    const response = await handleDesktopAppActivationRequest(
+      { version: 1, requestId: "micro-1", type: "micro-control", action },
+      deps,
+    );
+
+    expect(response).toEqual({ version: 1, requestId: "micro-1", ok: true, action });
+    expect(deps.executeMicroControl).toHaveBeenCalledWith(action);
+    expect(deps.navigateThread).not.toHaveBeenCalled();
+    expect(deps.createProject).not.toHaveBeenCalled();
+    expect(deps.openThread).not.toHaveBeenCalled();
+  });
+
+  it("rejects Micro controls when the renderer has no focused active chat", async () => {
+    const response = await handleDesktopAppActivationRequest(
+      { version: 1, requestId: "micro-1", type: "micro-control", action: "dial-press" },
+      dependencies({ executeMicroControl: () => false }),
+    );
+
+    expect(response).toMatchObject({
+      requestId: "micro-1",
+      ok: false,
+      code: "micro-control-unavailable",
+    });
+  });
+
+  it("reports a failed Micro handler without acknowledging the action", async () => {
+    const response = await handleDesktopAppActivationRequest(
+      { version: 1, requestId: "micro-1", type: "micro-control", action: "dial-press" },
+      dependencies({
+        executeMicroControl: () => {
+          throw new Error("Control failed.");
+        },
+      }),
+    );
+
+    expect(response).toMatchObject({
+      ok: false,
+      code: "internal-error",
+      message: "Control failed.",
+    });
+  });
+
   const openExisting = {
     version: 1,
     requestId: "open-existing",

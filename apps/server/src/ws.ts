@@ -125,6 +125,7 @@ import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
+import { WorktreeOperationGuard } from "./project/WorktreeOperationGuard.ts";
 import * as AgentSessionScanner from "./project/AgentSessionScanner.ts";
 import { importRecentAgentThreads } from "./project/AgentSessionImporter.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
@@ -570,6 +571,7 @@ const makeWsRpcLayer = (
         return true;
       });
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
+      const worktreeOperations = yield* WorktreeOperationGuard;
       const agentSessionScanner = yield* AgentSessionScanner.AgentSessionScanner;
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
@@ -1092,6 +1094,12 @@ const makeWsRpcLayer = (
                 );
             });
 
+          const finishBootstrap = () =>
+            Effect.gen(function* () {
+              yield* runSetupProgram();
+              return yield* dispatchFromClient(finalTurnStartCommand);
+            });
+
           const bootstrapProgram = Effect.gen(function* () {
             if (bootstrap?.createThread) {
               const created = yield* dispatchFromClient({
@@ -1152,22 +1160,38 @@ const makeWsRpcLayer = (
                 path: null,
               });
               targetWorktreePath = worktree.worktree.path;
-              yield* dispatchFromClient({
-                type: "thread.meta.update",
-                commandId: yield* serverCommandId("bootstrap-thread-meta-update"),
-                threadId: command.threadId,
-                branch: worktree.worktree.refName,
-                worktreePath: targetWorktreePath,
-              });
-              yield* refreshGitStatus(targetWorktreePath);
+              return yield* worktreeOperations.withMutation(
+                [targetWorktreePath],
+                Effect.gen(function* () {
+                  yield* dispatchFromClient({
+                    type: "thread.meta.update",
+                    commandId: yield* serverCommandId("bootstrap-thread-meta-update"),
+                    threadId: command.threadId,
+                    branch: worktree.worktree.refName,
+                    worktreePath: worktree.worktree.path,
+                  });
+                  yield* refreshGitStatus(worktree.worktree.path);
+                  return yield* finishBootstrap();
+                }),
+              );
             }
 
-            yield* runSetupProgram();
-
-            return yield* dispatchFromClient(finalTurnStartCommand);
+            return yield* finishBootstrap();
           });
 
           return yield* bootstrapProgram.pipe(
+            (effect) =>
+              worktreeOperations.withMutation(
+                [
+                  ...(bootstrap?.createThread?.worktreePath
+                    ? [bootstrap.createThread.worktreePath]
+                    : []),
+                  ...(bootstrap?.prepareWorktree?.projectCwd
+                    ? [bootstrap.prepareWorktree.projectCwd]
+                    : []),
+                ],
+                effect,
+              ),
             Effect.catchCause((cause) => {
               const dispatchError = toBootstrapDispatchCommandCauseError(cause);
               if (Cause.hasInterruptsOnly(cause)) {

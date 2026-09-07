@@ -680,6 +680,35 @@ describe("expanded tool group scrolling", () => {
 });
 
 describe("work entry labels", () => {
+  it("keeps manual cleanup statuses visible with output available for expansion", () => {
+    const entries: WorkLogEntry[] = ["started", "completed", "failed", "skipped"].map(
+      (status, index) => ({
+        id: `cleanup-${status}`,
+        createdAt: `2026-09-01T12:00:0${index}Z`,
+        label: `Manual settle action ${status}`,
+        detail: '{"status":"ok","output":"long command output"}',
+        tone: status === "failed" ? "error" : "info",
+        sourceActivityKind: `settle-script.${status}`,
+      }),
+    );
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: deriveTimelineEntries([], [], entries),
+      latestTurn: null,
+      runningTurnId: null,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    });
+    expect(rows.filter((row) => row.kind === "work").map((row) => row.groupedEntries)).toEqual(
+      entries.map((entry) => [entry]),
+    );
+    for (const entry of entries) {
+      expect(workEntryDisplayLabel(entry, undefined)).toBe(entry.label);
+      expect(liveWorkEntryLabel(entry, undefined, false)).toBe(entry.label);
+    }
+  });
+
   const entry = {
     id: "tool-1",
     createdAt: "2026-09-01T12:00:00Z",

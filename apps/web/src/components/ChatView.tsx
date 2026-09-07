@@ -1,4 +1,5 @@
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
+import { useMicroControls } from "../hooks/useMicroControls";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import {
   collectProviderUsageLimits,
@@ -1549,6 +1550,7 @@ export default function ChatView(props: ChatViewProps) {
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const composerElementContextsRef = useRef<ElementContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
+  const [microChatRoot, setMicroChatRoot] = useState<HTMLDivElement | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
   const [restingComposerControlsHost, setRestingComposerControlsHost] =
     useState<HTMLDivElement | null>(null);
@@ -4641,6 +4643,22 @@ export default function ChatView(props: ChatViewProps) {
       void legendListRef.current?.scrollToEnd?.({ animated });
     });
   }, []);
+  const microDialHint = useMicroControls({
+    scope: draftId ?? activeThreadKey,
+    root: microChatRoot,
+    focusComposer: () => composerRef.current?.focusAtEnd(),
+    scroll: (direction) => {
+      cancelTimelineLiveFollowForUserNavigation();
+      getTimelineScrollableNode()?.scrollBy({ top: direction * 80, behavior: "instant" });
+    },
+    latest: () => scrollToEnd(),
+    settleThread: () => handleSettleActiveThread(),
+    toggleTerminal: () => {
+      if (!activeThreadRef || !activeProject) return false;
+      toggleTerminalVisibility();
+      return true;
+    },
+  });
   useLayoutEffect(() => {
     if (timelineScrollModeRef.current !== "anchoring-new-turn") {
       return;
@@ -5214,6 +5232,22 @@ export default function ChatView(props: ChatViewProps) {
   ]);
   const activeThreadSettled =
     supportsSettlement && activeThreadShell?.settledOverride === "settled";
+  const handleSettleActiveThread = useCallback(() => {
+    if (!isServerThread || !activeThreadRef || !supportsSettlement || activeThreadSettled)
+      return false;
+    void settleThread(activeThreadRef).then((result) => {
+      if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+      const error = squashAtomCommandFailure(result);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Failed to settle thread",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+    });
+    return true;
+  }, [activeThreadRef, activeThreadSettled, isServerThread, settleThread, supportsSettlement]);
   const unsettleThreadMutation = useAtomCommand(threadEnvironment.unsettle, {
     reportFailure: false,
   });
@@ -5849,17 +5883,7 @@ export default function ChatView(props: ChatViewProps) {
           return;
         }
 
-        void settleThread(activeThreadRef).then((result) => {
-          if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
-          const error = squashAtomCommandFailure(result);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Failed to settle thread",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
-        });
+        handleSettleActiveThread();
         return;
       }
 
@@ -6017,7 +6041,7 @@ export default function ChatView(props: ChatViewProps) {
     isServerThread,
     onToggleDiff,
     pinThread,
-    settleThread,
+    handleSettleActiveThread,
     supportsPinning,
     supportsSettlement,
     confirmAndUnpinThread,
@@ -7748,6 +7772,8 @@ export default function ChatView(props: ChatViewProps) {
           rightPanelMaximized ? "w-0 flex-none" : "flex-1",
         )}
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
+        ref={setMicroChatRoot}
+        tabIndex={-1}
       >
         {/* Top bar */}
         <WorkspacePageHeader
@@ -8122,10 +8148,16 @@ export default function ChatView(props: ChatViewProps) {
                         </div>
                       </div>
                     </ComposerSurface.Shell>
-                    <div
-                      aria-hidden
-                      className="h-[calc(env(safe-area-inset-bottom)+1rem)] sm:h-[calc(env(safe-area-inset-bottom)+1.25rem)]"
-                    />
+                    <div className="min-h-[calc(env(safe-area-inset-bottom)+1rem)] pb-[env(safe-area-inset-bottom)] sm:min-h-[calc(env(safe-area-inset-bottom)+1.25rem)]">
+                      {microDialHint ? (
+                        <div
+                          role="status"
+                          className="pointer-events-none px-2 py-0.5 text-center text-[11px] leading-4 text-muted-foreground"
+                        >
+                          {microDialHint}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               </div>

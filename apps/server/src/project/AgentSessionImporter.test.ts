@@ -1,3 +1,5 @@
+import * as WorktreeOperationGuard from "./WorktreeOperationGuard.ts";
+import { noProjectSettleScripts } from "./ProjectSettleScriptRunner.testing.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it, vi } from "@effect/vitest";
 import {
@@ -561,6 +563,8 @@ const integrationRuntimeRepository = ProviderSessionRuntime.layer.pipe(
 );
 const integrationLayer = Layer.mergeAll(
   OrchestrationEngineLive.pipe(
+    Layer.provide(WorktreeOperationGuard.layer),
+    Layer.provide(noProjectSettleScripts),
     Layer.provide(OrchestrationProjectionSnapshotQueryLive),
     Layer.provide(OrchestrationProjectionPipelineLive),
   ),

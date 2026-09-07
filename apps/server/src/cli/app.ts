@@ -141,7 +141,13 @@ export function sendDesktopAppActivationRequest(input: {
         finish({ type: "failure", error: new Error("The desktop app response is invalid.") });
         return;
       }
-      if (parsed.requestId !== input.request.requestId) {
+      if (
+        parsed.requestId !== input.request.requestId ||
+        (parsed.ok &&
+          (input.request.type === "micro-control"
+            ? !("action" in parsed) || parsed.action !== input.request.action
+            : "action" in parsed))
+      ) {
         finish({
           type: "failure",
           error: new Error("The desktop app response did not match this request."),

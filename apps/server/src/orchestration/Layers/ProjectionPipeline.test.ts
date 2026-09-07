@@ -1,3 +1,5 @@
+import * as WorktreeOperationGuard from "../../project/WorktreeOperationGuard.ts";
+import { noProjectSettleScripts } from "../../project/ProjectSettleScriptRunner.testing.ts";
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -3881,6 +3883,8 @@ it.effect("restores pending turn-start metadata across projection pipeline resta
 
 const engineLayer = it.layer(
   OrchestrationEngineLive.pipe(
+    Layer.provide(WorktreeOperationGuard.layer),
+    Layer.provide(noProjectSettleScripts),
     Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
     Layer.provide(ThreadBackgroundLiveness.layer),
     Layer.provide(ThreadPlanProgress.layer),

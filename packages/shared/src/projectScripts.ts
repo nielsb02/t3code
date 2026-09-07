@@ -55,3 +55,14 @@ export function projectScriptRuntimeEnv(
 export function setupProjectScript(scripts: readonly ProjectScript[]): ProjectScript | null {
   return scripts.find((script) => script.runOnWorktreeCreate) ?? null;
 }
+
+/** Destructive lifecycle actions require project opt-in; machine defaults never opt projects in. */
+export function settleProjectScripts(
+  settings: Pick<ServerSettings, "projectScriptOverrides">,
+  project: { id: ProjectId; scripts: readonly ProjectScript[] },
+): readonly ProjectScript[] {
+  const override = settings.projectScriptOverrides[project.id];
+  return (override === null ? [] : (override ?? project.scripts)).filter(
+    (script) => script.runOnThreadSettle === true,
+  );
+}

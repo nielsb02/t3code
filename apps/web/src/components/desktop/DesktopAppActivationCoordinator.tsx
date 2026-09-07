@@ -7,6 +7,7 @@ import { handleDesktopAppActivationRequest } from "../../desktopAppActivation";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { findProjectByPath, inferProjectTitleFromPath } from "../../lib/projectPaths";
 import { newProjectId } from "../../lib/utils";
+import { executeMicroControl } from "../../microControls";
 import { readProjects, readThreadShell, waitForProject } from "../../state/entities";
 import { useEnvironments, usePrimaryEnvironment } from "../../state/environments";
 import { projectEnvironment } from "../../state/projects";
@@ -36,6 +37,7 @@ export function DesktopAppActivationCoordinator() {
 
   const processRequest = useEffectEvent(async (request: DesktopAppActivationRequest) =>
     handleDesktopAppActivationRequest(request, {
+      executeMicroControl: (action) => document.hasFocus() && executeMicroControl(action),
       isEnvironmentConnected: (environmentId) =>
         environments.some(
           (environment) =>
