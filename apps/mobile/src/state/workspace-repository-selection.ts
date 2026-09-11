@@ -11,3 +11,24 @@ export function resolveWorkspaceGitCwd(
       ?.cwd ?? null
   );
 }
+
+export interface WorkspaceRepositorySelection {
+  readonly path: string | null;
+  readonly diffPath: string | null;
+}
+
+export function updateWorkspaceRepositorySelection(
+  current: WorkspaceRepositorySelection,
+  path: string | null,
+): WorkspaceRepositorySelection {
+  return { path: path ?? current.path, diffPath: path };
+}
+
+export function resolveWorkspaceRepositoryFilter(
+  selectedPath: string | null,
+  repositories: readonly Pick<WorkspaceRepository, "path" | "available">[],
+): string | null {
+  return repositories.some((repository) => repository.path === selectedPath && repository.available)
+    ? selectedPath
+    : null;
+}

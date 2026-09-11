@@ -65,6 +65,7 @@ export const make = Effect.gen(function* () {
           command: "git",
           cwd: at,
           args,
+          env: { LC_ALL: "C" },
           allowNonZeroExit: true,
           timeoutMs: 10_000,
         });
@@ -100,10 +101,15 @@ export const make = Effect.gen(function* () {
         includeMissing: boolean,
       ) {
         const at = resolve(relative);
-        if (!at || at === root)
+        if (!at)
           return yield* new WorkspaceRepositoryDiscoveryError({
             cwd,
             message: `Repository path '${relative}' must stay inside the workspace.`,
+          });
+        if (at === root)
+          return yield* new WorkspaceRepositoryDiscoveryError({
+            cwd,
+            message: `Repository path '${relative}' resolves to the workspace root, which is already included.`,
           });
         if ((yield* fs.exists(at)) && !(yield* safeExisting(at))) return;
         const isAvailable = yield* available(at);

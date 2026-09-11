@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
-import { resolveWorkspaceGitCwd } from "./workspace-repository-selection";
+import {
+  resolveWorkspaceRepositoryFilter,
+  updateWorkspaceRepositorySelection,
+  resolveWorkspaceGitCwd,
+} from "./workspace-repository-selection";
 
 describe("workspace Git target", () => {
   const repositories = [
@@ -19,5 +23,36 @@ describe("workspace Git target", () => {
         { ...repositories[1]!, available: false },
       ]),
     ).toBeNull();
+  });
+  it("keeps review and Git on a specific repository while All preserves the Git target", () => {
+    const child = updateWorkspaceRepositorySelection(
+      { path: null, diffPath: null },
+      "projects/api",
+    );
+    expect(resolveWorkspaceGitCwd("/workspace", child.path, repositories)).toBe(
+      "/workspace/projects/api",
+    );
+    expect(resolveWorkspaceRepositoryFilter(child.diffPath, repositories)).toBe("projects/api");
+    const all = updateWorkspaceRepositorySelection(child, null);
+    expect(resolveWorkspaceRepositoryFilter(all.diffPath, repositories)).toBeNull();
+    expect(resolveWorkspaceGitCwd("/workspace", all.path, repositories)).toBe(
+      "/workspace/projects/api",
+    );
+    const root = updateWorkspaceRepositorySelection(all, ".");
+    expect(resolveWorkspaceRepositoryFilter(root.diffPath, repositories)).toBe(".");
+    expect(resolveWorkspaceGitCwd("/workspace", root.path, repositories)).toBe("/workspace");
+  });
+  it("falls back to All for unavailable review targets without redirecting Git actions", () => {
+    const selected = updateWorkspaceRepositorySelection(
+      { path: null, diffPath: null },
+      "projects/api",
+    );
+    for (const available of [
+      repositories.slice(0, 1),
+      repositories.map((repo) => ({ ...repo, available: repo.path === "." })),
+    ]) {
+      expect(resolveWorkspaceRepositoryFilter(selected.diffPath, available)).toBeNull();
+      expect(resolveWorkspaceGitCwd("/workspace", selected.path, available)).toBeNull();
+    }
   });
 });

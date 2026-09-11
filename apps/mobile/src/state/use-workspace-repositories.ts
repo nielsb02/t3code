@@ -6,11 +6,16 @@ import { projectEnvironment } from "./projects";
 import { useEnvironmentQuery } from "./query";
 import { useThreadSelection } from "./use-thread-selection";
 import { useSelectedThreadWorktree } from "./use-selected-thread-worktree";
-import { resolveWorkspaceGitCwd } from "./workspace-repository-selection";
+import {
+  resolveWorkspaceRepositoryFilter,
+  updateWorkspaceRepositorySelection,
+  type WorkspaceRepositorySelection,
+  resolveWorkspaceGitCwd,
+} from "./workspace-repository-selection";
 
 const EMPTY_REPOSITORIES = Object.freeze([]);
 const selections = Atom.family((_key: string) =>
-  Atom.make<string | null>(null).pipe(Atom.keepAlive),
+  Atom.make<WorkspaceRepositorySelection>({ path: null, diffPath: null }).pipe(Atom.keepAlive),
 );
 
 export function useWorkspaceRepositories() {
@@ -31,9 +36,14 @@ export function useWorkspaceRepositories() {
   const selectionAtom = selections(
     JSON.stringify([selectedThread?.environmentId, selectedThread?.id, workspaceCwd]),
   );
-  const selectedPath = useAtomValue(selectionAtom);
+  const selection = useAtomValue(selectionAtom);
+  const selectedPath = selection.path;
   const selectRepository = useCallback(
-    (path: string) => appAtomRegistry.set(selectionAtom, path),
+    (path: string | null) =>
+      appAtomRegistry.set(
+        selectionAtom,
+        updateWorkspaceRepositorySelection(appAtomRegistry.get(selectionAtom), path),
+      ),
     [selectionAtom],
   );
   const repositories = query.data?.repositories ?? EMPTY_REPOSITORIES;
@@ -44,6 +54,7 @@ export function useWorkspaceRepositories() {
   );
   return {
     repositories,
+    repositoryFilter: resolveWorkspaceRepositoryFilter(selection.diffPath, repositories),
     selectedPath: selectedPath ?? ".",
     selectRepository,
     selectedThreadCwd: query.error ? null : selectedThreadCwd,

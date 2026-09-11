@@ -11,9 +11,11 @@ export function buildWorkspaceReviewDiff(
 ): ReviewParsedDiff {
   const files: Extract<ReviewParsedDiff, { kind: "files" }>["files"][number][] = [];
   const notices: string[] = [];
+  let hasRawPatch = false;
   for (const entry of entries) {
     const parsed = buildReviewParsedDiff(entry.diff, `${cacheScope}:${entry.path}`);
     if (parsed.kind === "raw") {
+      hasRawPatch = true;
       notices.push(`${entry.path}: ${parsed.reason}`);
       continue;
     }
@@ -28,6 +30,14 @@ export function buildWorkspaceReviewDiff(
         previousPath: file.previousPath ? `${prefix}${file.previousPath}` : null,
       });
     }
+  }
+  if (hasRawPatch) {
+    return {
+      kind: "raw",
+      text: entries.map((entry) => `Repository: ${entry.path}\n${entry.diff}`).join("\n\n"),
+      reason: notices.join("\n"),
+      notice: null,
+    };
   }
   if (files.length === 0 && notices.length === 0) return { kind: "empty" };
   return {

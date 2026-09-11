@@ -2161,33 +2161,69 @@ export const make = Effect.gen(function* () {
       if (input.refs.length === 0) return { stats: [] };
       const scoped = input.refs.filter((ref) => ref.workspace !== undefined);
       if (scoped.length > 0) {
+        const byScope = new Map<string, typeof scoped>();
+        for (const ref of scoped) {
+          const key = [
+            ref.projectId,
+            ref.workspace?.threadId,
+            ref.workspace?.repositoryPath,
+            ref.host ?? "",
+            ref.repository.trim().toLowerCase(),
+          ].join("\0");
+          const group = byScope.get(key);
+          if (group) group.push(ref);
+          else byScope.set(key, [ref]);
+        }
+        const resolved = yield* Effect.forEach(
+          [...byScope.values()],
+          Effect.fn(function* (refs) {
+            const project = yield* requireProject(refs[0]!).pipe(
+              Effect.orElseSucceed(() => undefined),
+            );
+            return project?.api.listChangeRequestStats ? [{ project, refs }] : [];
+          }),
+          { concurrency: REPOSITORY_CONCURRENCY },
+        );
+        const byCheckout = new Map<string, (typeof resolved)[number]>();
+        for (const entry of resolved.flat()) {
+          const key = `${entry.project.host}\0${entry.project.project.workspaceRoot}`;
+          const group = byCheckout.get(key);
+          if (group) group.push(entry);
+          else byCheckout.set(key, [entry]);
+        }
         const scopedStats = yield* Effect.forEach(
-          scoped,
-          Effect.fn(function* (ref) {
-            const project = yield* requireProject(ref).pipe(Effect.orElseSucceed(() => undefined));
-            if (!project?.api.listChangeRequestStats) return [];
-            return yield* project.api
-              .listChangeRequestStats({
-                cwd: project.project.workspaceRoot,
-                host: project.host,
-                changeRequests: [{ repository: project.repository, number: ref.number }],
-              })
-              .pipe(
-                Effect.map((stats) =>
-                  stats
-                    .filter(
-                      (stat) =>
-                        stat.number === ref.number &&
-                        stat.repository.toLowerCase() === project.repository.toLowerCase(),
-                    )
-                    .map((stat) => ({
-                      ...stat,
-                      projectId: ref.projectId,
-                      workspace: ref.workspace,
-                    })),
+          [...byCheckout.values()],
+          Effect.fn(function* (entries) {
+            const first = entries[0]!;
+            const readStats = first.project.api.listChangeRequestStats;
+            if (!readStats) return [];
+            return yield* readStats({
+              cwd: first.project.project.workspaceRoot,
+              host: first.project.host,
+              changeRequests: entries.flatMap(({ project, refs }) =>
+                refs.map((ref) => ({
+                  repository: project.repository,
+                  number: ref.number,
+                })),
+              ),
+            }).pipe(
+              Effect.map((stats) =>
+                stats.flatMap((stat) =>
+                  entries.flatMap(({ project, refs }) =>
+                    stat.repository.toLowerCase() === project.repository.toLowerCase()
+                      ? refs
+                          .filter((ref) => ref.number === stat.number)
+                          .map((ref) => ({
+                            ...stat,
+                            projectId: ref.projectId,
+                            workspace: ref.workspace,
+                          }))
+                      : [],
+                  ),
                 ),
-                Effect.orElseSucceed(() => []),
-              );
+              ),
+              Effect.orElseSucceed(() => []),
+            );
           }),
           { concurrency: REPOSITORY_CONCURRENCY },
         );

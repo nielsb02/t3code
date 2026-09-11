@@ -4,6 +4,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as RcMap from "effect/RcMap";
 import * as Schema from "effect/Schema";
@@ -23,7 +24,7 @@ import type {
 } from "@t3tools/contracts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { isExplicitRelativePath, isWindowsAbsolutePath } from "@t3tools/shared/path";
-import { normalizeSearchQuery } from "@t3tools/shared/searchRanking";
+import { normalizeSearchQuery, scoreSubsequenceMatch } from "@t3tools/shared/searchRanking";
 
 import { expandHomePathWith } from "../pathExpansion.ts";
 import * as WorkspaceRepositories from "./WorkspaceRepositories.ts";
@@ -139,6 +140,7 @@ const resolveBrowseTarget = Effect.fn("WorkspaceEntries.resolveBrowseTarget")(fu
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
+  const fileSystem = yield* FileSystem.FileSystem;
   const repositories = yield* WorkspaceRepositories.WorkspaceRepositories;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
   const workspaceSearchIndexes = yield* WorkspaceSearchIndex.WorkspaceSearchIndexMap;
@@ -163,24 +165,26 @@ export const make = Effect.gen(function* () {
   });
   const prefix = (repository: WorkspaceRepository, relative: string) =>
     repository.path === "." ? relative : `${repository.path}/${relative}`;
-  const owns = (
-    repository: WorkspaceRepository,
-    relative: string,
-    all: ReadonlyArray<WorkspaceRepository>,
-  ) => {
-    const fullPath = prefix(repository, relative);
-    return !all.some(
-      (child) =>
-        child.path !== repository.path &&
-        child.path !== "." &&
-        (fullPath === child.path || fullPath.startsWith(`${child.path}/`)) &&
-        (repository.path === "." || child.path.startsWith(`${repository.path}/`)),
-    );
+  const ownership = (repository: WorkspaceRepository, all: ReadonlyArray<WorkspaceRepository>) => {
+    const descendants = all
+      .filter(
+        (child) =>
+          child.path !== repository.path &&
+          child.path !== "." &&
+          (repository.path === "." || child.path.startsWith(`${repository.path}/`)),
+      )
+      .map((child) => child.path);
+    return (relative: string) => {
+      if (descendants.length === 0) return true;
+      const fullPath = prefix(repository, relative);
+      return !descendants.some((child) => fullPath === child || fullPath.startsWith(`${child}/`));
+    };
   };
 
   const refresh: WorkspaceEntries["Service"]["refresh"] = Effect.fn("WorkspaceEntries.refresh")(
     function* (cwd) {
       const normalizedCwd = yield* normalizeWorkspaceRoot(cwd).pipe(
+        Effect.flatMap((root) => fileSystem.realPath(root)),
         Effect.orElseSucceed(() => cwd),
       );
       const currentMembers = yield* members(normalizedCwd).pipe(
@@ -191,9 +195,12 @@ export const make = Effect.gen(function* () {
           }).pipe(Effect.as([])),
         ),
       );
-      for (const repository of currentMembers) {
+      for (const memberCwd of new Set([
+        normalizedCwd,
+        ...currentMembers.map((member) => member.cwd),
+      ])) {
         for (const variant of WorkspaceSearchIndex.WORKSPACE_SEARCH_INDEX_VARIANTS) {
-          const indexKey = WorkspaceSearchIndex.workspaceSearchIndexKey(repository.cwd, variant);
+          const indexKey = WorkspaceSearchIndex.workspaceSearchIndexKey(memberCwd, variant);
           if (!(yield* RcMap.has(workspaceSearchIndexes.rcMap, indexKey))) {
             continue;
           }
@@ -285,6 +292,7 @@ export const make = Effect.gen(function* () {
         (repository) =>
           Effect.gen(function* () {
             const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
+            const owns = ownership(repository, all);
             const repositoryPrefix = repository.path.toLowerCase();
             const localQuery =
               repository.path !== "." &&
@@ -299,9 +307,16 @@ export const make = Effect.gen(function* () {
             );
             return {
               ...result,
-              entries: result.entries
-                .filter((entry) => owns(repository, entry.path, all))
-                .map((entry) => ({ ...entry, path: prefix(repository, entry.path) })),
+              entries: result.entries.flatMap((entry, index) =>
+                owns(entry.path)
+                  ? [
+                      {
+                        entry: { ...entry, path: prefix(repository, entry.path) },
+                        score: result.scores[index] ?? 0,
+                      },
+                    ]
+                  : [],
+              ),
             };
           }).pipe(
             Effect.provide(
@@ -314,11 +329,23 @@ export const make = Effect.gen(function* () {
       );
       const entries = [
         ...new Map(
-          results.flatMap((result) => result.entries).map((entry) => [entry.path, entry]),
+          results.flatMap((result) => result.entries).map((ranked) => [ranked.entry.path, ranked]),
         ).values(),
       ];
+      if (input.kind !== "file" && !input.imageOnly) {
+        for (const repository of all) {
+          if (repository.path === ".") continue;
+          const score = scoreSubsequenceMatch(repository.path.toLowerCase(), query);
+          if (score !== null)
+            entries.push({
+              entry: { path: repository.path, kind: "directory" },
+              score: query === repository.path.toLowerCase() ? Number.MAX_SAFE_INTEGER : -score,
+            });
+        }
+      }
+      entries.sort((a, b) => b.score - a.score || a.entry.path.localeCompare(b.entry.path));
       return {
-        entries: entries.slice(0, input.limit),
+        entries: entries.slice(0, input.limit).map(({ entry }) => entry),
         truncated: entries.length > input.limit || results.some((result) => result.truncated),
       };
     },
@@ -333,11 +360,12 @@ export const make = Effect.gen(function* () {
       (repository) =>
         Effect.gen(function* () {
           const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
+          const owns = ownership(repository, all);
           const result = yield* searchIndex.searchContents(input);
           return {
             ...result,
             matches: result.matches
-              .filter((match) => owns(repository, match.path, all))
+              .filter((match) => owns(match.path))
               .map((match) => ({ ...match, path: prefix(repository, match.path) })),
           };
         }).pipe(
@@ -368,11 +396,12 @@ export const make = Effect.gen(function* () {
         (repository) =>
           Effect.gen(function* () {
             const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
+            const owns = ownership(repository, all);
             const result = yield* searchIndex.list();
             return {
               ...result,
               entries: result.entries
-                .filter((entry) => owns(repository, entry.path, all))
+                .filter((entry) => owns(entry.path))
                 .map((entry) => ({ ...entry, path: prefix(repository, entry.path) })),
             };
           }).pipe(

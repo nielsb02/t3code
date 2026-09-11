@@ -290,6 +290,8 @@ function projectFileFailureContext(
   readonly code?: string;
 } {
   switch (error._tag) {
+    case "WorkspaceFileChangedError":
+      return { failure: "file_changed" };
     case "WorkspacePathOutsideRootError":
       return { failure: "workspace_path_outside_root" };
     case "WorkspaceFileSystemOperationError":

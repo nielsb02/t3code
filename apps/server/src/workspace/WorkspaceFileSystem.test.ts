@@ -249,6 +249,64 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
   });
 
   describe("writeFile", () => {
+    it.effect("rejects stale and concurrently competing conditional writes", () =>
+      Effect.gen(function* () {
+        const files = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "t3.json", "original");
+        const outcomes = yield* Effect.all(
+          ["first", "second"].map((contents) =>
+            files
+              .writeFile({
+                cwd,
+                relativePath: "t3.json",
+                contents,
+                expectedContents: "original",
+              })
+              .pipe(Effect.result),
+          ),
+          { concurrency: 2 },
+        );
+        expect(outcomes.filter((result) => result._tag === "Success")).toHaveLength(1);
+        expect(outcomes.filter((result) => result._tag === "Failure")).toHaveLength(1);
+        const error = yield* files
+          .writeFile({
+            cwd,
+            relativePath: "t3.json",
+            contents: "stale",
+            expectedContents: "original",
+          })
+          .pipe(Effect.flip);
+        expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceFileChangedError);
+        expect((yield* files.readFile({ cwd, relativePath: "t3.json" })).contents).not.toBe(
+          "stale",
+        );
+      }),
+    );
+
+    it.effect("conditionally creates missing files without overwriting a newly created file", () =>
+      Effect.gen(function* () {
+        const files = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const cwd = yield* makeTempDir;
+        yield* files.writeFile({
+          cwd,
+          relativePath: "t3.json",
+          contents: "{}",
+          expectedContents: null,
+        });
+        const error = yield* files
+          .writeFile({
+            cwd,
+            relativePath: "t3.json",
+            contents: "overwrite",
+            expectedContents: null,
+          })
+          .pipe(Effect.flip);
+        expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceFileChangedError);
+        expect((yield* files.readFile({ cwd, relativePath: "t3.json" })).contents).toBe("{}");
+      }),
+    );
+
     it.effect("writes files relative to the workspace root", () =>
       Effect.gen(function* () {
         const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;

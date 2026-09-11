@@ -127,6 +127,35 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
         ).toEqual(["."]);
       }),
     );
+    it.effect("uses a stable locale for repository discovery diagnostics", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir();
+        const vcs = yield* VcsProcess.VcsProcess;
+        const calls = vi.spyOn(vcs, "run");
+        const entries = yield* WorkspaceEntries.WorkspaceEntries;
+        const result = yield* entries.listRepositories({ cwd });
+        expect(result.repositories).toMatchObject([{ path: ".", available: false }]);
+        const discoveryCalls = calls.mock.calls.filter(
+          ([input]) => input.operation === "WorkspaceRepositories.list",
+        );
+        expect(discoveryCalls.length).toBeGreaterThan(0);
+        for (const [input] of discoveryCalls) expect(input.env).toMatchObject({ LC_ALL: "C" });
+      }),
+    );
+    it.effect("explains that configured paths resolving to the root are already included", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir();
+        const entries = yield* WorkspaceEntries.WorkspaceEntries;
+        for (const relative of [".", "./"]) {
+          yield* writeTextFile(cwd, "t3.json", `{"repositories":{"paths":["${relative}"]}}`);
+          const error = yield* entries.listRepositories({ cwd }).pipe(Effect.flip);
+          expect(error).toMatchObject({
+            _tag: "WorkspaceRepositoryDiscoveryError",
+            message: `Repository path '${relative}' resolves to the workspace root, which is already included.`,
+          });
+        }
+      }),
+    );
     it.effect("discovers initialized nested submodules through their declarations", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTempDir({ git: true });
@@ -192,6 +221,65 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
         ]);
       }),
     );
+    it.effect("ranks matches across repositories and includes configured directory roots", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ git: true });
+        const path = yield* Path.Path;
+        yield* writeTextFile(cwd, "t3.json", '{"repositories":{"paths":["projects/app"]}}');
+        yield* writeTextFile(cwd, ".gitignore", "projects/\n");
+        yield* writeTextFile(cwd, "docs/target-old.txt");
+        yield* writeTextFile(cwd, "projects/app/target.txt");
+        yield* git(path.join(cwd, "projects/app"), ["init"]);
+        const entries = yield* WorkspaceEntries.WorkspaceEntries;
+        const ranked = yield* entries.search({ cwd, query: "target.txt", limit: 1, kind: "file" });
+        expect(ranked.entries).toEqual([{ path: "projects/app/target.txt", kind: "file" }]);
+        expect(ranked.entries[0]).not.toHaveProperty("score");
+        expect(ranked.truncated).toBe(true);
+        for (const kind of [undefined, "directory"] as const) {
+          const result = yield* entries.search({
+            cwd,
+            query: "projects/app",
+            limit: 10,
+            ...(kind ? { kind } : {}),
+          });
+          expect(result.entries).toContainEqual({ path: "projects/app", kind: "directory" });
+        }
+        const files = yield* entries.search({
+          cwd,
+          query: "projects/app",
+          limit: 10,
+          kind: "file",
+        });
+        expect(files.entries).toEqual([{ path: "projects/app/target.txt", kind: "file" }]);
+        const images = yield* entries.search({
+          cwd,
+          query: "projects/app",
+          limit: 10,
+          imageOnly: true,
+        });
+        expect(images.entries).toEqual([]);
+      }),
+    );
+    it.effect("refreshes the normalized root index when repository discovery fails", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir();
+        yield* writeTextFile(cwd, "file.txt");
+        const entries = yield* WorkspaceEntries.WorkspaceEntries;
+        yield* entries.list({ cwd });
+        yield* entries.searchContents({
+          cwd,
+          query: "needle",
+          limit: 10,
+          caseSensitive: false,
+          wholeWord: false,
+          useRegex: false,
+        });
+        yield* writeTextFile(cwd, "t3.json", '{"repositories":{"paths":["../escape"]}}');
+        const scan = vi.spyOn(FileFinder.prototype, "scanFiles");
+        yield* entries.refresh(`${cwd}/.`);
+        expect(scan).toHaveBeenCalledTimes(2);
+      }),
+    );
     it.effect("discovers only configured direct repository roots and updates membership", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTempDir({ git: true });
@@ -222,16 +310,17 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
         expect((yield* entries.search({ cwd, query: "App.ts", limit: 10 })).entries).toContainEqual(
           { path: "projects/app/src/App.ts", kind: "file" },
         );
-        expect(
-          (yield* entries.searchContents({
-            cwd,
-            query: "needle",
-            limit: 10,
-            caseSensitive: false,
-            wholeWord: false,
-            useRegex: false,
-          })).matches[0]?.path,
-        ).toBe("projects/app/src/App.ts");
+        const contentResult = yield* entries.searchContents({
+          cwd,
+          query: "needle",
+          limit: 10,
+          caseSensitive: false,
+          wholeWord: false,
+          useRegex: false,
+        });
+        expect(contentResult.matches.map((match) => match.path)).toEqual([
+          "projects/app/src/App.ts",
+        ]);
         yield* fs.remove(path.join(cwd, "projects/app"), { recursive: true });
         expect(
           (yield* entries.listRepositories({ cwd })).repositories.map((repo) => repo.path),
@@ -245,11 +334,11 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
           const cwd = yield* makeTempDir();
           const entries = yield* WorkspaceEntries.WorkspaceEntries;
           yield* writeTextFile(cwd, "t3.json", '{"repositories":{"paths":["../other"]}}');
-          const escaping = yield* entries.listRepositories({ cwd }).pipe(Effect.result);
-          expect(escaping._tag).toBe("Failure");
+          const escaping = yield* entries.listRepositories({ cwd }).pipe(Effect.flip);
+          expect(escaping._tag).toBe("WorkspaceRepositoryDiscoveryError");
           yield* writeTextFile(cwd, "t3.json", '{"repositories":{"paths":["projects/**"]}}');
-          const recursive = yield* entries.list({ cwd }).pipe(Effect.result);
-          expect(recursive._tag).toBe("Failure");
+          const recursive = yield* entries.list({ cwd }).pipe(Effect.flip);
+          expect(recursive._tag).toBe("WorkspaceRepositoryDiscoveryError");
         }),
     );
     it.effect(

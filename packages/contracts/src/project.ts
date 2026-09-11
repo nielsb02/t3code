@@ -233,6 +233,7 @@ export const ProjectFileFailure = Schema.Literals([
   "resolved_path_outside_root",
   "path_not_file",
   "binary_file",
+  "file_changed",
   "operation_failed",
 ]);
 export type ProjectFileFailure = typeof ProjectFileFailure.Type;
@@ -288,6 +289,7 @@ export class ProjectReadFileError extends Schema.TaggedError<ProjectReadFileErro
 }
 
 export const ProjectWriteFileInput = Schema.Struct({
+  expectedContents: Schema.optionalKey(Schema.NullOr(Schema.String)),
   cwd: TrimmedNonEmptyString,
   relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
   contents: Schema.String,
@@ -320,7 +322,9 @@ export class ProjectWriteFileError extends Schema.TaggedError<ProjectWriteFileEr
       ...props,
       message:
         decodedProjectErrorMessage(props) ??
-        `Failed to write workspace file '${props.relativePath}' in '${props.cwd}'.`,
+        (props.failure === "file_changed"
+          ? `Workspace file '${props.relativePath}' changed since it was read. Reload it and try again.`
+          : `Failed to write workspace file '${props.relativePath}' in '${props.cwd}'.`),
     } as any);
   }
 }

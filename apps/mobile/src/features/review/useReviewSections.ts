@@ -1,7 +1,7 @@
 import { useFocusEffect } from "@react-navigation/native";
 import { useWorkspaceRepositories } from "../../state/use-workspace-repositories";
 import { useWorkspaceReviewSources } from "./useWorkspaceReviewSources";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import type { EnvironmentId, OrchestrationCheckpointSummary, ThreadId } from "@t3tools/contracts";
 
@@ -40,11 +40,7 @@ export function useReviewSections(input: {
       if (enabled) refreshRepositories();
     }, [enabled, refreshRepositories]),
   );
-  const [filter, setFilter] = useState<{ cwd: string | null; path: string | null }>({
-    cwd: null,
-    path: null,
-  });
-  const repositoryFilter = filter.cwd === selectedThreadCwd ? filter.path : null;
+  const repositoryFilter = workspace.repositoryFilter;
   const repositories = useMemo(
     () =>
       workspace.repositories.length
@@ -238,7 +234,7 @@ export function useReviewSections(input: {
   return {
     repositories,
     repositoryFilter,
-    selectRepositoryFilter: (path: string | null) => setFilter({ cwd: selectedThreadCwd, path }),
+    selectRepositoryFilter: workspace.selectRepository,
     error:
       workspace.repositoryError ??
       diffPreview.error ??

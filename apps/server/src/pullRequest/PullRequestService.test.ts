@@ -4667,6 +4667,7 @@ for (const invalid of ["thread", "path", "unavailable", "identity", "host"] as c
 it.effect("keeps scoped summary, activity, diff and stats reads in their checkout", () =>
   Effect.gen(function* () {
     const reads: string[] = [];
+    const statsRequests: number[][] = [];
     const service = yield* makeService({
       projects: [project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper" })],
       threads: [scopedThread, { ...scopedThread, id: "t2" as ThreadId, worktreePath: "/other" }],
@@ -4700,16 +4701,17 @@ it.effect("keeps scoped summary, activity, diff and stats reads in their checkou
             reads.push(`diff:${cwd}`);
             return Effect.succeed({ patch: cwd, truncated: false, nextCursor: null });
           },
-          listChangeRequestStats: ({ cwd }) => {
+          listChangeRequestStats: ({ cwd, changeRequests }) => {
+            statsRequests.push(changeRequests.map((ref) => ref.number));
             reads.push(`stats:${cwd}`);
-            return Effect.succeed([
-              {
+            return Effect.succeed(
+              changeRequests.map(({ number }) => ({
                 repository: "org/app",
-                number: 1,
+                number,
                 additions: cwd === "/task/projects/app" ? 10 : 20,
                 deletions: 0,
-              },
-            ]);
+              })),
+            );
           },
         }),
       ],
@@ -4726,15 +4728,18 @@ it.effect("keeps scoped summary, activity, diff and stats reads in their checkou
       yield* service.diff(ref);
       yield* service.diff(ref);
     }
-    const stats = yield* service.listStats({ refs });
+    const statsRefs = [...refs, { ...scopedRef, number: 2 }];
+    const stats = yield* service.listStats({ refs: statsRefs });
     assert.deepStrictEqual(
       stats.stats.map((stat) => [stat.workspace?.threadId, stat.additions]),
       [
         ["t1" as ThreadId, 10],
+        ["t1" as ThreadId, 10],
         ["t2" as ThreadId, 20],
       ],
     );
-    yield* service.listStats({ refs });
+    yield* service.listStats({ refs: statsRefs });
+    assert.deepStrictEqual(statsRequests, [[1, 2], [1]]);
     for (const kind of ["summary", "activity", "diff", "stats"])
       assert.deepStrictEqual(
         reads.filter((read) => read.startsWith(`${kind}:`)),
