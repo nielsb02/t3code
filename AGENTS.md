@@ -165,3 +165,14 @@ Full glossary with file links: `docs/internals/glossary.md`
 
 - Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
+
+## Fork Mermaid rendering and upstream merges
+
+This fork adds Mermaid rendering with an expandable pan/zoom canvas, based on
+upstream PR [#11189](https://github.com/pingdotgg/t3code/pull/11189). A future
+native upstream implementation may replace it. If an upstream merge conflicts
+with or duplicates this feature, stop before resolving that choice and ask the
+maintainer whether to keep our implementation as an override or adopt upstream.
+Do not silently pick either side or combine both renderers. Explain differences
+in expansion, pan/zoom, streaming, source fallback, and security before asking.
+See [the fork maintenance guide](docs/operations/micro-fork.md#mermaid-rendering).

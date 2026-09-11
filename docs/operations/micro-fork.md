@@ -61,3 +61,20 @@ Push the fix to this fork's `main` and run **Micro desktop release** again. The
 workflow and retained releases provide the source commit and build version for
 each download. Changes to this fork's own workflow are maintained directly;
 they are not replaced by upstream sync.
+
+## Mermaid rendering
+
+The fork renders completed Mermaid code blocks in web and desktop chat, with an
+expandable canvas, drag navigation, zoom controls, and keyboard navigation. It is
+based on [upstream PR #11189](https://github.com/pingdotgg/t3code/pull/11189).
+Native mobile continues to show source.
+
+This is a fork override that may be replaced by a future native upstream feature.
+When an upstream merge creates a conflict or introduces overlapping Mermaid
+support, ask the maintainer to choose whether to retain this implementation as
+an override or adopt upstream. Do not automatically discard our canvas or keep
+two renderers. Present the relevant behavior differences, including expansion,
+pan/zoom, streaming, source fallback, and security, before requesting the choice.
+Record the decision here and update the corresponding AGENTS.md rule if the
+override is retired. A clean textual merge does not remove this decision point
+when both implementations would handle the same blocks.
