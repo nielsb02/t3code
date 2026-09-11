@@ -21,6 +21,7 @@ const RIGHT_PANEL_KINDS = [
   "preview",
   "terminal",
   "pull-request",
+  "workspace-pull-requests",
   "agents",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
@@ -66,6 +67,7 @@ export type RightPanelSurface =
       repository: string;
       number: number;
     }
+  | { id: "workspace-pull-requests"; kind: "workspace-pull-requests" }
   | { id: "agents"; kind: "agents" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
@@ -153,6 +155,8 @@ const singletonSurface = (
       return { id: "files", kind };
     case "agents":
       return { id: "agents", kind };
+    case "workspace-pull-requests":
+      return { id: "workspace-pull-requests", kind };
   }
 };
 

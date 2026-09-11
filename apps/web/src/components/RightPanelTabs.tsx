@@ -600,6 +600,8 @@ function surfaceTitle(
         terminalLabelsById.get(surface.activeTerminalId) ??
         getTerminalLabel(surface.activeTerminalId)
       );
+    case "workspace-pull-requests":
+      return "Pull requests";
     case "pull-request":
       return `#${surface.number}`;
     case "agents":
@@ -683,6 +685,8 @@ function SurfaceIcon({
           seed={pullRequestStatusSeeds?.[surface.id]}
         />
       );
+    case "workspace-pull-requests":
+      return <GitPullRequest className="size-3 shrink-0" />;
     case "agents":
       return <Bot className="size-3 shrink-0" />;
   }

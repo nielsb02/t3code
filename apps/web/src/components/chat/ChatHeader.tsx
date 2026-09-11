@@ -18,6 +18,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
@@ -65,6 +66,8 @@ interface ChatHeaderProps {
   availableEditors: ReadonlyArray<EditorId>;
   rightPanelOpen: boolean;
   gitCwd: string | null;
+  gitRepositorySelector?: ReactNode;
+  syncThreadBranch?: boolean;
   readonly onOpenPullRequest?: ((number: number) => void) | undefined;
   onNewThreadInProject: () => void;
   onOpenProjectSettings?: (() => void) | undefined;
@@ -137,6 +140,8 @@ export const ChatHeader = memo(function ChatHeader({
   availableEditors,
   rightPanelOpen,
   gitCwd,
+  gitRepositorySelector,
+  syncThreadBranch,
   onOpenPullRequest,
   onNewThreadInProject,
   onOpenProjectSettings,
@@ -439,9 +444,12 @@ export const ChatHeader = memo(function ChatHeader({
             openInCwd={openInCwd}
           />
         )}
+        {gitRepositorySelector}
         {activeProjectName && (
           <GitActionsControl
+            key={gitCwd}
             gitCwd={gitCwd}
+            syncThreadBranch={syncThreadBranch ?? true}
             activeThreadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
             onOpenPullRequest={onOpenPullRequest}
             {...(draftId ? { draftId } : {})}

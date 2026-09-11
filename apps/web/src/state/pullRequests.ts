@@ -60,6 +60,7 @@ export function useSharedPullRequestSummary(
           reference.projectId,
           reference.repository.toLowerCase(),
           reference.number,
+          reference.workspace ?? null,
         ]);
   const atom = observedPullRequestSummaryAtom(key);
   const observed = useAtomValue(atom);
