@@ -2146,6 +2146,11 @@ export const make = Effect.gen(function* () {
       }),
     );
 
+  // The public stats omit host, but cache recording must retain the reference that passed validation.
+  type ValidatedPullRequestDiffStat = PullRequestDiffStat & {
+    readonly requestedHost?: string | null;
+  };
+
   /**
    * The line counts for rows already on the page, which the listing left out because on GitHub
    * they cost more than everything else on the row put together.
@@ -2156,7 +2161,14 @@ export const make = Effect.gen(function* () {
    * remote points at, is dropped rather than refused: it is one row's two numbers, and the page
    * that asked has already moved on.
    */
-  const listStatsUncached: PullRequestService["Service"]["listStats"] = (input) =>
+  const listStatsUncached = (
+    input: PullRequestListStatsInput,
+  ): Effect.Effect<
+    {
+      readonly stats: ReadonlyArray<ValidatedPullRequestDiffStat>;
+    },
+    PullRequestError
+  > =>
     Effect.gen(function* () {
       if (input.refs.length === 0) return { stats: [] };
       const scoped = input.refs.filter((ref) => ref.workspace !== undefined);
@@ -2217,6 +2229,7 @@ export const make = Effect.gen(function* () {
                             ...stat,
                             projectId: ref.projectId,
                             workspace: ref.workspace,
+                            requestedHost: ref.host?.trim().toLowerCase() ?? null,
                           }))
                       : [],
                   ),
@@ -2776,11 +2789,14 @@ export const make = Effect.gen(function* () {
     (key: string) => {
       const [, refs] = JSON.parse(key) as [
         number,
-        ReadonlyArray<[string, string, number, number, PullRequestRef["workspace"] | null]>,
+        ReadonlyArray<
+          [string, string | null, string, number, number, PullRequestRef["workspace"] | null]
+        >,
       ];
       return listStatsUncached({
-        refs: refs.map(([projectId, repository, number, , workspace]) => ({
+        refs: refs.map(([projectId, host, repository, number, , workspace]) => ({
           projectId,
+          ...(host === null ? {} : { host }),
           repository,
           number,
           ...(workspace ? { workspace } : {}),
@@ -2804,15 +2820,14 @@ export const make = Effect.gen(function* () {
           (ref) =>
             [
               ref.projectId,
+              ref.host?.trim().toLowerCase() ?? null,
               ref.repository,
               ref.number,
               refEpoch(ref),
               ref.workspace ?? null,
             ] as const,
         )
-        .toSorted((left, right) =>
-          `${left[0]} ${left[1]} ${left[2]}`.localeCompare(`${right[0]} ${right[1]} ${right[2]}`),
-        ),
+        .toSorted((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
     ]);
   // Exact batches share in-flight reads; overlapping pages reuse each row already fetched.
   const listStats: PullRequestService["Service"]["listStats"] = Effect.fn(
@@ -2840,11 +2855,24 @@ export const make = Effect.gen(function* () {
           stat.projectId === ref.projectId &&
           stat.repository.toLowerCase() === ref.repository.toLowerCase() &&
           stat.number === ref.number &&
-          JSON.stringify(stat.workspace ?? null) === JSON.stringify(ref.workspace ?? null),
+          JSON.stringify(stat.workspace ?? null) === JSON.stringify(ref.workspace ?? null) &&
+          (ref.workspace === undefined ||
+            stat.requestedHost === (ref.host?.trim().toLowerCase() ?? null)),
       );
-      if (stat !== undefined) recordStats(key, stat, at);
+      if (stat !== undefined) {
+        const { requestedHost: _, ...value } = stat;
+        recordStats(key, value, at);
+      }
     }
-    return { stats: [...held, ...result.stats] };
+    return {
+      stats: [
+        ...held,
+        ...result.stats.map((stat) => {
+          const { requestedHost: _, ...value } = stat;
+          return value;
+        }),
+      ],
+    };
   });
 
   const invalidate: PullRequestService["Service"]["invalidate"] = (input) => {

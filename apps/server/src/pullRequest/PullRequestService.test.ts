@@ -4748,6 +4748,66 @@ it.effect("keeps scoped summary, activity, diff and stats reads in their checkou
   }),
 );
 
+for (const validHost of [undefined, "GITHUB.COM"] as const) {
+  it.effect(
+    `keeps mismatched scoped stats hosts out of reads and caches (${validHost ?? "implicit"})`,
+    () =>
+      Effect.gen(function* () {
+        const reads: string[] = [];
+        const service = yield* makeService({
+          projects: [project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper" })],
+          threads: [scopedThread],
+          repositories: () => [
+            {
+              path: "projects/app",
+              name: "app",
+              cwd: "/task/projects/app",
+              kind: "repository",
+              available: true,
+              repositoryIdentity: appIdentity,
+            },
+          ],
+          providers: [
+            fakeProvider("github", {
+              listChangeRequestStats: ({ host, changeRequests }) => {
+                reads.push(host);
+                return Effect.succeed(
+                  changeRequests.map(({ repository, number }) => ({
+                    repository,
+                    number,
+                    additions: 10,
+                    deletions: 2,
+                  })),
+                );
+              },
+            }),
+          ],
+        });
+        const invalid = { ...scopedRef, host: "other.example" };
+        const valid = { ...scopedRef, ...(validHost === undefined ? {} : { host: validHost }) };
+        assert.deepStrictEqual(yield* service.listStats({ refs: [invalid] }), { stats: [] });
+        assert.deepStrictEqual(reads, []);
+        const expected = {
+          stats: [
+            {
+              projectId: scopedRef.projectId,
+              repository: scopedRef.repository,
+              number: scopedRef.number,
+              workspace: scopedRef.workspace,
+              additions: 10,
+              deletions: 2,
+            },
+          ],
+        };
+        assert.deepStrictEqual(yield* service.listStats({ refs: [invalid, valid] }), expected);
+        assert.deepStrictEqual(yield* service.listStats({ refs: [invalid] }), { stats: [] });
+        assert.deepStrictEqual(yield* service.listStats({ refs: [valid] }), expected);
+        assert.deepStrictEqual(yield* service.listStats({ refs: [valid, invalid] }), expected);
+        assert.deepStrictEqual(reads, ["github.com"]);
+      }),
+  );
+}
+
 it.effect("publishes child repository merges with their workspace scope", () =>
   Effect.scoped(
     Effect.gen(function* () {

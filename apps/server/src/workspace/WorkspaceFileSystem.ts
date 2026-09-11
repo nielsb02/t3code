@@ -56,6 +56,8 @@ export class WorkspaceFileSystemOperationError extends Schema.TaggedError<Worksp
   }
 }
 
+const isWorkspaceFileSystemOperationError = Schema.is(WorkspaceFileSystemOperationError);
+
 export class WorkspaceFilePathEscapeError extends Schema.TaggedError<WorkspaceFilePathEscapeError>()(
   "WorkspaceFilePathEscapeError",
   {
@@ -339,13 +341,18 @@ export const make = Effect.gen(function* () {
       .withPermits(1)(
         Effect.gen(function* () {
           if (input.expectedContents !== undefined) {
-            const current = yield* fileSystem.readFileString(target.absolutePath).pipe(
+            const current = yield* readFile(input).pipe(
               Effect.catchIf(
-                (error) => error.reason._tag === "NotFound",
+                (error) =>
+                  isWorkspaceFileSystemOperationError(error) &&
+                  (error.operation === "realpath-target" || error.operation === "open") &&
+                  error.cause instanceof Error &&
+                  "code" in error.cause &&
+                  error.cause.code === "ENOENT",
                 () => Effect.succeed(null),
               ),
             );
-            if (current !== input.expectedContents) {
+            if (current?.truncated || (current?.contents ?? null) !== input.expectedContents) {
               return yield* new WorkspaceFileChangedError({ relativePath: input.relativePath });
             }
           }
