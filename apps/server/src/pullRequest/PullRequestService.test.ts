@@ -4616,7 +4616,7 @@ it.effect("reads child PRs from the active workspace and separates checkout cach
   }),
 );
 
-for (const invalid of ["thread", "path", "unavailable", "identity"] as const) {
+for (const invalid of ["thread", "path", "unavailable", "identity", "host"] as const) {
   it.effect(`refuses scoped PR access with invalid ${invalid}`, () =>
     Effect.gen(function* () {
       let reads = 0;
@@ -4654,10 +4654,11 @@ for (const invalid of ["thread", "path", "unavailable", "identity"] as const) {
           }),
         ],
       });
-      const result = yield* Effect.result(service.detail(scopedRef));
+      const reference = { ...scopedRef, ...(invalid === "host" ? { host: "other.example" } : {}) };
+      const result = yield* Effect.result(service.detail(reference));
       assert.strictEqual(result._tag, "Failure");
       assert.strictEqual(reads, 0);
-      const action = yield* Effect.result(service.runAction({ ...scopedRef, action: "merge" }));
+      const action = yield* Effect.result(service.runAction({ ...reference, action: "merge" }));
       assert.strictEqual(action._tag, "Failure");
     }),
   );

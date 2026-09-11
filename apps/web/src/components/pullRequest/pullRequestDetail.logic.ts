@@ -1053,9 +1053,10 @@ const pullRequestDetailSnapshotKey = (
   environmentId: string,
   reference: PullRequestDetailSnapshotRef,
 ) =>
-(reference.host
+  (reference.host
     ? `t3.pullRequests.detail:${JSON.stringify([environmentId, reference.projectId, reference.host.toLowerCase(), reference.repository.toLowerCase(), reference.number])}`
-    : `t3.pullRequests.detail:${environmentId}:${reference.projectId}:${reference.repository}#${reference.number}`) + (reference.workspace ? `:${JSON.stringify(reference.workspace)}` : "");
+    : `t3.pullRequests.detail:${environmentId}:${reference.projectId}:${reference.repository}#${reference.number}`) +
+  (reference.workspace ? `:${JSON.stringify(reference.workspace)}` : "");
 
 const decodeDetailSnapshot = Schema.decodeUnknownOption(PullRequestDetail);
 

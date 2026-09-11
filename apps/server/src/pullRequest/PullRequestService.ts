@@ -682,7 +682,9 @@ export const make = Effect.gen(function* () {
    * targeting can fall back to another checkout on the host. Azure derives its organization
    * from the checkout, so it requires a matching repository.
    */
-  const requireUnscopedProject = (ref: PullRequestRef): Effect.Effect<SupportedProject, PullRequestError> =>
+  const requireUnscopedProject = (
+    ref: PullRequestRef,
+  ): Effect.Effect<SupportedProject, PullRequestError> =>
     listWorkspaceProjects({ projectId: ref.projectId }).pipe(
       Effect.flatMap(({ supported }): Effect.Effect<SupportedProject, PullRequestError> => {
         const own = supported[0];
@@ -742,7 +744,9 @@ export const make = Effect.gen(function* () {
       }),
     );
 
-  const requireProject = Effect.fn("PullRequestService.requireProject")(function* (ref: PullRequestRef): Effect.fn.Return<SupportedProject, PullRequestError> {
+  const requireProject = Effect.fn("PullRequestService.requireProject")(function* (
+    ref: PullRequestRef,
+  ): Effect.fn.Return<SupportedProject, PullRequestError> {
     if (ref.workspace === undefined) return yield* requireUnscopedProject(ref);
     const invalid = (detail: string) =>
       new PullRequestOperationError({ operation: "resolveRepository", detail });
@@ -782,7 +786,7 @@ export const make = Effect.gen(function* () {
       workspaceRoot: member.cwd,
       repositoryIdentity: member.repositoryIdentity,
     };
-    const repository = repositoryIdentityOf(project);
+    const repository = sourceControlRepositorySelector(project.repositoryIdentity);
     if (!repository || repository.toLowerCase() !== ref.repository.trim().toLowerCase())
       return yield* invalid("The change request does not belong to the selected repository.");
     const refined = yield* refineUnknownProjectKinds([project], {});
@@ -798,7 +802,13 @@ export const make = Effect.gen(function* () {
     const host = pullRequestHostOf(identity, kind);
     if (ref.host !== undefined && ref.host.trim().toLowerCase() !== host)
       return yield* invalid("The change request host does not match the selected repository.");
-    return { project, repository, host, api: withRateLimitBackoff(api, host, rateLimits) };
+    return {
+      project,
+      repository,
+      host,
+      cursorKey: listCursorKey(host, kind === "azure-devops" ? identity.canonicalKey : repository),
+      api: withRateLimitBackoff(api, host, rateLimits),
+    };
   });
 
   /**
@@ -2364,7 +2374,13 @@ export const make = Effect.gen(function* () {
   const refEpochs = new Map<string, number>();
   const REF_EPOCH_CAPACITY = 2_048;
   const refScope = (ref: PullRequestRef) =>
-    JSON.stringify([ref.projectId, ref.host?.toLowerCase() ?? null, ref.repository.toLowerCase(), ref.number, ref.workspace ?? null]);
+    JSON.stringify([
+      ref.projectId,
+      ref.host?.toLowerCase() ?? null,
+      ref.repository.toLowerCase(),
+      ref.number,
+      ref.workspace ?? null,
+    ]);
   const refEpoch = (ref: PullRequestRef) =>
     Math.max(turnRefreshEpoch, refEpochs.get(refScope(ref)) ?? 0);
   // Keys carry the reference back out of the cache loader, so the slot layout is shared with
@@ -2671,7 +2687,9 @@ export const make = Effect.gen(function* () {
 
   const diffCache = yield* Cache.makeWith(
     (key: string) => {
-      const [, projectId, host, repository, number, cursor, commit, , workspace] = JSON.parse(key) as [
+      const [, projectId, host, repository, number, cursor, commit, , workspace] = JSON.parse(
+        key,
+      ) as [
         number,
         string,
         string | null,

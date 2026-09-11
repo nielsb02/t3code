@@ -27,7 +27,7 @@ export const ProjectListRepositoriesResult = Schema.Struct({
   repositories: Schema.Array(WorkspaceRepository),
 });
 export type ProjectListRepositoriesResult = typeof ProjectListRepositoriesResult.Type;
-export class ProjectListRepositoriesError extends Schema.TaggedErrorClass<ProjectListRepositoriesError>()(
+export class ProjectListRepositoriesError extends Schema.TaggedError<ProjectListRepositoriesError>()(
   "ProjectListRepositoriesError",
   { cwd: Schema.String, message: Schema.String, cause: Schema.optional(Schema.Defect()) },
 ) {}

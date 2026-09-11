@@ -524,7 +524,13 @@ export function PullRequestDetailPanel({
           },
     [requestedReference, supportsThreadPullRequests],
   );
-  const pullRequestKey = JSON.stringify([reference.projectId, reference.host ?? null, reference.repository, reference.number, reference.workspace ?? null]);
+  const pullRequestKey = JSON.stringify([
+    reference.projectId,
+    reference.host ?? null,
+    reference.repository,
+    reference.number,
+    reference.workspace ?? null,
+  ]);
   const matchingListEntry =
     listEntry?.projectId === reference.projectId &&
     listEntry.repository.toLowerCase() === reference.repository.toLowerCase() &&
@@ -838,7 +844,15 @@ export function PullRequestDetailPanel({
       (project) => project.id === reference.projectId && project.environmentId === environmentId,
     )?.repositoryIdentity;
     return gitHubPullRequestBrowserUrl(identity, reference.repository, reference.number);
-  }, [browserUrl, environmentId, projects, reference.number, reference.projectId, reference.repository, reference.workspace]);
+  }, [
+    browserUrl,
+    environmentId,
+    projects,
+    reference.number,
+    reference.projectId,
+    reference.repository,
+    reference.workspace,
+  ]);
   // Project settings store the override under the sidebar group's key, which a duplicate row
   // borrows from its siblings, so the project alone does not always name the same key.
   const projectDefaultMergeMethod = useMemo(() => {

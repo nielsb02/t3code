@@ -272,6 +272,7 @@ describe("ReviewService", () => {
           hasPendingApprovals: false,
           hasPendingUserInput: false,
           hasActionableProposedPlan: false,
+          pullRequests: [],
         });
       }
       yield* Effect.gen(function* () {
