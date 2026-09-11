@@ -4808,6 +4808,120 @@ for (const validHost of [undefined, "GITHUB.COM"] as const) {
   );
 }
 
+for (const variation of ["same-checkout", "different-checkout", "different-remote"] as const) {
+  it.effect(
+    `coalesces scoped provider refinement only for the same checkout and remote (${variation})`,
+    () =>
+      Effect.gen(function* () {
+        const refinements: Array<{ cwd: string; remoteUrl: string | undefined }> = [];
+        const statsReads: string[] = [];
+        const unknownIdentity = project({
+          id: "child",
+          title: "app",
+          workspaceRoot: "/task/projects/app",
+          repository: "org/app",
+          provider: "unknown",
+          host: "code.example.test",
+        }).repositoryIdentity!;
+        const secondIdentity =
+          variation === "different-remote"
+            ? project({
+                id: "child",
+                title: "app",
+                workspaceRoot: "/task/projects/app",
+                repository: "org/app",
+                provider: "unknown",
+                host: "other.example.test",
+              }).repositoryIdentity!
+            : unknownIdentity;
+        const service = yield* makeService({
+          projects: [project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper" })],
+          threads: [
+            scopedThread,
+            {
+              ...scopedThread,
+              id: "t2" as ThreadId,
+              worktreePath: variation === "different-checkout" ? "/other" : "/task",
+            },
+            { ...scopedThread, id: "invalid" as ThreadId, projectId: "p2" as ProjectId },
+          ],
+          repositories: (cwd) => [
+            {
+              path: "projects/app",
+              name: "app",
+              cwd: `${cwd}/projects/app`,
+              kind: "repository",
+              available: true,
+              repositoryIdentity: unknownIdentity,
+            },
+            {
+              path: "projects/alias",
+              name: "alias",
+              cwd: `${cwd}/projects/app`,
+              kind: "repository",
+              available: true,
+              repositoryIdentity: secondIdentity,
+            },
+          ],
+          resolveHandle: ({ cwd, context }) =>
+            Effect.gen(function* () {
+              refinements.push({ cwd, remoteUrl: context?.remoteUrl });
+              yield* Effect.yieldNow;
+              return {
+                context: {
+                  ...context!,
+                  provider: { ...context!.provider, kind: "gitlab" as const },
+                },
+                provider: undefined as never,
+              };
+            }),
+          providers: [
+            fakeProvider("gitlab", {
+              listChangeRequestStats: ({ cwd, host, changeRequests }) => {
+                statsReads.push(`${cwd} ${host}`);
+                return Effect.succeed(
+                  [...new Set(changeRequests.map((ref) => ref.number))].map((number) => ({
+                    repository: "org/app",
+                    number,
+                    additions: 10,
+                    deletions: 0,
+                  })),
+                );
+              },
+            }),
+          ],
+        });
+        const refs = [
+          scopedRef,
+          {
+            ...scopedRef,
+            workspace: { threadId: "t2" as ThreadId, repositoryPath: "projects/alias" },
+          },
+          { ...scopedRef, workspace: { ...scopedRef.workspace, threadId: "invalid" as ThreadId } },
+          { ...scopedRef, repository: "org/not-authorized" },
+        ];
+        const result = yield* service.listStats({ refs });
+        assert.deepStrictEqual(result.stats.map((stat) => stat.workspace?.threadId).sort(), [
+          "t1",
+          "t2",
+        ]);
+        assert.strictEqual(refinements.length, variation === "same-checkout" ? 1 : 2);
+        assert.strictEqual(statsReads.length, variation === "same-checkout" ? 1 : 2);
+        if (variation === "different-checkout")
+          assert.deepStrictEqual(refinements.map((entry) => entry.cwd).sort(), [
+            "/other/projects/app",
+            "/task/projects/app",
+          ]);
+        if (variation === "different-remote")
+          assert.deepStrictEqual(refinements.map((entry) => entry.remoteUrl).sort(), [
+            "https://code.example.test/org/app.git",
+            "https://other.example.test/org/app.git",
+          ]);
+        assert.deepStrictEqual(yield* service.listStats({ refs: refs.slice(2) }), { stats: [] });
+      }),
+  );
+}
+
 it.effect("publishes child repository merges with their workspace scope", () =>
   Effect.scoped(
     Effect.gen(function* () {

@@ -540,9 +540,15 @@ export const make = Effect.gen(function* () {
   const rateLimits = yield* SourceControlRateLimit.SourceControlRateLimit;
   const readCache = yield* PullRequestReadCache.PullRequestReadCache;
 
+  const resolveProviderKind = (input: Parameters<typeof sourceControlProviders.resolveHandle>[0]) =>
+    sourceControlProviders
+      .resolveHandle(input)
+      .pipe(Effect.map((handle) => handle.context?.provider.kind));
+
   const refineUnknownProjectKinds = (
     projects: ReadonlyArray<OrchestrationProjectShell>,
     filter: Pick<PullRequestListInput, "projectId" | "host">,
+    resolveKind = resolveProviderKind,
   ) => {
     type RefinementCandidate = {
       readonly project: OrchestrationProjectShell;
@@ -581,13 +587,12 @@ export const make = Effect.gen(function* () {
         Effect.firstSuccessOf(
           candidates.map(({ project, provider, remoteName, remoteUrl }) =>
             Effect.suspend(() =>
-              sourceControlProviders.resolveHandle({
+              resolveKind({
                 cwd: project.workspaceRoot,
                 context: { provider, remoteName, remoteUrl },
               }),
             ).pipe(
-              Effect.flatMap((handle) => {
-                const kind = handle.context?.provider.kind;
+              Effect.flatMap((kind) => {
                 return kind === undefined || kind === "unknown"
                   ? Effect.fail(undefined)
                   : Effect.succeed(kind);
@@ -746,6 +751,7 @@ export const make = Effect.gen(function* () {
 
   const requireProject = Effect.fn("PullRequestService.requireProject")(function* (
     ref: PullRequestRef,
+    resolveKind = resolveProviderKind,
   ): Effect.fn.Return<SupportedProject, PullRequestError> {
     if (ref.workspace === undefined) return yield* requireUnscopedProject(ref);
     const invalid = (detail: string) =>
@@ -789,7 +795,7 @@ export const make = Effect.gen(function* () {
     const repository = sourceControlRepositorySelector(project.repositoryIdentity);
     if (!repository || repository.toLowerCase() !== ref.repository.trim().toLowerCase())
       return yield* invalid("The change request does not belong to the selected repository.");
-    const refined = yield* refineUnknownProjectKinds([project], {});
+    const refined = yield* refineUnknownProjectKinds([project], {}, resolveKind);
     const identity = project.repositoryIdentity;
     if (!identity) return yield* invalid("The selected repository has no remote identity.");
     let kind = identity.provider as SourceControlProviderKind;
@@ -2186,10 +2192,17 @@ export const make = Effect.gen(function* () {
           if (group) group.push(ref);
           else byScope.set(key, [ref]);
         }
+        const providerKinds = yield* Cache.makeWith(
+          (key: string) =>
+            resolveProviderKind(JSON.parse(key) as Parameters<typeof resolveProviderKind>[0]),
+          { capacity: byScope.size },
+        );
+        const resolveBatchProviderKind: typeof resolveProviderKind = (input) =>
+          Cache.get(providerKinds, JSON.stringify(input));
         const resolved = yield* Effect.forEach(
           [...byScope.values()],
           Effect.fn(function* (refs) {
-            const project = yield* requireProject(refs[0]!).pipe(
+            const project = yield* requireProject(refs[0]!, resolveBatchProviderKind).pipe(
               Effect.orElseSucceed(() => undefined),
             );
             return project?.api.listChangeRequestStats ? [{ project, refs }] : [];

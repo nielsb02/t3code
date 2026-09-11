@@ -689,6 +689,49 @@ describe("ThreadSettlementReactor", () => {
     ),
   );
 
+  for (const matchingFirst of [true, false]) {
+    it.effect(
+      `scoped root merges settle only their thread when matchingFirst=${matchingFirst}`,
+      () =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            yield* TestClock.setTime(Date.parse(NOW));
+            const ids = matchingFirst ? ["matching", "unrelated"] : ["unrelated", "matching"];
+            const fixture = yield* makeHarness({
+              snapshot: makeSnapshot(
+                ids.map((id) =>
+                  makeThread(id, {
+                    branch: "shared-feature",
+                    latestUserMessageAt: "2026-08-27T00:00:00.000Z",
+                    linkedPullRequest: {
+                      projectId: PROJECT_ID,
+                      repository: "owner/repository",
+                      number: 42,
+                      url: "https://example.test/owner/repository/pull/42",
+                    },
+                  }),
+                ),
+              ),
+              mergeWorkspace: { threadId: ThreadId.make("matching"), repositoryPath: "." },
+            });
+            yield* Effect.gen(function* () {
+              const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
+              yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+              assert.strictEqual((yield* Ref.get(fixture.summaryCalls)).length, 1);
+              yield* fixture.publishMerge;
+              yield* Queue.take(fixture.snapshotReads);
+              yield* reactor.drain;
+              assert.deepStrictEqual(
+                (yield* Ref.get(fixture.commands)).map((command) => command.threadId),
+                [ThreadId.make("matching")],
+              );
+              assert.strictEqual((yield* Ref.get(fixture.summaryCalls)).length, 2);
+            }).pipe(Effect.provide(fixture.layer));
+          }),
+        ),
+    );
+  }
+
   it.effect("does not settle the wrapper from a child repository merge event", () =>
     Effect.scoped(
       Effect.gen(function* () {
