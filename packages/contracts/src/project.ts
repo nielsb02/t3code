@@ -257,6 +257,7 @@ type ProjectFileFailureContext = {
   readonly resolvedWorkspaceRoot?: string;
   readonly operation?: ProjectFileOperation;
   readonly operationPath?: string;
+  readonly code?: string;
   readonly cause?: unknown;
 };
 
@@ -270,6 +271,7 @@ export class ProjectReadFileError extends Schema.TaggedError<ProjectReadFileErro
     resolvedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
     operation: Schema.optional(ProjectFileOperation),
     operationPath: Schema.optional(TrimmedNonEmptyString),
+    code: Schema.optional(Schema.String),
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect()),
   },
@@ -307,6 +309,7 @@ export class ProjectWriteFileError extends Schema.TaggedError<ProjectWriteFileEr
     resolvedWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
     operation: Schema.optional(ProjectFileOperation),
     operationPath: Schema.optional(TrimmedNonEmptyString),
+    code: Schema.optional(Schema.String),
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect()),
   },

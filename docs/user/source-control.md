@@ -5,7 +5,9 @@ repositories, create pull requests, and review changes.
 
 ## Work with several repositories
 
-Declare the repositories belonging to a workspace in its `t3.json`, alongside any existing scripts:
+In **Settings → Projects**, select a project and edit **Repository paths** and **Include Git submodules** under **Checkout**. Save writes to that checkout’s `t3.json`, preserving comments and other settings. Existing task worktrees keep their own configuration.
+
+You can also declare repositories directly in `t3.json`, alongside any existing scripts:
 
 ```json
 {
