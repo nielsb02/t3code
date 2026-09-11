@@ -104,7 +104,7 @@ import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
-import { useDiffPanelStore } from "../diffPanelStore";
+import { selectThreadDiffPanelSelection, useDiffPanelStore } from "../diffPanelStore";
 import {
   collapseExpandedComposerCursor,
   type ComposerSubmissionIntent,
@@ -7797,7 +7797,11 @@ export default function ChatView(props: ChatViewProps) {
           composerDraftTarget={composerDraftTarget}
           initialGitScope={initialDiffPanelGitScope}
           {...(hasWorkspaceRepositories
-            ? { repositories: workspaceRepositories.repositories }
+            ? {
+                repositories: workspaceRepositories.repositories,
+                repositoryFilter: workspaceRepositories.repositoryFilter,
+                onSelectRepository: workspaceRepositories.selectRepository,
+              }
             : {})}
           workspaceMutationId={workspaceMutationId}
         />
@@ -7980,7 +7984,16 @@ export default function ChatView(props: ChatViewProps) {
                   repositories={workspaceRepositories.repositories}
                   statuses={workspaceRepositories.statuses}
                   selectedPath={selectedGitRepository?.path ?? null}
-                  onSelect={workspaceRepositories.selectRepository}
+                  onSelect={(path) => {
+                    workspaceRepositories.selectRepository(path);
+                    const selection = selectThreadDiffPanelSelection(
+                      useDiffPanelStore.getState().byThreadKey,
+                      activeThreadRef,
+                    );
+                    if (activeThreadRef && selection.kind === "turn") {
+                      useDiffPanelStore.getState().selectGitScope(activeThreadRef, "unstaged");
+                    }
+                  }}
                 />
               )
             }

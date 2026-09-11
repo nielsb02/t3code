@@ -7,7 +7,10 @@ import { projectEnvironment } from "../state/projects";
 import { vcsEnvironment } from "../state/vcs";
 import { useEnvironmentQuery, formatEnvironmentQueryError } from "../state/query";
 import { appAtomRegistry } from "../rpc/atomRegistry";
-import { selectWorkspaceRepository } from "../lib/workspaceRepositories";
+import {
+  selectWorkspaceRepository,
+  updateWorkspaceRepositorySelection,
+} from "../lib/workspaceRepositories";
 import { useWorkspaceMutationRefresh } from "./useWorkspaceMutationRefresh";
 
 const EMPTY_REPOSITORIES: readonly WorkspaceRepository[] = [];
@@ -26,12 +29,24 @@ export function useWorkspaceRepositories(input: {
   );
   const repositories = query.data?.repositories ?? EMPTY_REPOSITORIES;
   const scope = JSON.stringify([environmentId, cwd]);
-  const [selection, setSelection] = useState<{ scope: string; path: string } | null>(null);
+  const [selection, setSelection] = useState<{
+    scope: string;
+    path: string | null;
+    diffPath: string | null;
+  } | null>(null);
   const selectedRepository = selectWorkspaceRepository(
     repositories,
     selection?.scope === scope ? selection.path : null,
   );
-  const selectRepository = useCallback((path: string) => setSelection({ scope, path }), [scope]);
+  const selectRepository = useCallback(
+    (path: string | null) => {
+      setSelection((current) => ({
+        scope,
+        ...updateWorkspaceRepositorySelection(current?.scope === scope ? current : null, path),
+      }));
+    },
+    [scope],
+  );
   const statusTargets = useMemo(
     () =>
       environmentId === null
@@ -81,6 +96,7 @@ export function useWorkspaceRepositories(input: {
     statuses,
     selectedRepository,
     selectRepository,
+    repositoryFilter: selection?.scope === scope ? selection.diffPath : null,
     refresh,
     error: query.error,
     isPending: query.isPending,

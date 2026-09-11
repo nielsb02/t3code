@@ -5,6 +5,7 @@ import type {
   WorkspaceRepository,
 } from "@t3tools/contracts";
 import { useState, type ReactNode } from "react";
+import { GitPullRequestIcon } from "lucide-react";
 import { Tabs } from "@base-ui/react/tabs";
 import { PullRequestDetailPanel } from "./PullRequestDetailPanel";
 import GitActionsControl from "../GitActionsControl";
@@ -94,17 +95,23 @@ export function WorkspacePullRequestsPanel({
     );
   } else {
     let message = "Checking this branch for a pull request…";
-    if (!state?.isPending && state?.status) {
+    if (state?.status) {
       message = pr
         ? "The repository remote could not be resolved."
         : `No pull request for ${state.status.refName ?? "this checkout"}.`;
     }
     content = (
-      <div className="flex flex-col items-start gap-3 p-4 text-xs text-muted-foreground">
-        <p>{message}</p>
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center text-xs text-muted-foreground">
+        <div className="rounded-full bg-muted p-3">
+          <GitPullRequestIcon className="size-5" />
+        </div>
+        <p className="font-medium text-foreground">{message}</p>
         {state?.status && !pr && (
           <>
-            <p>Create a pull request using the Git actions for {repository.name}.</p>
+            <p className="max-w-xs">
+              Use Git actions to open a pull request for {repository.name}, or choose another
+              repository above.
+            </p>
             <GitActionsControl
               key={repository.cwd}
               gitCwd={repository.cwd}
