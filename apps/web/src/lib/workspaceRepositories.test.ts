@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
-import { selectWorkspaceRepository } from "./workspaceRepositories";
+import {
+  selectWorkspaceRepository,
+  updateWorkspaceRepositorySelection,
+} from "./workspaceRepositories";
 
 const repositories = [
   { path: ".", available: true },
@@ -22,4 +25,14 @@ describe("workspace repository selection", () => {
     expect(selectWorkspaceRepository(repositories.slice(0, 1), null)?.path).toBe(".");
     expect(selectWorkspaceRepository([], null)).toBeNull();
   });
+});
+
+it("syncs specific choices while all repositories preserves the Git action target", () => {
+  let selection = updateWorkspaceRepositorySelection(null, "projects/web");
+  expect(selection).toEqual({ path: "projects/web", diffPath: "projects/web" });
+  selection = updateWorkspaceRepositorySelection(selection, null);
+  expect(selection).toEqual({ path: "projects/web", diffPath: null });
+  selection = updateWorkspaceRepositorySelection(selection, ".");
+  expect(selection).toEqual({ path: ".", diffPath: "." });
+  expect(updateWorkspaceRepositorySelection(null, null)).toEqual({ path: null, diffPath: null });
 });

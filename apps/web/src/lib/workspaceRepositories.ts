@@ -13,3 +13,10 @@ export function selectWorkspaceRepository<
     null
   );
 }
+
+export function updateWorkspaceRepositorySelection(
+  current: { path: string | null; diffPath: string | null } | null,
+  path: string | null,
+) {
+  return { path: path ?? current?.path ?? null, diffPath: path };
+}

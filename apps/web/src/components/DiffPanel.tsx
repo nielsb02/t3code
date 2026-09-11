@@ -28,6 +28,7 @@ import { useCodeViewFileReveal } from "./diffs/useCodeViewFileReveal";
 import { useOpenInPreferredEditor } from "../editorPreferences";
 import { type DraftId } from "../composerDraftStore";
 import { openDiffFilePrimaryAction } from "../diffFileActions";
+import { canLoadTurnDiff } from "../lib/turnDiffSelection";
 import { useCheckpointDiff } from "~/lib/checkpointDiffState";
 import { cn } from "~/lib/utils";
 import { selectThreadDiffPanelSelection, useDiffPanelStore } from "../diffPanelStore";
@@ -102,6 +103,8 @@ const EMPTY_COLLAPSED_DIFF_FILE_KEYS: ReadonlySet<string> = new Set();
 
 interface DiffPanelProps {
   repositories?: readonly WorkspaceDiffRepository[];
+  repositoryFilter?: string | null;
+  onSelectRepository?: (path: string | null) => void;
   mode?: DiffPanelMode;
   composerDraftTarget: ScopedThreadRef | DraftId;
   initialGitScope: "branch" | "unstaged";
@@ -114,6 +117,8 @@ export default function DiffPanel({
   initialGitScope: initialGitScopeProp,
   workspaceMutationId,
   repositories = EMPTY_REPOSITORIES,
+  repositoryFilter = null,
+  onSelectRepository,
 }: DiffPanelProps) {
   const { resolvedTheme } = useTheme();
   const settings = useClientSettings();
@@ -127,7 +132,6 @@ export default function DiffPanel({
     false,
     Schema.Boolean,
   );
-  const [repositoryFilter, setRepositoryFilter] = useState<string | null>(null);
   const [repositoryBaseRefs, setRepositoryBaseRefs] = useState<
     Readonly<Record<string, string | null>>
   >({});
@@ -210,7 +214,7 @@ export default function DiffPanel({
   const selectedTurnId = diffSelection.kind === "turn" ? diffSelection.turnId : null;
   const selectedGitScope = diffSelection.kind === "unstaged" ? "unstaged" : "branch";
   const hasWorkspaceRepositories = repositories.length > 0;
-  const filteredRepository = repositories.find((repo) => repo.cwd === repositoryFilter);
+  const filteredRepository = repositories.find((repo) => repo.path === repositoryFilter);
   const selectedBaseRef = hasWorkspaceRepositories
     ? filteredRepository
       ? (repositoryBaseRefs[filteredRepository.cwd] ?? null)
@@ -224,8 +228,10 @@ export default function DiffPanel({
         ? EMPTY_REPOSITORIES
         : filteredRepository
           ? [filteredRepository]
-          : repositories,
-    [selectedTurnId, filteredRepository, repositories],
+          : repositoryFilter === null
+            ? repositories
+            : EMPTY_REPOSITORIES,
+    [selectedTurnId, filteredRepository, repositories, repositoryFilter],
   );
   const workspaceDiffQuery = useWorkspaceDiff(
     activeThread?.environmentId ?? null,
@@ -277,6 +283,7 @@ export default function DiffPanel({
         : null,
     [selectedCheckpointTurnCount],
   );
+  const turnSnapshotAvailable = canLoadTurnDiff(selectedTurn, orderedTurnDiffSummaries);
   const activeCheckpointDiff = useCheckpointDiff(
     {
       environmentId: activeThread?.environmentId ?? null,
@@ -286,7 +293,7 @@ export default function DiffPanel({
       ignoreWhitespace: diffIgnoreWhitespace,
       cacheScope: selectedTurn ? `turn:${selectedTurn.turnId}` : null,
     },
-    { enabled: isGitRepo && selectedTurn !== undefined },
+    { enabled: isGitRepo && turnSnapshotAvailable },
   );
   const primaryBranchDiffPreview = useEnvironmentQuery(
     !hasWorkspaceRepositories && selectedTurnId === null && activeThread && activeCwd
@@ -480,11 +487,13 @@ export default function DiffPanel({
   const isLoadingSelectedPatch = selectedTurn
     ? activeCheckpointDiff.isPending
     : branchDiffPreview.isPending;
+  const unavailableTurn = selectedTurnId !== null && !turnSnapshotAvailable;
   const selectedPatchError = selectedTurn ? activeCheckpointDiff.error : branchDiffPreview.error;
   const hasResolvedPatch = typeof selectedPatch === "string";
   const hasNoNetChanges = workspaceDiff
     ? !branchDiffPreview.isPending &&
       !branchDiffPreview.error &&
+      (repositoryFilter === null || filteredRepository !== undefined) &&
       visibleRepositories.every((repo) => repo.available) &&
       workspaceDiff.files.length === 0 &&
       workspaceDiff.warnings.length === 0
@@ -644,34 +653,44 @@ export default function DiffPanel({
   const headerRow = (
     <>
       <div className="flex min-w-0 flex-1 items-center gap-3 [-webkit-app-region:no-drag]">
-        {hasWorkspaceRepositories &&
-          (selectedTurnId !== null ? (
-            <span className="text-xs text-muted-foreground">Outer workspace only</span>
-          ) : (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                className="inline-flex max-w-48 items-center gap-1 truncate rounded-md px-2 py-1 text-xs hover:bg-muted"
-                aria-label="Filter diff by repository"
+        {hasWorkspaceRepositories && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className="inline-flex max-w-48 items-center gap-1 truncate rounded-md px-2 py-1 text-xs hover:bg-muted"
+              aria-label="Filter diff by repository"
+            >
+              <span className="truncate">
+                {selectedTurnId !== null
+                  ? (repositories.find((repo) => repo.path === ".")?.name ?? "Workspace")
+                  : (filteredRepository?.name ??
+                    (repositoryFilter === null ? "All repositories" : repositoryFilter))}
+              </span>
+              <ChevronDownIcon className="size-3.5 shrink-0" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem
+                onClick={() => {
+                  onSelectRepository?.(null);
+                  if (selectedTurnId !== null) selectGitScope("unstaged");
+                }}
               >
-                <span className="truncate">{filteredRepository?.name ?? "All repositories"}</span>
-                <ChevronDownIcon className="size-3.5 shrink-0" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                <DropdownMenuItem onClick={() => setRepositoryFilter(null)}>
-                  All repositories
+                All repositories
+              </DropdownMenuItem>
+              {repositories.map((repository) => (
+                <DropdownMenuItem
+                  key={repository.cwd}
+                  onClick={() => {
+                    onSelectRepository?.(repository.path);
+                    if (selectedTurnId !== null) selectGitScope("unstaged");
+                  }}
+                >
+                  {repository.name}
+                  {repository.available ? "" : " (unavailable)"}
                 </DropdownMenuItem>
-                {repositories.map((repository) => (
-                  <DropdownMenuItem
-                    key={repository.cwd}
-                    onClick={() => setRepositoryFilter(repository.cwd)}
-                  >
-                    {repository.name}
-                    {repository.available ? "" : " (unavailable)"}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ))}
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger
             className="inline-flex h-6 max-w-full items-center gap-1 rounded-md bg-accent px-2 text-xs font-medium text-accent-foreground outline-none transition-colors hover:bg-accent/80 focus-visible:ring-2 focus-visible:ring-ring"
@@ -702,6 +721,7 @@ export default function DiffPanel({
               <span>Branch changes</span>
             </DropdownMenuItem>
             <DropdownMenuItem
+              disabled={!latestTurn}
               className={
                 selectedTurnId !== null && selectedTurn?.turnId === latestTurn?.turnId
                   ? "bg-foreground/[0.08]"
@@ -1039,6 +1059,11 @@ export default function DiffPanel({
                     {repo.name}: repository is unavailable.
                   </p>
                 ))}
+            {selectedTurnId === null && repositoryFilter !== null && !filteredRepository && (
+              <p className="px-3 py-2 text-xs text-muted-foreground">
+                The selected repository is no longer in this workspace. Choose another repository.
+              </p>
+            )}
             {workspaceDiff?.warnings.map((warning) => (
               <p key={warning} className="px-3 py-1.5 text-[11px] text-error/80">
                 {warning}
@@ -1049,13 +1074,31 @@ export default function DiffPanel({
                 Loading remaining repository diffs…
               </p>
             )}
-            {selectedPatchError && (
-              <div className="px-3">
-                <p className="mb-2 text-[11px] text-error/80">{selectedPatchError}</p>
-              </div>
+            {selectedTurnId !== null && hasWorkspaceRepositories && (
+              <p className="px-3 py-2 text-xs text-muted-foreground">
+                Turn snapshots cover the workspace repository. Choose a repository to view its
+                working tree.
+              </p>
+            )}
+            {selectedPatchError && (selectedTurnId === null || renderablePatch) && (
+              <p role="alert" className="px-3 text-xs text-error">
+                {selectedPatchError}
+              </p>
             )}
             {!renderablePatch ? (
-              isLoadingSelectedPatch ? (
+              unavailableTurn || (selectedTurnId !== null && selectedPatchError) ? (
+                <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-8 text-center text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground">Turn diff unavailable</p>
+                  <p>
+                    {unavailableTurn
+                      ? "A snapshot needed for this turn is unavailable. The turn may still be running or snapshot capture did not complete."
+                      : "The recorded snapshot could not be loaded."}
+                  </p>
+                  <Button size="sm" variant="outline" onClick={() => selectGitScope("unstaged")}>
+                    View working tree
+                  </Button>
+                </div>
+              ) : isLoadingSelectedPatch ? (
                 <DiffPanelLoadingState
                   label={
                     selectedTurn
