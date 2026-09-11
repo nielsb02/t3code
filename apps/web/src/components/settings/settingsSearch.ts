@@ -70,7 +70,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Project defaults and overrides",
     to: "/settings/projects",
     searchTerms: [
-      "model workspace browser machines projects inheritance automatic pull checkout grouping actions scripts",
+      "model workspace browser machines projects inheritance automatic pull checkout grouping actions scripts repositories paths polyrepo submodules t3.json",
     ],
   },
   {

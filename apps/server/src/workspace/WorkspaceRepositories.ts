@@ -1,4 +1,5 @@
-import { T3ProjectFile, type WorkspaceRepository } from "@t3tools/contracts";
+import { type WorkspaceRepository } from "@t3tools/contracts";
+import { T3ProjectFileFromJson } from "@t3tools/shared/t3ProjectFile";
 import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -24,7 +25,7 @@ export class WorkspaceRepositories extends Context.Service<
   }
 >()("t3/workspace/WorkspaceRepositories") {}
 
-const decodeProjectFile = Schema.decodeUnknownEffect(Schema.fromJsonString(T3ProjectFile));
+const decodeProjectFile = Schema.decodeUnknownEffect(T3ProjectFileFromJson);
 const isDiscoveryError = Schema.is(WorkspaceRepositoryDiscoveryError);
 
 export const make = Effect.gen(function* () {

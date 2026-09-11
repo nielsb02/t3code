@@ -100,7 +100,11 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceEntries", (it) => {
       Effect.gen(function* () {
         const cwd = yield* makeTempDir({ git: true });
         const path = yield* Path.Path;
-        yield* writeTextFile(cwd, "t3.json", '{"repositories":{"paths":["projects/app"]}}');
+        yield* writeTextFile(
+          cwd,
+          "t3.json",
+          '{\n// Repository settings\n"repositories":{"paths":["projects/app"]},\n}',
+        );
         yield* writeTextFile(cwd, "projects/app/file.txt");
         yield* git(path.join(cwd, "projects/app"), ["init"]);
         const vcs = yield* VcsProcess.VcsProcess;
