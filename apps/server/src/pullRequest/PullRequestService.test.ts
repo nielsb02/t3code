@@ -12,6 +12,9 @@ import * as TestClock from "effect/testing/TestClock";
 import type {
   OrchestrationProjectShell,
   ProjectId,
+  ThreadId,
+  OrchestrationThreadShell,
+  WorkspaceRepository,
   PullRequestReviewCapabilities,
   PullRequestReviewerCapabilities,
   SourceControlProviderKind,
@@ -26,6 +29,7 @@ import {
   type PullRequestProviderApi,
 } from "./PullRequestProvider.ts";
 import { PullRequestProviderRegistry, fromProviders } from "./PullRequestProviderRegistry.ts";
+import { WorkspaceRepositories } from "../workspace/WorkspaceRepositories.ts";
 import * as PullRequestService from "./PullRequestService.ts";
 import * as PullRequestReadCache from "./PullRequestReadCache.ts";
 
@@ -182,11 +186,16 @@ function fakeProvider(
 function makeService(input: {
   readonly projects: ReadonlyArray<OrchestrationProjectShell>;
   readonly providers: ReadonlyArray<PullRequestProviderApi>;
+  readonly threads?: ReadonlyArray<OrchestrationThreadShell>;
+  readonly repositories?: (cwd: string) => ReadonlyArray<WorkspaceRepository>;
   readonly resolveHandle?: SourceControlProviderRegistry.SourceControlProviderRegistry["Service"]["resolveHandle"];
 }) {
   return PullRequestService.make.pipe(
     Effect.provide(
       Layer.mergeAll(
+        Layer.succeed(WorkspaceRepositories, {
+          list: (cwd) => Effect.succeed(input.repositories?.(cwd) ?? []),
+        }),
         Layer.succeed(PullRequestProviderRegistry, fromProviders(input.providers)),
         Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
           resolveHandle:
@@ -197,7 +206,7 @@ function makeService(input: {
             Effect.succeed({
               snapshotSequence: 1,
               projects: input.projects,
-              threads: [],
+              threads: input.threads ?? [],
               updatedAt: "2026-07-01T00:00:00Z",
             }),
         }),
@@ -4556,4 +4565,221 @@ it.effect("keeps Azure continuation cursors separate for repositories with the s
     yield* service.list({ state: "open", cursors: { [key]: first.nextCursors[key]! } });
     assert.deepStrictEqual(seen, ["/org-b"]);
   }),
+);
+const scopedThread = {
+  id: "t1" as ThreadId,
+  projectId: "p1" as ProjectId,
+  worktreePath: "/task",
+} as OrchestrationThreadShell;
+const scopedRef = {
+  projectId: "p1" as ProjectId,
+  repository: "org/app",
+  number: 1,
+  workspace: { threadId: "t1" as ThreadId, repositoryPath: "projects/app" },
+};
+const appIdentity =
+  project({ id: "child", title: "app", workspaceRoot: "/task/projects/app", repository: "org/app" })
+    .repositoryIdentity ?? undefined;
+
+it.effect("reads child PRs from the active workspace and separates checkout caches", () =>
+  Effect.gen(function* () {
+    const reads: string[] = [];
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper" })],
+      threads: [scopedThread, { ...scopedThread, id: "t2" as ThreadId, worktreePath: "/other" }],
+      repositories: (cwd) => [
+        {
+          path: "projects/app",
+          name: "app",
+          cwd: `${cwd}/projects/app`,
+          kind: "repository",
+          available: true,
+          repositoryIdentity: appIdentity,
+        },
+      ],
+      providers: [
+        fakeProvider("github", {
+          getChangeRequest: ({ cwd }) => {
+            reads.push(cwd);
+            return Effect.succeed(hostedChangeRequest(cwd));
+          },
+        }),
+      ],
+    });
+    yield* service.detail(scopedRef);
+    yield* service.detail(scopedRef);
+    yield* service.detail({
+      ...scopedRef,
+      workspace: { ...scopedRef.workspace, threadId: "t2" as ThreadId },
+    });
+    assert.deepStrictEqual(reads, ["/task/projects/app", "/other/projects/app"]);
+  }),
+);
+
+for (const invalid of ["thread", "path", "unavailable", "identity"] as const) {
+  it.effect(`refuses scoped PR access with invalid ${invalid}`, () =>
+    Effect.gen(function* () {
+      let reads = 0;
+      const service = yield* makeService({
+        projects: [
+          project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper", repository: "org/app" }),
+        ],
+        threads: [
+          { ...scopedThread, projectId: (invalid === "thread" ? "p2" : "p1") as ProjectId },
+        ],
+        repositories: () => [
+          {
+            path: invalid === "path" ? "projects/else" : "projects/app",
+            name: "app",
+            cwd: "/task/projects/app",
+            kind: "repository",
+            available: invalid !== "unavailable",
+            repositoryIdentity:
+              invalid === "identity"
+                ? (project({
+                    id: "other",
+                    title: "other",
+                    workspaceRoot: "/other",
+                    repository: "org/other",
+                  }).repositoryIdentity ?? undefined)
+                : appIdentity,
+          },
+        ],
+        providers: [
+          fakeProvider("github", {
+            getChangeRequest: () => {
+              reads++;
+              return Effect.succeed(hostedChangeRequest("bad"));
+            },
+          }),
+        ],
+      });
+      const result = yield* Effect.result(service.detail(scopedRef));
+      assert.strictEqual(result._tag, "Failure");
+      assert.strictEqual(reads, 0);
+      const action = yield* Effect.result(service.runAction({ ...scopedRef, action: "merge" }));
+      assert.strictEqual(action._tag, "Failure");
+    }),
+  );
+}
+
+it.effect("keeps scoped summary, activity, diff and stats reads in their checkout", () =>
+  Effect.gen(function* () {
+    const reads: string[] = [];
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper" })],
+      threads: [scopedThread, { ...scopedThread, id: "t2" as ThreadId, worktreePath: "/other" }],
+      repositories: (cwd) => [
+        {
+          path: "projects/app",
+          name: "app",
+          cwd: `${cwd}/projects/app`,
+          kind: "repository",
+          available: true,
+          repositoryIdentity: appIdentity,
+        },
+      ],
+      providers: [
+        fakeProvider("github", {
+          getChangeRequest: ({ cwd }) => {
+            reads.push(`summary:${cwd}`);
+            return Effect.succeed(hostedChangeRequest(cwd));
+          },
+          getChangeRequestActivity: ({ cwd }) => {
+            reads.push(`activity:${cwd}`);
+            return Effect.succeed({
+              comments: [],
+              commentCount: 0,
+              commentsTruncated: false,
+              reviewThreads: [],
+              commits: [],
+            });
+          },
+          getDiff: ({ cwd }) => {
+            reads.push(`diff:${cwd}`);
+            return Effect.succeed({ patch: cwd, truncated: false, nextCursor: null });
+          },
+          listChangeRequestStats: ({ cwd }) => {
+            reads.push(`stats:${cwd}`);
+            return Effect.succeed([
+              {
+                repository: "org/app",
+                number: 1,
+                additions: cwd === "/task/projects/app" ? 10 : 20,
+                deletions: 0,
+              },
+            ]);
+          },
+        }),
+      ],
+    });
+    const refs = [
+      scopedRef,
+      { ...scopedRef, workspace: { ...scopedRef.workspace, threadId: "t2" as ThreadId } },
+    ];
+    for (const ref of refs) {
+      yield* service.summary(ref);
+      yield* service.summary(ref);
+      yield* service.activity(ref);
+      yield* service.activity(ref);
+      yield* service.diff(ref);
+      yield* service.diff(ref);
+    }
+    const stats = yield* service.listStats({ refs });
+    assert.deepStrictEqual(
+      stats.stats.map((stat) => [stat.workspace?.threadId, stat.additions]),
+      [
+        ["t1" as ThreadId, 10],
+        ["t2" as ThreadId, 20],
+      ],
+    );
+    yield* service.listStats({ refs });
+    for (const kind of ["summary", "activity", "diff", "stats"])
+      assert.deepStrictEqual(
+        reads.filter((read) => read.startsWith(`${kind}:`)),
+        [`${kind}:/task/projects/app`, `${kind}:/other/projects/app`],
+      );
+  }),
+);
+
+it.effect("publishes child repository merges with their workspace scope", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const actions: string[] = [];
+      const service = yield* makeService({
+        projects: [project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper" })],
+        threads: [scopedThread],
+        repositories: () => [
+          {
+            path: "projects/app",
+            name: "app",
+            cwd: "/task/projects/app",
+            kind: "repository",
+            available: true,
+            repositoryIdentity: appIdentity,
+          },
+        ],
+        providers: [
+          fakeProvider("github", {
+            getChangeRequestSummary: () =>
+              Effect.succeed({ ...changeRequest(1, "2026-07-02T00:00:00Z"), state: "merged" }),
+            runAction: ({ cwd }) =>
+              Effect.sync(() => {
+                actions.push(cwd);
+              }),
+          }),
+        ],
+      });
+      const merges = yield* service.subscribeMerges;
+      const observed = yield* Stream.runHead(merges).pipe(
+        Effect.forkChild({ startImmediately: true }),
+      );
+      yield* service.runAction({ ...scopedRef, action: "merge" });
+      assert.deepStrictEqual(
+        Option.getOrThrow(yield* Fiber.join(observed)).workspace,
+        scopedRef.workspace,
+      );
+      assert.deepStrictEqual(actions, ["/task/projects/app"]);
+    }),
+  ),
 );

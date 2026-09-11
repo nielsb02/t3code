@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema";
+import { RepositoryIdentity } from "./environment.ts";
 import {
   NonNegativeInt,
   PositiveInt,
@@ -10,6 +11,26 @@ const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
 const PROJECT_SEARCH_CONTENTS_MAX_LIMIT = 500;
 const PROJECT_WRITE_FILE_PATH_MAX_LENGTH = 512;
 const PROJECT_READ_FILE_PATH_MAX_LENGTH = 512;
+
+export const WorkspaceRepository = Schema.Struct({
+  path: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  cwd: TrimmedNonEmptyString,
+  kind: Schema.Literals(["root", "repository", "submodule"]),
+  available: Schema.Boolean,
+  repositoryIdentity: Schema.optional(RepositoryIdentity),
+});
+export type WorkspaceRepository = typeof WorkspaceRepository.Type;
+export const ProjectListRepositoriesInput = Schema.Struct({ cwd: TrimmedNonEmptyString });
+export type ProjectListRepositoriesInput = typeof ProjectListRepositoriesInput.Type;
+export const ProjectListRepositoriesResult = Schema.Struct({
+  repositories: Schema.Array(WorkspaceRepository),
+});
+export type ProjectListRepositoriesResult = typeof ProjectListRepositoriesResult.Type;
+export class ProjectListRepositoriesError extends Schema.TaggedErrorClass<ProjectListRepositoriesError>()(
+  "ProjectListRepositoriesError",
+  { cwd: Schema.String, message: Schema.String, cause: Schema.optional(Schema.Defect()) },
+) {}
 
 export const ProjectEntryKind = Schema.Literals(["file", "directory"]);
 export type ProjectEntryKind = typeof ProjectEntryKind.Type;

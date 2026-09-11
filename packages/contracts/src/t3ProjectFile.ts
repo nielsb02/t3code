@@ -80,6 +80,19 @@ export const T3ProjectFile = Schema.Struct({
         'Where new threads start for this repository: "worktree" for a fresh git worktree, "local" for the current checkout. A per-project setting in T3 Code overrides this; when neither is set, the global default applies.',
     }),
   ),
+  repositories: Schema.optionalKey(
+    Schema.Struct({
+      paths: Schema.optionalKey(
+        Schema.Array(Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(512))).check(
+          Schema.isMaxLength(100),
+        ),
+      ),
+      includeSubmodules: Schema.optionalKey(Schema.Boolean),
+    }).annotate({
+      description:
+        "Workspace-relative repository paths. A trailing /* includes immediate child repositories; declared Git submodules are optional. Paths must remain inside the workspace.",
+    }),
+  ),
   scripts: Schema.optionalKey(
     Schema.Array(T3ProjectFileScript)
       .annotate({

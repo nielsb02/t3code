@@ -163,6 +163,9 @@ export const make = Effect.gen(function* () {
       if (reference != null) {
         const matchesMerge =
           mergedPullRequest !== null &&
+          (mergedPullRequest.workspace === undefined ||
+            (mergedPullRequest.workspace.repositoryPath === "." &&
+              mergedPullRequest.workspace.threadId === thread.id)) &&
           reference.projectId === mergedPullRequest.projectId &&
           reference.repository.toLowerCase() === mergedPullRequest.repository.toLowerCase() &&
           reference.number === mergedPullRequest.number;

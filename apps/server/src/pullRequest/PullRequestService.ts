@@ -63,6 +63,7 @@ import {
 } from "@t3tools/contracts";
 import { detectSourceControlProviderFromRemoteUrl } from "@t3tools/shared/sourceControl";
 
+import { WorkspaceRepositories } from "../workspace/WorkspaceRepositories.ts";
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as SourceControlRateLimit from "../sourceControl/SourceControlRateLimit.ts";
@@ -533,6 +534,7 @@ export const make = Effect.gen(function* () {
   const mergedPullRequests = yield* PubSub.sliding<PullRequestMergeEvent>(64);
   const pullRequestRefreshes = yield* SubscriptionRef.make(0);
   const registry = yield* PullRequestProviderRegistry;
+  const workspaceRepositories = yield* Effect.serviceOption(WorkspaceRepositories);
   const projections = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
   const sourceControlProviders = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
   const rateLimits = yield* SourceControlRateLimit.SourceControlRateLimit;
@@ -680,7 +682,7 @@ export const make = Effect.gen(function* () {
    * targeting can fall back to another checkout on the host. Azure derives its organization
    * from the checkout, so it requires a matching repository.
    */
-  const requireProject = (ref: PullRequestRef): Effect.Effect<SupportedProject, PullRequestError> =>
+  const requireUnscopedProject = (ref: PullRequestRef): Effect.Effect<SupportedProject, PullRequestError> =>
     listWorkspaceProjects({ projectId: ref.projectId }).pipe(
       Effect.flatMap(({ supported }): Effect.Effect<SupportedProject, PullRequestError> => {
         const own = supported[0];
@@ -739,6 +741,65 @@ export const make = Effect.gen(function* () {
         );
       }),
     );
+
+  const requireProject = Effect.fn("PullRequestService.requireProject")(function* (ref: PullRequestRef): Effect.fn.Return<SupportedProject, PullRequestError> {
+    if (ref.workspace === undefined) return yield* requireUnscopedProject(ref);
+    const invalid = (detail: string) =>
+      new PullRequestOperationError({ operation: "resolveRepository", detail });
+    const snapshot = yield* projections.getShellSnapshot().pipe(
+      Effect.mapError(
+        (cause) =>
+          new PullRequestOperationError({
+            operation: "resolveRepository",
+            detail: "The workspace could not be read.",
+            cause,
+          }),
+      ),
+    );
+    const wrapper = snapshot.projects.find((project) => project.id === ref.projectId);
+    const thread = snapshot.threads.find((thread) => thread.id === ref.workspace?.threadId);
+    if (!wrapper || !thread || thread.projectId !== wrapper.id)
+      return yield* invalid("The thread does not belong to the selected project.");
+    if (Option.isNone(workspaceRepositories))
+      return yield* invalid("Workspace repository discovery is unavailable.");
+    const members = yield* workspaceRepositories.value
+      .list(thread.worktreePath ?? wrapper.workspaceRoot)
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new PullRequestOperationError({
+              operation: "resolveRepository",
+              detail: "Workspace repositories could not be read.",
+              cause,
+            }),
+        ),
+      );
+    const member = members.find((member) => member.path === ref.workspace?.repositoryPath);
+    if (!member || !member.available)
+      return yield* invalid("The selected repository is not available in this workspace.");
+    const project = {
+      ...wrapper,
+      workspaceRoot: member.cwd,
+      repositoryIdentity: member.repositoryIdentity,
+    };
+    const repository = repositoryIdentityOf(project);
+    if (!repository || repository.toLowerCase() !== ref.repository.trim().toLowerCase())
+      return yield* invalid("The change request does not belong to the selected repository.");
+    const refined = yield* refineUnknownProjectKinds([project], {});
+    const identity = project.repositoryIdentity;
+    if (!identity) return yield* invalid("The selected repository has no remote identity.");
+    let kind = identity.provider as SourceControlProviderKind;
+    if (kind === "unknown") {
+      const provider = detectSourceControlProviderFromRemoteUrl(identity.locator.remoteUrl);
+      kind = provider === null ? kind : (refined.get(provider.baseUrl) ?? kind);
+    }
+    const api = registry.get(kind);
+    if (!api) return yield* new PullRequestUnavailableError({ reason: "provider-unsupported" });
+    const host = pullRequestHostOf(identity, kind);
+    if (ref.host !== undefined && ref.host.trim().toLowerCase() !== host)
+      return yield* invalid("The change request host does not match the selected repository.");
+    return { project, repository, host, api: withRateLimitBackoff(api, host, rateLimits) };
+  });
 
   /**
    * What the signed-in account may do with this change request, asked of the host itself. Every
@@ -2088,6 +2149,43 @@ export const make = Effect.gen(function* () {
   const listStatsUncached: PullRequestService["Service"]["listStats"] = (input) =>
     Effect.gen(function* () {
       if (input.refs.length === 0) return { stats: [] };
+      const scoped = input.refs.filter((ref) => ref.workspace !== undefined);
+      if (scoped.length > 0) {
+        const scopedStats = yield* Effect.forEach(
+          scoped,
+          Effect.fn(function* (ref) {
+            const project = yield* requireProject(ref).pipe(Effect.orElseSucceed(() => undefined));
+            if (!project?.api.listChangeRequestStats) return [];
+            return yield* project.api
+              .listChangeRequestStats({
+                cwd: project.project.workspaceRoot,
+                host: project.host,
+                changeRequests: [{ repository: project.repository, number: ref.number }],
+              })
+              .pipe(
+                Effect.map((stats) =>
+                  stats
+                    .filter(
+                      (stat) =>
+                        stat.number === ref.number &&
+                        stat.repository.toLowerCase() === project.repository.toLowerCase(),
+                    )
+                    .map((stat) => ({
+                      ...stat,
+                      projectId: ref.projectId,
+                      workspace: ref.workspace,
+                    })),
+                ),
+                Effect.orElseSucceed(() => []),
+              );
+          }),
+          { concurrency: REPOSITORY_CONCURRENCY },
+        );
+        const legacy = yield* listStatsUncached({
+          refs: input.refs.filter((ref) => ref.workspace === undefined),
+        });
+        return { stats: [...legacy.stats, ...scopedStats.flat()] };
+      }
       const { supported } = yield* listWorkspaceProjects({});
       const byProject = new Map(supported.map((project) => [project.project.id, project]));
       const wanted = new Map<
@@ -2266,7 +2364,7 @@ export const make = Effect.gen(function* () {
   const refEpochs = new Map<string, number>();
   const REF_EPOCH_CAPACITY = 2_048;
   const refScope = (ref: PullRequestRef) =>
-    `${ref.projectId} ${ref.host?.toLowerCase() ?? ""} ${ref.repository.toLowerCase()} ${ref.number}`;
+    JSON.stringify([ref.projectId, ref.host?.toLowerCase() ?? null, ref.repository.toLowerCase(), ref.number, ref.workspace ?? null]);
   const refEpoch = (ref: PullRequestRef) =>
     Math.max(turnRefreshEpoch, refEpochs.get(refScope(ref)) ?? 0);
   // Keys carry the reference back out of the cache loader, so the slot layout is shared with
@@ -2278,18 +2376,21 @@ export const make = Effect.gen(function* () {
       ref.host?.toLowerCase() ?? null,
       ref.repository.toLowerCase(),
       ref.number,
+      ref.workspace ?? null,
     ]);
   const refOfCacheKey = (key: string): PullRequestRef => {
-    const [, projectId, host, repository, number] = JSON.parse(key) as [
+    const [, projectId, host, repository, number, workspace] = JSON.parse(key) as [
       number,
       string,
       string | null,
       string,
       number,
+      PullRequestRef["workspace"] | null,
     ];
     return {
       projectId,
       ...(host === null ? {} : { host }),
+      ...(workspace ? { workspace } : {}),
       repository,
       number,
     } as PullRequestRef;
@@ -2477,12 +2578,15 @@ export const make = Effect.gen(function* () {
   const detailCache = yield* Cache.makeWith(
     (key: string) => {
       const statsKey = statsCacheKey(key);
-      return detailUncached(refOfCacheKey(key)).pipe(
+      const reference = refOfCacheKey(key);
+      const { workspace } = reference;
+      return detailUncached(reference).pipe(
         Effect.tap(
           Effect.fn("PullRequestService.recordDetailStats")(function* (value: PullRequestDetail) {
             recordStats(
               statsKey,
               {
+                ...(workspace ? { workspace } : {}),
                 projectId: value.projectId,
                 repository: value.repository,
                 number: value.number,
@@ -2567,7 +2671,7 @@ export const make = Effect.gen(function* () {
 
   const diffCache = yield* Cache.makeWith(
     (key: string) => {
-      const [, projectId, host, repository, number, cursor, commit] = JSON.parse(key) as [
+      const [, projectId, host, repository, number, cursor, commit, , workspace] = JSON.parse(key) as [
         number,
         string,
         string | null,
@@ -2575,12 +2679,15 @@ export const make = Effect.gen(function* () {
         number,
         string | null,
         string | null,
+        string | null,
+        PullRequestRef["workspace"] | null,
       ];
       return diffUncached({
         projectId,
         ...(host === null ? {} : { host }),
         repository,
         number,
+        ...(workspace ? { workspace } : {}),
         ...(cursor === null ? {} : { cursor }),
         ...(commit === null ? {} : { commit }),
       } as PullRequestDiffInput);
@@ -2606,15 +2713,24 @@ export const make = Effect.gen(function* () {
       input.commit === undefined
         ? (lastGoodSummary.peek(refCacheKey(input))?.updatedAt ?? null)
         : null,
+      input.workspace ?? null,
     ]);
     return staleDiff(key, Cache.get(diffCache, key));
   };
 
   const listStatsCache = yield* Cache.makeWith(
     (key: string) => {
-      const [, refs] = JSON.parse(key) as [number, ReadonlyArray<[string, string, number, number]>];
+      const [, refs] = JSON.parse(key) as [
+        number,
+        ReadonlyArray<[string, string, number, number, PullRequestRef["workspace"] | null]>,
+      ];
       return listStatsUncached({
-        refs: refs.map(([projectId, repository, number]) => ({ projectId, repository, number })),
+        refs: refs.map(([projectId, repository, number, , workspace]) => ({
+          projectId,
+          repository,
+          number,
+          ...(workspace ? { workspace } : {}),
+        })),
       } as unknown as PullRequestListStatsInput).pipe(
         Effect.flatMap((result) =>
           Clock.currentTimeMillis.pipe(Effect.map((at) => ({ result, at }))),
@@ -2630,7 +2746,16 @@ export const make = Effect.gen(function* () {
     JSON.stringify([
       listingsEpoch,
       [...refs]
-        .map((ref) => [ref.projectId, ref.repository, ref.number, refEpoch(ref)] as const)
+        .map(
+          (ref) =>
+            [
+              ref.projectId,
+              ref.repository,
+              ref.number,
+              refEpoch(ref),
+              ref.workspace ?? null,
+            ] as const,
+        )
         .toSorted((left, right) =>
           `${left[0]} ${left[1]} ${left[2]}`.localeCompare(`${right[0]} ${right[1]} ${right[2]}`),
         ),
@@ -2660,7 +2785,8 @@ export const make = Effect.gen(function* () {
         (stat) =>
           stat.projectId === ref.projectId &&
           stat.repository.toLowerCase() === ref.repository.toLowerCase() &&
-          stat.number === ref.number,
+          stat.number === ref.number &&
+          JSON.stringify(stat.workspace ?? null) === JSON.stringify(ref.workspace ?? null),
       );
       if (stat !== undefined) recordStats(key, stat, at);
     }
@@ -2724,6 +2850,7 @@ export const make = Effect.gen(function* () {
         projectId: input.projectId,
         repository,
         number: input.number,
+        ...(input.workspace ? { workspace: input.workspace } : {}),
         mergedAt: DateTime.formatIso(yield* DateTime.now),
       });
     }

@@ -47,6 +47,7 @@ import {
   type ProjectEntriesFailure,
   type ProjectFileFailure,
   type ProjectFileOperation,
+  ProjectListRepositoriesError,
   ProjectListEntriesError,
   ProjectReadFileError,
   ProjectSearchContentsError,
@@ -209,6 +210,12 @@ function projectEntriesFailureContext(error: WorkspaceEntries.WorkspaceEntriesEr
   readonly detail?: string;
 } {
   switch (error._tag) {
+    case "WorkspaceRepositoryDiscoveryError":
+      return {
+        failure: "search_index_create_failed",
+        normalizedCwd: error.cwd,
+        detail: error.message,
+      };
     case "WorkspaceRootNotExistsError":
       return {
         failure: "workspace_root_not_found",
@@ -2345,6 +2352,21 @@ const makeWsRpcLayer = (
                     queryLength: input.query.length,
                     limit: input.limit,
                     ...projectEntriesFailureContext(cause),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsListRepositories]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsListRepositories,
+            workspaceEntries.listRepositories(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectListRepositoriesError({
+                    cwd: input.cwd,
+                    message: cause.message,
                     cause,
                   }),
               ),
