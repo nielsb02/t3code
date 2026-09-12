@@ -35,4 +35,19 @@ describe("workspace review diffs", () => {
     expect(parsed.files[0]?.path).toBe("src/index.ts");
     expect(buildWorkspaceReviewDiff([], "thread")).toEqual({ kind: "empty" });
   });
+  it("retains every repository's complete patch when a member needs raw fallback", () => {
+    const broken = "unrecognized patch format";
+    const parsed = buildWorkspaceReviewDiff(
+      [
+        { path: "projects/valid", diff },
+        { path: "projects/broken", diff: broken },
+      ],
+      "thread",
+    );
+    expect(parsed.kind).toBe("raw");
+    if (parsed.kind !== "raw") throw new Error("Expected raw fallback");
+    expect(parsed.text).toContain(`Repository: projects/valid\n${diff}`);
+    expect(parsed.text).toContain(`Repository: projects/broken\n${broken}`);
+    expect(parsed.reason).toContain("projects/broken:");
+  });
 });

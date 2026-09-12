@@ -543,9 +543,15 @@ export const make = Effect.gen(function* () {
   const sourceControlProviders = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
   const rateLimits = yield* SourceControlRateLimit.SourceControlRateLimit;
 
+  const resolveProviderKind = (input: Parameters<typeof sourceControlProviders.resolveHandle>[0]) =>
+    sourceControlProviders
+      .resolveHandle(input)
+      .pipe(Effect.map((handle) => handle.context?.provider.kind));
+
   const refineUnknownProjectKinds = (
     projects: ReadonlyArray<OrchestrationProjectShell>,
     filter: Pick<PullRequestListInput, "projectId" | "host">,
+    resolveKind = resolveProviderKind,
   ) => {
     type RefinementCandidate = {
       readonly project: OrchestrationProjectShell;
@@ -580,13 +586,12 @@ export const make = Effect.gen(function* () {
         Effect.firstSuccessOf(
           candidates.map(({ project, provider, remoteName, remoteUrl }) =>
             Effect.suspend(() =>
-              sourceControlProviders.resolveHandle({
+              resolveKind({
                 cwd: project.workspaceRoot,
                 context: { provider, remoteName, remoteUrl },
               }),
             ).pipe(
-              Effect.flatMap((handle) => {
-                const kind = handle.context?.provider.kind;
+              Effect.flatMap((kind) => {
                 return kind === undefined || kind === "unknown"
                   ? Effect.fail(undefined)
                   : Effect.succeed(kind);
@@ -672,6 +677,7 @@ export const make = Effect.gen(function* () {
 
   const requireProject = Effect.fn("PullRequestService.requireProject")(function* (
     ref: PullRequestRef,
+    resolveKind = resolveProviderKind,
   ): Effect.fn.Return<SupportedProject, PullRequestError> {
     if (ref.workspace === undefined)
       return yield* listWorkspaceProjects({ projectId: ref.projectId }).pipe(
@@ -734,7 +740,7 @@ export const make = Effect.gen(function* () {
     const repository = repositoryIdentityOf(project);
     if (!repository || repository.toLowerCase() !== ref.repository.trim().toLowerCase())
       return yield* invalid("The change request does not belong to the selected repository.");
-    const refined = yield* refineUnknownProjectKinds([project], {});
+    const refined = yield* refineUnknownProjectKinds([project], {}, resolveKind);
     const identity = project.repositoryIdentity;
     if (!identity) return yield* invalid("The selected repository has no remote identity.");
     let kind = identity.provider as SourceControlProviderKind;
@@ -2018,33 +2024,75 @@ export const make = Effect.gen(function* () {
       if (input.refs.length === 0) return { stats: [] };
       const scoped = input.refs.filter((ref) => ref.workspace !== undefined);
       if (scoped.length > 0) {
+        const byScope = new Map<string, typeof scoped>();
+        for (const ref of scoped) {
+          const key = [
+            ref.projectId,
+            ref.workspace?.threadId,
+            ref.workspace?.repositoryPath,
+            ref.repository.trim().toLowerCase(),
+          ].join("\0");
+          const group = byScope.get(key);
+          if (group) group.push(ref);
+          else byScope.set(key, [ref]);
+        }
+        const providerKinds = yield* Cache.makeWith(
+          (key: string) =>
+            resolveProviderKind(JSON.parse(key) as Parameters<typeof resolveProviderKind>[0]),
+          { capacity: byScope.size },
+        );
+        const resolveBatchProviderKind: typeof resolveProviderKind = (input) =>
+          Cache.get(providerKinds, JSON.stringify(input));
+        const resolved = yield* Effect.forEach(
+          [...byScope.values()],
+          Effect.fn(function* (refs) {
+            const project = yield* requireProject(refs[0]!, resolveBatchProviderKind).pipe(
+              Effect.orElseSucceed(() => undefined),
+            );
+            return project?.api.listChangeRequestStats ? [{ project, refs }] : [];
+          }),
+          { concurrency: REPOSITORY_CONCURRENCY },
+        );
+        const byCheckout = new Map<string, (typeof resolved)[number]>();
+        for (const entry of resolved.flat()) {
+          const key = `${entry.project.host}\0${entry.project.project.workspaceRoot}`;
+          const group = byCheckout.get(key);
+          if (group) group.push(entry);
+          else byCheckout.set(key, [entry]);
+        }
         const scopedStats = yield* Effect.forEach(
-          scoped,
-          Effect.fn(function* (ref) {
-            const project = yield* requireProject(ref).pipe(Effect.orElseSucceed(() => undefined));
-            if (!project?.api.listChangeRequestStats) return [];
-            return yield* project.api
-              .listChangeRequestStats({
-                cwd: project.project.workspaceRoot,
-                host: project.host,
-                changeRequests: [{ repository: project.repository, number: ref.number }],
-              })
-              .pipe(
-                Effect.map((stats) =>
-                  stats
-                    .filter(
-                      (stat) =>
-                        stat.number === ref.number &&
-                        stat.repository.toLowerCase() === project.repository.toLowerCase(),
-                    )
-                    .map((stat) => ({
-                      ...stat,
-                      projectId: ref.projectId,
-                      workspace: ref.workspace,
-                    })),
+          [...byCheckout.values()],
+          Effect.fn(function* (entries) {
+            const first = entries[0]!;
+            const readStats = first.project.api.listChangeRequestStats;
+            if (!readStats) return [];
+            return yield* readStats({
+              cwd: first.project.project.workspaceRoot,
+              host: first.project.host,
+              changeRequests: entries.flatMap(({ project, refs }) =>
+                refs.map((ref) => ({
+                  repository: project.repository,
+                  number: ref.number,
+                })),
+              ),
+            }).pipe(
+              Effect.map((stats) =>
+                stats.flatMap((stat) =>
+                  entries.flatMap(({ project, refs }) =>
+                    stat.repository.toLowerCase() === project.repository.toLowerCase()
+                      ? refs
+                          .filter((ref) => ref.number === stat.number)
+                          .map((ref) => ({
+                            ...stat,
+                            projectId: ref.projectId,
+                            workspace: ref.workspace,
+                          }))
+                      : [],
+                  ),
                 ),
-                Effect.orElseSucceed(() => []),
-              );
+              ),
+              Effect.orElseSucceed(() => []),
+            );
           }),
           { concurrency: REPOSITORY_CONCURRENCY },
         );

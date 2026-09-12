@@ -3114,7 +3114,7 @@ export default function ChatView(props: ChatViewProps) {
   const selectedGitCwd = workspaceRepositories.error
     ? null
     : supportsWorkspaceRepositories
-      ? (selectedGitRepository?.cwd ?? null)
+      ? (selectedGitRepository?.cwd ?? gitCwd)
       : gitCwd;
   const gitStatusCwd = activeThread?.worktreePath ?? gitCwd;
   const gitStatusQuery = useEnvironmentQuery(

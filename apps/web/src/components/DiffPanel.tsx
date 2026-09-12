@@ -501,9 +501,10 @@ export default function DiffPanel({
   const renderablePatch = useMemo(
     () =>
       workspaceDiff
-        ? workspaceDiff.files.length > 0
-          ? { kind: "files" as const, files: workspaceDiff.files }
-          : null
+        ? (workspaceDiff.rawPatch ??
+          (workspaceDiff.files.length > 0
+            ? { kind: "files" as const, files: workspaceDiff.files }
+            : null))
         : getRenderablePatch(selectedPatch, `diff-panel:${resolvedTheme}`, {
             compactPartialHunkOffsets: selectedTurnId === null,
           }),

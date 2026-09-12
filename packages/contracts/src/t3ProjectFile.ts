@@ -89,9 +89,12 @@ export const T3ProjectFile = Schema.Struct({
   repositories: Schema.optionalKey(
     Schema.Struct({
       paths: Schema.optionalKey(
-        Schema.Array(Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(512))).check(
-          Schema.isMaxLength(100),
-        ),
+        Schema.Array(
+          trimmedNonEmpty(
+            { description: "Workspace-relative repository path or trailing /* pattern." },
+            T3_PROJECT_FILE_PATH_MAX_LENGTH,
+          ),
+        ).check(Schema.isMaxLength(100)),
       ),
       includeSubmodules: Schema.optionalKey(Schema.Boolean),
     }).annotate({

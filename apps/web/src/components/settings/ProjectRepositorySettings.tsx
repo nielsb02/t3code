@@ -79,10 +79,16 @@ export function ProjectRepositorySettings({
         reportFailure: false,
         reportDefect: false,
       });
-      const updated = updateRepositoryConfig(readContents(fresh), settings);
+      const freshContents = readContents(fresh);
+      const updated = updateRepositoryConfig(freshContents, settings);
       const written = await writeFile({
         environmentId,
-        input: { cwd, relativePath: T3_PROJECT_FILE_NAME, contents: updated },
+        input: {
+          cwd,
+          relativePath: T3_PROJECT_FILE_NAME,
+          contents: updated,
+          expectedContents: fresh._tag === "Success" ? freshContents : null,
+        },
       });
       if (written._tag !== "Success") throw squashAtomCommandFailure(written);
       appAtomRegistry.refresh(fileAtom);

@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { EnvironmentId } from "@t3tools/contracts";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { getRenderablePatch, resolveFileDiffPath } from "./diffRendering";
+import {
+  buildFileDiffIdentityKey,
+  getRenderablePatch,
+  resolveFileDiffPath,
+  resolveFileDiffPreviousPath,
+} from "./diffRendering";
 import { createWorkspaceDiff } from "./workspaceDiff";
 
 const patch = `diff --git a/old name.txt b/new name.txt
@@ -117,5 +122,25 @@ describe("workspace diff", () => {
     );
     expect(diff.files).toHaveLength(1);
     expect(diff.warnings).toEqual([expect.stringContaining("projects/broken:")]);
+    expect(diff.rawPatch?.text).toContain(`Repository: projects/valid\n${patch}`);
+    expect(diff.rawPatch?.text).toContain("Repository: projects/broken\nunrecognized patch format");
+  });
+  it("preserves a/ and b/ workspace prefixes through hydration without route collisions", async () => {
+    const getContents = vi.fn(async () =>
+      AsyncResult.success({ oldContents: "before", newContents: "after" }),
+    );
+    const paths = ["a/service", "b/service", "service"];
+    const diff = createWorkspaceDiff(paths.map(entry), environmentId, getContents, "light");
+    expect(new Set(diff.files.map(buildFileDiffIdentityKey)).size).toBe(paths.length);
+    for (const [index, file] of diff.files.entries()) {
+      expect(resolveFileDiffPath(file)).toBe(`${paths[index]}/new name.txt`);
+      expect(resolveFileDiffPreviousPath(file)).toBe(`${paths[index]}/old name.txt`);
+      const loaded = await diff.loadDiffFiles(file);
+      expect(loaded.newFile.name).toBe(`${paths[index]}/new name.txt`);
+      expect(loaded.oldFile?.name).toBe(`${paths[index]}/old name.txt`);
+    }
+    expect(getContents.mock.calls).toMatchObject(
+      paths.map((path) => [{ input: { cwd: `/workspace/${path}` } }]),
+    );
   });
 });

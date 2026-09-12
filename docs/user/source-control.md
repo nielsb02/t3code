@@ -7,6 +7,11 @@ repositories, create pull requests, and review changes.
 
 In **Settings → Projects**, select a project and edit **Repository paths** and **Include Git submodules** under **Checkout**. Save writes to that checkout’s `t3.json`, preserving comments and other settings. Existing task worktrees keep their own configuration.
 
+T3 checks that `t3.json` still matches the version read for the save and handles T3 saves one
+at a time. If that check fails, the save is rejected; reload the settings and retry.
+An external editor can still change the file between T3’s final check and write, so avoid editing
+`t3.json` in T3 and an external editor at the same time.
+
 You can also declare repositories directly in `t3.json`, alongside any existing scripts:
 
 ```json

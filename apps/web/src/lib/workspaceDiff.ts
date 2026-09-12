@@ -43,6 +43,7 @@ export function createWorkspaceDiff<E>(
     for (const original of parsed?.files ?? []) {
       const mapped = {
         ...original,
+        workspaceRelativePaths: true as const,
         name: `${prefix}${resolveFileDiffPath(original)}`,
         ...(original.prevName
           ? { prevName: `${prefix}${resolveFileDiffPreviousPath(original)}` }
@@ -58,11 +59,19 @@ export function createWorkspaceDiff<E>(
     const contents = await route.load(route.original);
     return {
       ...contents,
-      newFile: { ...contents.newFile, name: resolveFileDiffPath(file) },
-      oldFile: contents.oldFile
-        ? { ...contents.oldFile, name: resolveFileDiffPreviousPath(file) }
-        : null,
+      newFile: { ...contents.newFile, name: file.name },
+      oldFile: contents.oldFile ? { ...contents.oldFile, name: file.prevName ?? file.name } : null,
     };
   };
-  return { files, warnings, loadDiffFiles };
+  const rawPatch =
+    warnings.length > 0
+      ? {
+          kind: "raw" as const,
+          text: entries
+            .map(({ repository, source }) => `Repository: ${repository.path}\n${source.diff}`)
+            .join("\n\n"),
+          reason: warnings.join("\n"),
+        }
+      : null;
+  return { files, warnings, loadDiffFiles, rawPatch };
 }
