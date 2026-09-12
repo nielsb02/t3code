@@ -46,6 +46,7 @@ import {
   type ProjectEntriesFailure,
   type ProjectFileFailure,
   type ProjectFileOperation,
+  ProjectListRepositoriesError,
   ProjectListEntriesError,
   ProjectReadFileError,
   ProjectSearchContentsError,
@@ -202,6 +203,12 @@ function projectEntriesFailureContext(error: WorkspaceEntries.WorkspaceEntriesEr
   readonly detail?: string;
 } {
   switch (error._tag) {
+    case "WorkspaceRepositoryDiscoveryError":
+      return {
+        failure: "search_index_create_failed",
+        normalizedCwd: error.cwd,
+        detail: error.message,
+      };
     case "WorkspaceRootNotExistsError":
       return {
         failure: "workspace_root_not_found",
@@ -273,8 +280,11 @@ function projectFileFailureContext(
   readonly resolvedWorkspaceRoot?: string;
   readonly operation?: ProjectFileOperation;
   readonly operationPath?: string;
+  readonly code?: string;
 } {
   switch (error._tag) {
+    case "WorkspaceFileChangedError":
+      return { failure: "file_changed" };
     case "WorkspacePathOutsideRootError":
       return { failure: "workspace_path_outside_root" };
     case "WorkspaceFileSystemOperationError":
@@ -283,6 +293,12 @@ function projectFileFailureContext(
         resolvedPath: error.resolvedPath,
         operation: error.operation,
         operationPath: error.operationPath,
+        ...(typeof error.cause === "object" &&
+        error.cause !== null &&
+        "code" in error.cause &&
+        typeof error.cause.code === "string"
+          ? { code: error.cause.code }
+          : {}),
       };
     case "WorkspaceFilePathEscapeError":
       return {
@@ -2304,6 +2320,21 @@ const makeWsRpcLayer = (
                     queryLength: input.query.length,
                     limit: input.limit,
                     ...projectEntriesFailureContext(cause),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.projectsListRepositories]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.projectsListRepositories,
+            workspaceEntries.listRepositories(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectListRepositoriesError({
+                    cwd: input.cwd,
+                    message: cause.message,
                     cause,
                   }),
               ),

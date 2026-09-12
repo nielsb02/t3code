@@ -7,6 +7,7 @@ import {
   NonNegativeInt,
   PositiveInt,
   ProjectId,
+  ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
 import { SourceControlProviderKind } from "./sourceControl.ts";
@@ -615,7 +616,13 @@ export const PullRequestListResult = Schema.Struct({
 });
 export type PullRequestListResult = typeof PullRequestListResult.Type;
 
+export const PullRequestWorkspace = Schema.Struct({
+  threadId: ThreadId,
+  repositoryPath: TrimmedNonEmptyString,
+});
+
 export const PullRequestRef = Schema.Struct({
+  workspace: Schema.optional(PullRequestWorkspace),
   projectId: ProjectId,
   repository: TrimmedNonEmptyString,
   number: PositiveInt,
@@ -653,6 +660,7 @@ export type PullRequestSummary = typeof PullRequestSummary.Type;
  * rows on screen at the speed of everything else on them.
  */
 export const PullRequestDiffStat = Schema.Struct({
+  workspace: Schema.optional(PullRequestWorkspace),
   projectId: ProjectId,
   repository: TrimmedNonEmptyString,
   number: PositiveInt,

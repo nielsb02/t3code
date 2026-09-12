@@ -455,8 +455,10 @@ export function PullRequestDetailPanel({
   onClose,
   context = "page",
   composerDraftTarget,
+  browserUrl,
 }: {
   environmentId: EnvironmentId;
+  browserUrl?: string;
   /**
    * The thread this panel sits beside, if any. Links that are not the pull
    * request itself (check details, host permalinks) can open in that thread's
@@ -492,7 +494,12 @@ export function PullRequestDetailPanel({
    */
   composerDraftTarget?: ScopedThreadRef | DraftId;
 }) {
-  const pullRequestKey = `${reference.projectId}:${reference.repository}#${reference.number}`;
+  const pullRequestKey = JSON.stringify([
+    reference.projectId,
+    reference.repository,
+    reference.number,
+    reference.workspace ?? null,
+  ]);
   const matchingListEntry =
     listEntry?.projectId === reference.projectId &&
     listEntry.repository.toLowerCase() === reference.repository.toLowerCase() &&
@@ -761,11 +768,21 @@ export function PullRequestDetailPanel({
   const { environments } = useEnvironments();
   const projects = useProjects();
   const unavailableGitHubUrl = useMemo(() => {
+    if (browserUrl) return browserUrl;
+    if (reference.workspace) return null;
     const identity = projects.find(
       (project) => project.id === reference.projectId && project.environmentId === environmentId,
     )?.repositoryIdentity;
     return gitHubPullRequestBrowserUrl(identity, reference.repository, reference.number);
-  }, [environmentId, projects, reference.number, reference.projectId, reference.repository]);
+  }, [
+    browserUrl,
+    environmentId,
+    projects,
+    reference.number,
+    reference.projectId,
+    reference.repository,
+    reference.workspace,
+  ]);
   // Beside a thread there is nothing to pick: the hand-offs land in that thread's composer, and
   // the thread is already on one server's copy of the branch.
   const pickableEnvironments = useMemo(
