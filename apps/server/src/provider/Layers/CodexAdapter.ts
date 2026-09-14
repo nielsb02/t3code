@@ -1,3 +1,4 @@
+import { collectCodexHandoff } from "./CodexSideChat.ts";
 /**
  * CodexAdapterLive - Scoped live implementation for the Codex provider adapter.
  *
@@ -30,6 +31,7 @@ import {
   ProviderApprovalDecision,
   ThreadId,
   ProviderSendTurnInput,
+  type ProviderSessionStartInput,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as NodeCrypto from "node:crypto";
@@ -2229,7 +2231,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
   const sessions = new Map<ThreadId, CodexAdapterSessionContext>();
 
-  const startSession: CodexAdapterShape["startSession"] = (input) =>
+  const startSession = (input: ProviderSessionStartInput, forkSourceThreadId?: string) =>
     Effect.scoped(
       Effect.gen(function* () {
         if (input.provider !== undefined && input.provider !== PROVIDER) {
@@ -2252,6 +2254,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
         const runtimeInput: CodexSessionRuntimeOptions = {
           threadId: input.threadId,
+          ...(forkSourceThreadId ? { forkSourceThreadId } : {}),
           providerInstanceId: boundInstanceId,
           cwd: input.cwd ?? process.cwd(),
           binaryPath: codexConfig.binaryPath,
@@ -2413,6 +2416,71 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         return started;
       }),
     );
+
+  const forkSession: NonNullable<CodexAdapterShape["forkSession"]> = Effect.fn(
+    "CodexAdapter.forkSession",
+  )(function* ({ sourceResumeCursor, session }) {
+    if (!isCodexResumeCursorSchema(sourceResumeCursor)) {
+      return yield* new ProviderAdapterValidationError({
+        provider: PROVIDER,
+        operation: "forkSession",
+        issue: "The parent has no valid Codex resume state.",
+      });
+    }
+    return yield* startSession(
+      { ...session, resumeCursor: undefined },
+      sourceResumeCursor.threadId,
+    );
+  });
+
+  const generateHandoff: NonNullable<CodexAdapterShape["generateHandoff"]> = Effect.fn(
+    "CodexAdapter.generateHandoff",
+  )(function* ({ sourceResumeCursor, session, prompt }) {
+    if (!isCodexResumeCursorSchema(sourceResumeCursor)) {
+      return yield* new ProviderAdapterValidationError({
+        provider: PROVIDER,
+        operation: "generateHandoff",
+        issue: "The parent has no valid Codex resume state.",
+      });
+    }
+    return yield* Effect.scoped(
+      Effect.gen(function* () {
+        const helperScope = yield* Scope.make("sequential");
+        yield* Effect.addFinalizer(() => Scope.close(helperScope, Exit.void));
+        const runtime = yield* (options?.makeRuntime ?? makeCodexSessionRuntime)({
+          threadId: ThreadId.make(`handoff-${NodeCrypto.randomUUID()}`),
+          providerInstanceId: boundInstanceId,
+          binaryPath: codexConfig.binaryPath,
+          cwd: session.cwd ?? process.cwd(),
+          launchArgs: resolveCodexLaunchArgs(codexConfig.launchArgs, options?.environment),
+          ...(options?.environment ? { environment: options.environment } : {}),
+          ...(codexConfig.homePath ? { homePath: codexConfig.homePath } : {}),
+          ...(session.modelSelection ? { model: session.modelSelection.model } : {}),
+          runtimeMode: "approval-required",
+          forkSourceThreadId: sourceResumeCursor.threadId,
+          handoff: true,
+        }).pipe(
+          Effect.provideService(Scope.Scope, helperScope),
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, childProcessSpawner),
+          Effect.provideService(Crypto.Crypto, crypto),
+        );
+        yield* Effect.addFinalizer(() => runtime.close);
+        return yield* collectCodexHandoff(runtime, prompt).pipe(
+          Effect.timeoutOrElse({
+            duration: "3 minutes",
+            orElse: () =>
+              Effect.fail(
+                CodexErrors.CodexAppServerRequestError.invalidParams(
+                  "Codex context handoff timed out. Retry the side chat.",
+                ),
+              ),
+          }),
+        );
+      }),
+    ).pipe(
+      Effect.mapError((cause) => mapCodexRuntimeError(session.threadId, "thread/fork", cause)),
+    );
+  });
 
   const resolveAttachment = Effect.fn("resolveAttachment")(function* (
     input: ProviderSendTurnInput,
@@ -2655,6 +2723,8 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       promptlessTurnContinuation: true,
     },
     startSession,
+    forkSession,
+    generateHandoff,
     sendTurn,
     compaction: { type: "native", start: compactThread },
     interruptTurn,

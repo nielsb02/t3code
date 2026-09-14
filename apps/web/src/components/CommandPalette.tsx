@@ -1,6 +1,13 @@
 "use client";
 
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { activeChatPaneComposer, useChatPaneFocusStore } from "../chatPaneScope";
+import { useSideChatActions } from "../hooks/useSideChatActions";
+
+import {
+  scopeProjectRef,
+  scopeThreadRef,
+  parseScopedThreadKey,
+} from "@t3tools/client-runtime/environment";
 import {
   canCreateProjectInEnvironment,
   getCloneDestinationBrowsePath,
@@ -80,7 +87,7 @@ import { sourceControlEnvironment } from "../state/sourceControl";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
-import { useProjects, useThreadShells } from "../state/entities";
+import { useProjects, useThreadShells, useThread } from "../state/entities";
 import { useThreadSearch } from "../state/queries";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import {
@@ -542,7 +549,7 @@ function CommandPaletteDialog(props: {
       data-palette-mode={props.mode}
       data-testid="command-palette"
       finalFocus={() => {
-        composerHandleRef?.current?.focusAtEnd();
+        (activeChatPaneComposer() ?? composerHandleRef)?.current?.focusAtEnd();
         return false;
       }}
       onBackdropPointerDown={() => {
@@ -572,6 +579,7 @@ function OpenCommandPaletteDialog(props: {
   readonly clearOpenIntent: () => void;
 }) {
   const navigate = useNavigate();
+  const { openThread } = useSideChatActions();
   const pathname = useLocation({ select: (location) => location.pathname });
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
   const [query, setQuery] = useState("");
@@ -596,8 +604,17 @@ function OpenCommandPaletteDialog(props: {
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
-  const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
-    useHandleNewThread();
+  const {
+    activeDraftThread,
+    activeThread: routeThread,
+    defaultProjectRef,
+    handleNewThread,
+  } = useHandleNewThread();
+  const activePaneKey = useChatPaneFocusStore((state) => state.activeKey);
+  const paneThread = useThread(activePaneKey ? parseScopedThreadKey(activePaneKey) : null, {
+    waitForShell: true,
+  });
+  const activeThread = paneThread ?? routeThread;
   const projects = useProjects();
   const openPanelPullRequestUrl = useOpenPanelPullRequestUrl(
     activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null,
@@ -1041,12 +1058,7 @@ function OpenCommandPaletteDialog(props: {
             clientSettings.sidebarThreadSortOrder,
           );
       if (latestThread) {
-        await navigate({
-          to: "/$environmentId/$threadId",
-          params: buildThreadRouteParams(
-            scopeThreadRef(latestThread.environmentId, latestThread.id),
-          ),
-        });
+        await openThread(scopeThreadRef(latestThread.environmentId, latestThread.id));
         return;
       }
 
@@ -1055,7 +1067,7 @@ function OpenCommandPaletteDialog(props: {
     [
       clientSettings.sidebarThreadSortOrder,
       handleNewThread,
-      navigate,
+      openThread,
       projectGroupByTargetKey,
       threads,
     ],
@@ -1195,16 +1207,13 @@ function OpenCommandPaletteDialog(props: {
             : undefined;
         },
         runThread: async (thread) => {
-          await navigate({
-            to: "/$environmentId/$threadId",
-            params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
-          });
+          await openThread(scopeThreadRef(thread.environmentId, thread.id));
         },
       }),
     [
       activeThreadId,
       clientSettings.sidebarThreadSortOrder,
-      navigate,
+      openThread,
       projectCwdById,
       projectFaviconPathById,
       projectIconByKey,

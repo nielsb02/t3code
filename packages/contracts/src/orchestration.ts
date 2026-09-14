@@ -485,6 +485,7 @@ export const ThreadLinkedPullRequest = Schema.Struct({
 export type ThreadLinkedPullRequest = typeof ThreadLinkedPullRequest.Type;
 
 export const OrchestrationThread = Schema.Struct({
+  parentThreadId: Schema.optional(ThreadId),
   id: ThreadId,
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
@@ -567,6 +568,7 @@ export const OrchestrationProjectShell = Schema.Struct({
 export type OrchestrationProjectShell = typeof OrchestrationProjectShell.Type;
 
 export const OrchestrationThreadShell = Schema.Struct({
+  parentThreadId: Schema.optional(ThreadId),
   id: ThreadId,
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
@@ -795,6 +797,7 @@ const ProjectDeleteCommand = Schema.Struct({
 });
 
 const ThreadCreateCommand = Schema.Struct({
+  parentThreadId: Schema.optional(ThreadId),
   type: Schema.Literal("thread.create"),
   commandId: CommandId,
   threadId: ThreadId,
@@ -809,6 +812,51 @@ const ThreadCreateCommand = Schema.Struct({
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
   historyImport: Schema.optional(Schema.Literal(true)),
+});
+
+export const MAX_THREAD_CONTEXT_TEXT_LENGTH = 64_000;
+const ThreadContextText = Schema.String.check(Schema.isMaxLength(MAX_THREAD_CONTEXT_TEXT_LENGTH));
+
+export const ThreadContextTransfer = Schema.Struct({
+  transferId: CommandId,
+  deliveryId: Schema.optional(CommandId),
+  sourceThreadId: ThreadId,
+  sourceTurnId: Schema.NullOr(TurnId),
+  direction: Schema.Literals(["from-parent", "to-parent"]),
+  status: Schema.Literals([
+    "requested",
+    "prepared",
+    "delivering",
+    "delivered",
+    "failed",
+    "cancelled",
+  ]),
+  text: Schema.optional(ThreadContextText),
+  detail: Schema.optional(Schema.String),
+});
+export type ThreadContextTransfer = typeof ThreadContextTransfer.Type;
+
+const ThreadContextRefreshCommand = Schema.Struct({
+  type: Schema.Literal("thread.context.refresh"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+
+const ThreadContextCancelCommand = Schema.Struct({
+  type: Schema.Literal("thread.context.cancel"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  transferId: CommandId,
+  createdAt: IsoDateTime,
+});
+
+const ThreadContextShareCommand = Schema.Struct({
+  type: Schema.Literal("thread.context.share"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+  createdAt: IsoDateTime,
 });
 
 const ThreadDeleteCommand = Schema.Struct({
@@ -944,6 +992,7 @@ const ThreadInteractionModeSetCommand = Schema.Struct({
 });
 
 const ThreadTurnStartBootstrapCreateThread = Schema.Struct({
+  parentThreadId: Schema.optional(ThreadId),
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
@@ -1072,6 +1121,9 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectMetaUpdateCommand,
   ProjectDeleteCommand,
   ThreadCreateCommand,
+  ThreadContextRefreshCommand,
+  ThreadContextShareCommand,
+  ThreadContextCancelCommand,
   ThreadDeleteCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
@@ -1102,6 +1154,9 @@ export const ClientOrchestrationCommand = Schema.Union([
   ProjectMetaUpdateCommand,
   ProjectDeleteCommand,
   ThreadCreateCommand,
+  ThreadContextRefreshCommand,
+  ThreadContextShareCommand,
+  ThreadContextCancelCommand,
   ThreadDeleteCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
@@ -1125,6 +1180,24 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadSessionStopCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
+
+export const ThreadReportMessage = ThreadContextText.check(Schema.isPattern(/\S/));
+
+const ThreadContextReportCommand = Schema.Struct({
+  type: Schema.Literal("thread.context.report"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  message: ThreadReportMessage,
+  createdAt: IsoDateTime,
+});
+
+const ThreadContextClaimCommand = Schema.Struct({
+  type: Schema.Literal("thread.context.claim"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  transferId: CommandId,
+  createdAt: IsoDateTime,
+});
 
 const ThreadSessionSetCommand = Schema.Struct({
   type: Schema.Literal("thread.session.set"),
@@ -1231,6 +1304,8 @@ const ThreadPullRequestSyncCommand = Schema.Struct({
 });
 
 const InternalOrchestrationCommand = Schema.Union([
+  ThreadContextReportCommand,
+  ThreadContextClaimCommand,
   ThreadAutoSettleCommand,
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
@@ -1322,6 +1397,7 @@ export const ProjectDeletedPayload = Schema.Struct({
 });
 
 export const ThreadCreatedPayload = Schema.Struct({
+  parentThreadId: Schema.optional(ThreadId),
   threadId: ThreadId,
   projectId: ProjectId,
   title: TrimmedNonEmptyString,

@@ -70,6 +70,7 @@ import * as ProviderSessionDirectory from "../Services/ProviderSessionDirectory.
 import { type EventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import * as ProviderEventLoggers from "./ProviderEventLoggers.ts";
 import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
+import type { McpCapability } from "../../mcp/McpInvocationContext.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
 import * as ServerSettings from "../../serverSettings.ts";
@@ -709,10 +710,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   /**
    * Attach the `t3-code` MCP server to the session that is about to start.
    *
-   * This is the only place a credential is minted, so withholding one here is
-   * what disables agent browser access everywhere: every adapter already
-   * treats a missing session as "no MCP server", and the `/mcp` endpoint
-   * accepts nothing but tokens issued from this path.
+   * Capabilities are independent: side chats can report to their parent even
+   * when browser access is disabled. Each tool enforces its own capability.
    */
   /**
    * Deny on an unreadable settings file rather than letting the read failure
@@ -745,7 +744,21 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
   const prepareMcpSession = (threadId: ThreadId, providerInstanceId: ProviderInstanceId) =>
     Effect.gen(function* () {
-      if (!(yield* agentBrowserAccessEnabled(threadId))) {
+      const capabilities: Array<McpCapability> = [];
+      if (yield* agentBrowserAccessEnabled(threadId)) capabilities.push("preview");
+      if (Option.isSome(projectionQuery)) {
+        const thread = yield* projectionQuery.value
+          .getThreadShellById(threadId)
+          .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+        if (
+          Option.isSome(thread) &&
+          thread.value.parentThreadId &&
+          thread.value.archivedAt === null
+        ) {
+          capabilities.push("side-chat");
+        }
+      }
+      if (capabilities.length === 0) {
         // Revoke as well as clear. Every other prepare path reaches
         // `issueActiveMcpCredential`, which revokes the thread first, so
         // skipping it here would leave a previously issued bearer token valid
@@ -756,7 +769,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         yield* Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId));
         return undefined;
       }
-      const credential = yield* issueMcpCredential({ threadId, providerInstanceId });
+      const credential = yield* issueMcpCredential({ threadId, providerInstanceId, capabilities });
       if (credential) {
         yield* Effect.sync(() => McpProviderSession.setMcpProviderSession(credential.config));
       }
@@ -1168,6 +1181,121 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             }),
       { discard: true },
     );
+  });
+
+  const resolveSideChatSource = Effect.fn("resolveSideChatSource")(function* (threadId: ThreadId) {
+    const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
+    if (!binding?.resumeCursor) {
+      return yield* toValidationError(
+        "ProviderService.sideChat",
+        "The parent needs a saved provider session before creating a side chat.",
+      );
+    }
+    const instanceId = yield* requireBindingInstanceId("ProviderService.sideChat", binding);
+    const instance = yield* registry.getInstanceInfo(instanceId);
+    if (!instance.enabled || instance.driverKind !== "codex") {
+      return yield* toValidationError(
+        "ProviderService.sideChat",
+        "Context inheritance currently requires an enabled Codex parent provider.",
+      );
+    }
+    const adapter = yield* registry.getByInstance(instanceId);
+    const cwd = readPersistedCwd(binding.runtimePayload);
+    if (!cwd) {
+      return yield* toValidationError(
+        "ProviderService.sideChat",
+        "The parent session has no saved workspace. Resume it before creating a side chat.",
+      );
+    }
+    return { binding, instanceId, adapter, cwd };
+  });
+
+  const forkSession: ProviderServiceMethod<"forkSession"> = Effect.fn(
+    "ProviderService.forkSession",
+  )(function* ({ sourceThreadId, threadId, input }) {
+    if (sourceThreadId === threadId) {
+      return yield* toValidationError(
+        "ProviderService.forkSession",
+        "A side chat must have its own thread id.",
+      );
+    }
+    const source = yield* resolveSideChatSource(sourceThreadId);
+    const targetInstance = yield* requireBindingInstanceId("ProviderService.forkSession", input);
+    if (
+      targetInstance !== source.instanceId ||
+      (input.provider !== undefined && input.provider !== "codex")
+    ) {
+      return yield* toValidationError(
+        "ProviderService.forkSession",
+        "Native forks require the same Codex provider instance as the parent. Choose Claude for a portable handoff.",
+      );
+    }
+    const existing = Option.getOrUndefined(yield* directory.getBinding(threadId));
+    if (existing?.resumeCursor) {
+      return yield* startSession(threadId, { ...input, resumeCursor: undefined });
+    }
+    if (!source.adapter.forkSession) {
+      return yield* toValidationError(
+        "ProviderService.forkSession",
+        "This provider does not support native side chats. Update the Codex integration.",
+      );
+    }
+    yield* prepareMcpSession(threadId, source.instanceId);
+    const child = yield* source.adapter
+      .forkSession({
+        sourceResumeCursor: source.binding.resumeCursor,
+        session: {
+          ...input,
+          threadId,
+          provider: source.binding.provider,
+          providerInstanceId: source.instanceId,
+          cwd: input.cwd ?? source.cwd,
+          resumeCursor: undefined,
+        },
+      })
+      .pipe(Effect.onError(() => clearMcpSession(threadId)));
+    const boundChild = { ...child, providerInstanceId: source.instanceId };
+    yield* upsertSessionBinding(boundChild, threadId, {
+      modelSelection: input.modelSelection,
+    }).pipe(
+      Effect.onError(() =>
+        source.adapter
+          .stopSession(threadId)
+          .pipe(Effect.ignore, Effect.andThen(clearMcpSession(threadId))),
+      ),
+    );
+    return boundChild;
+  });
+
+  const generateHandoff: ProviderServiceMethod<"generateHandoff"> = Effect.fn(
+    "ProviderService.generateHandoff",
+  )(function* ({ threadId, prompt }) {
+    if (!prompt.trim() || prompt.length > 100_000) {
+      return yield* toValidationError(
+        "ProviderService.generateHandoff",
+        "Provide a side-task assignment of at most 100,000 characters.",
+      );
+    }
+    const source = yield* resolveSideChatSource(threadId);
+    if (!source.adapter.generateHandoff) {
+      return yield* toValidationError(
+        "ProviderService.generateHandoff",
+        "This provider does not support native context handoffs. Update the Codex integration.",
+      );
+    }
+    const modelSelection = readPersistedModelSelection(source.binding.runtimePayload);
+    return yield* source.adapter.generateHandoff({
+      sourceResumeCursor: source.binding.resumeCursor,
+      session: {
+        threadId,
+        provider: source.binding.provider,
+        providerInstanceId: source.instanceId,
+        cwd: source.cwd,
+        runtimeMode: "approval-required",
+        ...(modelSelection ? { modelSelection } : {}),
+      },
+      prompt,
+    });
   });
 
   const startSession: ProviderServiceMethod<"startSession"> = Effect.fn("startSession")(
@@ -2073,6 +2201,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
   return {
     startSession,
+    forkSession,
+    generateHandoff,
     sendTurn,
     compactThread,
     interruptTurn,

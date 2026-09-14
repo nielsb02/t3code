@@ -282,9 +282,17 @@ export function useThreadActions() {
       opts.onArchived?.();
 
       if (shouldNavigateToDraft) {
-        const navigationResult = await settlePromise(() =>
-          handleNewThreadRef.current(scopeProjectRef(thread.environmentId, thread.projectId)),
-        );
+        const navigationResult = await settlePromise(async () => {
+          await (thread.parentThreadId &&
+          readThreadShell(scopeThreadRef(thread.environmentId, thread.parentThreadId))
+            ? router.navigate({
+                to: "/$environmentId/$threadId",
+                params: buildThreadRouteParams(
+                  scopeThreadRef(thread.environmentId, thread.parentThreadId),
+                ),
+              })
+            : handleNewThreadRef.current(scopeProjectRef(thread.environmentId, thread.projectId)));
+        });
         if (navigationResult._tag === "Failure") {
           return navigationResult;
         }
@@ -293,7 +301,13 @@ export function useThreadActions() {
 
       return archiveResult;
     },
-    [archiveThreadMutation, getCurrentRouteThreadRef, markThreadVisited, resolveThreadTarget],
+    [
+      archiveThreadMutation,
+      getCurrentRouteThreadRef,
+      markThreadVisited,
+      resolveThreadTarget,
+      router,
+    ],
   );
 
   const unarchiveThread = useCallback(
@@ -346,10 +360,9 @@ export function useThreadActions() {
         deletedIds && deletedIds.size > 0
           ? threads.filter((entry) => entry.id === threadRef.threadId || !deletedIds.has(entry.id))
           : threads;
-      const orphanedWorktreePath = getOrphanedWorktreePathForThread(
-        survivingThreads,
-        threadRef.threadId,
-      );
+      const orphanedWorktreePath = thread.parentThreadId
+        ? null
+        : getOrphanedWorktreePathForThread(survivingThreads, threadRef.threadId);
       const displayWorktreePath = orphanedWorktreePath
         ? formatWorktreePathForDisplay(orphanedWorktreePath)
         : null;

@@ -27,6 +27,12 @@ function allIds(state: ThreadActionMenuState): string[] {
 }
 
 describe("buildThreadActionMenuItems", () => {
+  it("offers side chats only when the caller supports context inheritance", () => {
+    expect(ids(baseState)).not.toContain("new-side-chat");
+    expect(ids({ ...baseState, supports: { ...baseState.supports, sideChats: true } })).toContain(
+      "new-side-chat",
+    );
+  });
   it("hides lifecycle items when the environment lacks the capabilities", () => {
     expect(
       ids({

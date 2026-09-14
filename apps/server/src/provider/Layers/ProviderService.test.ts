@@ -4440,9 +4440,11 @@ describe("agent browser access", () => {
     enableAgentBrowserAccess: boolean,
     threadId: ThreadId,
     projectOverride?: boolean,
+    sideChat = false,
   ) =>
     Effect.gen(function* () {
       const issued: Array<ThreadId> = [];
+      const grants: Array<ReadonlyArray<string>> = [];
       const codex = makeFakeCodexAdapter();
       const providerAdapterLayer = Layer.succeed(
         ProviderAdapterRegistry.ProviderAdapterRegistry,
@@ -4455,6 +4457,8 @@ describe("agent browser access", () => {
         Layer.provide(runtimeRepositoryLayer),
       );
       const projectionLayer = Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
+        getSideChatWorktrees: () => Effect.succeed([]),
+        getThreadContextTransfers: () => Effect.succeed([]),
         getTurnStartMessage: () => Effect.die("unused"),
         getImportedAgentSessionSources: () => Effect.die("unused"),
         getUserInputActivity: () => Effect.die("unused"),
@@ -4479,6 +4483,7 @@ describe("agent browser access", () => {
                 id: threadId,
                 projectId,
                 title: "Browser access test",
+                ...(sideChat ? { parentThreadId: asThreadId("parent") } : {}),
                 modelSelection: createModelSelection(codexInstanceId, "gpt-5.4"),
                 runtimeMode: "full-access",
                 branch: null,
@@ -4502,6 +4507,7 @@ describe("agent browser access", () => {
         issueMcpCredential: (request) =>
           Effect.sync(() => {
             issued.push(request.threadId);
+            grants.push(request.capabilities ?? []);
             return undefined;
           }),
         revokeMcpCredential: (revoked) => Effect.sync(() => void revokedThreads.push(revoked)),
@@ -4536,8 +4542,22 @@ describe("agent browser access", () => {
         });
       }).pipe(Effect.provide(providerLayer));
 
+      if (sideChat) {
+        assert.deepEqual(grants, [
+          [...((projectOverride ?? enableAgentBrowserAccess) ? ["preview"] : []), "side-chat"],
+        ]);
+      }
       return issued;
     });
+
+  it.effect("grants reporting without browser access to side chats", () =>
+    Effect.gen(function* () {
+      const threadId = asThreadId("side-chat-browser-off");
+      assert.deepEqual(yield* startSessionWith(false, threadId, undefined, true), [threadId]);
+      assert.deepEqual(yield* startSessionWith(true, threadId, false, true), [threadId]);
+      assert.deepEqual(yield* startSessionWith(true, threadId, undefined, true), [threadId]);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
 
   // Credential issuance is the observable that matters: it is the only place a
   // credential is minted, and `/mcp` accepts nothing else, so withholding it is
@@ -4590,5 +4610,76 @@ describe("agent browser access", () => {
       const issued = yield* startSessionWith(false, threadId, true);
       assert.deepEqual(issued, [threadId]);
     }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
+
+const sideChatCodex = makeFakeCodexAdapter();
+const sideChatFork = vi.fn<NonNullable<ProviderAdapterShape<ProviderAdapterError>["forkSession"]>>(
+  ({ session }) =>
+    sideChatCodex.adapter.startSession({ ...session, resumeCursor: { threadId: "native-child" } }),
+);
+const sideChatHandoff = vi.fn<
+  NonNullable<ProviderAdapterShape<ProviderAdapterError>["generateHandoff"]>
+>(() => Effect.succeed("Exact native handoff"));
+const sideChatRouting = makeProviderServiceLayer({
+  registry: makeAdapterRegistryMock({
+    [CODEX_DRIVER]: {
+      ...sideChatCodex.adapter,
+      forkSession: sideChatFork,
+      generateHandoff: sideChatHandoff,
+    },
+  }),
+});
+sideChatRouting.layer("ProviderService side chats", (it) => {
+  it.effect(
+    "uses persisted source binding without resuming the parent and reuses an existing child",
+    () =>
+      Effect.gen(function* () {
+        const service = yield* ProviderService.ProviderService;
+        const directory = yield* ProviderSessionDirectory.ProviderSessionDirectory;
+        const parentId = asThreadId("side-chat-persisted-parent");
+        const childId = asThreadId("side-chat-persisted-child");
+        const cwd = fixtureCwd("side-chat");
+        yield* directory.upsert({
+          threadId: parentId,
+          provider: CODEX_DRIVER,
+          providerInstanceId: codexInstanceId,
+          resumeCursor: { threadId: "native-parent" },
+          runtimePayload: { cwd },
+        });
+        const input = {
+          threadId: childId,
+          provider: CODEX_DRIVER,
+          providerInstanceId: codexInstanceId,
+          runtimeMode: "approval-required" as const,
+        };
+        const child = yield* service.forkSession({
+          sourceThreadId: parentId,
+          threadId: childId,
+          input,
+        });
+        assert.deepEqual(child.resumeCursor, { threadId: "native-child" });
+        assert.deepEqual(sideChatFork.mock.calls.at(-1)?.[0].sourceResumeCursor, {
+          threadId: "native-parent",
+        });
+        assert.equal(sideChatFork.mock.calls.at(-1)?.[0].session.cwd, cwd);
+        const forkCount = sideChatFork.mock.calls.length;
+        yield* service.forkSession({ sourceThreadId: parentId, threadId: childId, input });
+        assert.equal(sideChatFork.mock.calls.length, forkCount);
+        assert.equal(
+          yield* service.generateHandoff({ threadId: parentId, prompt: "Implement the UI" }),
+          "Exact native handoff",
+        );
+        assert.deepEqual(sideChatHandoff.mock.calls.at(-1)?.[0].sourceResumeCursor, {
+          threadId: "native-parent",
+        });
+        assert.equal(
+          sideChatCodex.startSession.mock.calls.some(([input]) => input.threadId === parentId),
+          false,
+        );
+        assert.deepEqual(Option.getOrThrow(yield* directory.getBinding(parentId)).resumeCursor, {
+          threadId: "native-parent",
+        });
+      }),
   );
 });

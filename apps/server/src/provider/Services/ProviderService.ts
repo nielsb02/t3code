@@ -47,6 +47,17 @@ export interface ProviderServiceShape {
     input: ProviderSessionStartInput,
   ) => Effect.Effect<ProviderSession, ProviderServiceError>;
 
+  readonly forkSession: (input: {
+    readonly sourceThreadId: ThreadId;
+    readonly threadId: ThreadId;
+    readonly input: ProviderSessionStartInput;
+  }) => Effect.Effect<ProviderSession, ProviderServiceError>;
+
+  readonly generateHandoff: (input: {
+    readonly threadId: ThreadId;
+    readonly prompt: string;
+  }) => Effect.Effect<string, ProviderServiceError>;
+
   /**
    * Send a provider turn.
    */

@@ -1,4 +1,5 @@
 import {
+  ThreadContextTransfer,
   AgentSessionImportSource,
   ApprovalRequestId,
   ChatAttachment,
@@ -88,6 +89,7 @@ const decodeAgentSessionImportSource = Schema.decodeUnknownOption(AgentSessionIm
 // activity window. Applying the limit in SQL avoids decoding an unbounded
 // payload_json set before the projector can enforce that invariant.
 const THREAD_DETAIL_ACTIVITY_LIMIT = 500;
+const decodeThreadContextTransfer = Schema.decodeUnknownEffect(ThreadContextTransfer);
 // Snapshot payloads are decoded and projected in small sequential batches so
 // one client read does not retain the raw payloads for the full activity window.
 const THREAD_DETAIL_ACTIVITY_PAYLOAD_BATCH_SIZE = 25;
@@ -193,6 +195,7 @@ const TurnStartMessageLookupInput = Schema.Struct({
 });
 const ThreadActivityKindsLookupInput = Schema.Struct({
   threadId: ThreadId,
+  transferId: Schema.optional(Schema.String),
   activityKinds: Schema.Array(Schema.String),
 });
 const ThreadActivityIdsLookupInput = Schema.Struct({
@@ -493,6 +496,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
+          parent_thread_id AS "parentThreadId",
           project_id AS "projectId",
           title,
           model_selection_json AS "modelSelection",
@@ -533,6 +537,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
+          parent_thread_id AS "parentThreadId",
           project_id AS "projectId",
           title,
           model_selection_json AS "modelSelection",
@@ -575,6 +580,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       sql`
         SELECT
           thread_id AS "threadId",
+          parent_thread_id AS "parentThreadId",
           project_id AS "projectId",
           title,
           model_selection_json AS "modelSelection",
@@ -1060,12 +1066,16 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   });
 
   const getActiveThreadRowById = SqlSchema.findOneOption({
-    Request: ThreadIdLookupInput,
+    Request: Schema.Struct({
+      threadId: ThreadId,
+      includeArchived: Schema.optional(Schema.Boolean),
+    }),
     Result: ProjectionThreadDbRowSchema,
-    execute: ({ threadId }) =>
+    execute: ({ threadId, includeArchived }) =>
       sql`
         SELECT
           thread_id AS "threadId",
+          parent_thread_id AS "parentThreadId",
           project_id AS "projectId",
           title,
           model_selection_json AS "modelSelection",
@@ -1097,7 +1107,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         FROM projection_threads
         WHERE thread_id = ${threadId}
           AND deleted_at IS NULL
-          AND archived_at IS NULL
+          AND (${includeArchived === true ? 1 : 0} = 1 OR archived_at IS NULL)
         LIMIT 1
       `,
   });
@@ -1324,7 +1334,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const listThreadActivityRowsByThreadAndKinds = SqlSchema.findAll({
     Request: ThreadActivityKindsLookupInput,
     Result: ProjectionThreadActivityDbRowSchema,
-    execute: ({ threadId, activityKinds }) =>
+    execute: ({ threadId, activityKinds, transferId }) =>
       sql`
         SELECT
           activity_id AS "activityId",
@@ -1350,11 +1360,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           FROM projection_thread_activities
           WHERE thread_id = ${threadId}
             AND ${sql.in("kind", activityKinds)}
+            AND (${transferId ?? null} IS NULL OR activity_id = ${transferId ? `context:${transferId}` : null})
           ORDER BY
             sequence DESC,
             created_at DESC,
             activity_id DESC
-          LIMIT ${THREAD_DETAIL_ACTIVITY_LIMIT}
+          LIMIT ${activityKinds.every((kind) => kind.startsWith("side-chat.context.")) ? -1 : THREAD_DETAIL_ACTIVITY_LIMIT}
         ) AS recent_activities
         ORDER BY
           sequence ASC,
@@ -1635,6 +1646,12 @@ pending_approval_requests AS (
           FROM user_input_lifecycle
           WHERE request_order = 1
             AND kind = 'user-input.requested'
+          UNION ALL
+          SELECT activity_id
+          FROM projection_thread_activities
+          WHERE thread_id = ${threadId}
+            AND kind LIKE 'side-chat.context.%'
+            AND json_extract(payload_json, '$.status') IN ('requested', 'prepared', 'delivering')
         )
   `;
 
@@ -2088,6 +2105,7 @@ pending_approval_requests AS (
                 pinOrderKey: row.pinOrderKey ?? null,
                 activeOrderKey: row.activeOrderKey ?? null,
                 titleRegeneration: mapTitleRegeneration(row),
+                ...(row.parentThreadId ? { parentThreadId: row.parentThreadId } : {}),
                 deletedAt: row.deletedAt,
                 messages: messagesByThread.get(row.threadId) ?? [],
                 proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
@@ -2303,6 +2321,7 @@ pending_approval_requests AS (
                   pinOrderKey: row.pinOrderKey ?? null,
                   activeOrderKey: row.activeOrderKey ?? null,
                   titleRegeneration: mapTitleRegeneration(row),
+                  ...(row.parentThreadId ? { parentThreadId: row.parentThreadId } : {}),
                   deletedAt: row.deletedAt,
                   messages: [],
                   proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
@@ -2445,6 +2464,7 @@ pending_approval_requests AS (
                       pinOrderKey: row.pinOrderKey ?? null,
                       activeOrderKey: row.activeOrderKey ?? null,
                       titleRegeneration: mapTitleRegeneration(row),
+                      ...(row.parentThreadId ? { parentThreadId: row.parentThreadId } : {}),
                       session: sessionByThread.get(row.threadId) ?? null,
                       latestUserMessageAt: row.latestUserMessageAt,
                       hasPendingApprovals: row.pendingApprovalCount > 0,
@@ -2595,6 +2615,7 @@ pending_approval_requests AS (
                 pinOrderKey: row.pinOrderKey ?? null,
                 activeOrderKey: row.activeOrderKey ?? null,
                 titleRegeneration: mapTitleRegeneration(row),
+                ...(row.parentThreadId ? { parentThreadId: row.parentThreadId } : {}),
                 session: sessionByThread.get(row.threadId) ?? null,
                 latestUserMessageAt: row.latestUserMessageAt,
                 hasPendingApprovals: row.pendingApprovalCount > 0,
@@ -2859,10 +2880,13 @@ pending_approval_requests AS (
       });
     });
 
-  const getThreadShellById: ProjectionSnapshotQueryShape["getThreadShellById"] = (threadId) =>
+  const getThreadShellById: ProjectionSnapshotQueryShape["getThreadShellById"] = (
+    threadId,
+    options,
+  ) =>
     Effect.gen(function* () {
       const [threadRow, latestTurnRow, sessionRow] = yield* Effect.all([
-        getActiveThreadRowById({ threadId }).pipe(
+        getActiveThreadRowById({ threadId, ...options }).pipe(
           Effect.mapError(
             toPersistenceSqlOrDecodeError(
               "ProjectionSnapshotQuery.getThreadShellById:getThread:query",
@@ -2918,6 +2942,9 @@ pending_approval_requests AS (
         pinOrderKey: threadRow.value.pinOrderKey ?? null,
         activeOrderKey: threadRow.value.activeOrderKey ?? null,
         titleRegeneration: mapTitleRegeneration(threadRow.value),
+        ...(threadRow.value.parentThreadId
+          ? { parentThreadId: threadRow.value.parentThreadId }
+          : {}),
         session: Option.isSome(sessionRow) ? mapSessionRow(sessionRow.value) : null,
         latestUserMessageAt: threadRow.value.latestUserMessageAt,
         hasPendingApprovals: threadRow.value.pendingApprovalCount > 0,
@@ -3201,6 +3228,9 @@ pending_approval_requests AS (
         pinOrderKey: threadRow.value.pinOrderKey ?? null,
         activeOrderKey: threadRow.value.activeOrderKey ?? null,
         titleRegeneration: mapTitleRegeneration(threadRow.value),
+        ...(threadRow.value.parentThreadId
+          ? { parentThreadId: threadRow.value.parentThreadId }
+          : {}),
         deletedAt: null,
         messages: messageRows.map((row) => {
           const message = {
@@ -3396,7 +3426,63 @@ pending_approval_requests AS (
         ),
       );
 
+  const listSideChatWorktrees = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: Schema.Struct({ parentThreadId: ThreadId, worktreePath: Schema.String }),
+    execute: () => sql`
+      SELECT DISTINCT parent_thread_id AS "parentThreadId", worktree_path AS "worktreePath"
+      FROM projection_threads
+      WHERE deleted_at IS NULL AND parent_thread_id IS NOT NULL AND worktree_path IS NOT NULL
+    `,
+  });
+  const getSideChatWorktrees: ProjectionSnapshotQueryShape["getSideChatWorktrees"] = () =>
+    listSideChatWorktrees(undefined).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getSideChatWorktrees:query",
+          "ProjectionSnapshotQuery.getSideChatWorktrees:decode",
+        ),
+      ),
+    );
+
+  const getThreadContextTransfers: ProjectionSnapshotQueryShape["getThreadContextTransfers"] = (
+    threadId,
+    query,
+  ) =>
+    listThreadActivityRowsByThreadAndKinds({
+      threadId,
+      ...(query?.transferId !== undefined ? { transferId: query.transferId } : {}),
+      activityKinds: (
+        query?.statuses ?? [
+          "requested",
+          "prepared",
+          "delivering",
+          "delivered",
+          "failed",
+          "cancelled",
+        ]
+      ).map((status) => `side-chat.context.${status}`),
+    }).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getThreadContextTransfers:query",
+          "ProjectionSnapshotQuery.getThreadContextTransfers:decode",
+        ),
+      ),
+      Effect.flatMap((rows) =>
+        Effect.forEach(rows, (row) =>
+          decodeThreadContextTransfer(row.payload).pipe(
+            Effect.mapError(
+              toPersistenceDecodeError("ProjectionSnapshotQuery.getThreadContextTransfers:payload"),
+            ),
+          ),
+        ),
+      ),
+    );
+
   return {
+    getSideChatWorktrees,
+    getThreadContextTransfers,
     getCommandReadModel,
     getUserInputActivity,
     getSnapshot,

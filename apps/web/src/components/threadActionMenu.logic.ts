@@ -7,6 +7,7 @@ import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled"
  * remains data-driven.
  */
 export type ThreadActionMenuId =
+  | "new-side-chat"
   | "new-thread-on-branch"
   | "project-settings"
   | "pin"
@@ -36,6 +37,7 @@ export interface ThreadActionMenuState {
   /** Archive rejects a thread with an active turn, so disable it here rather than let the action fail. */
   readonly isRunning: boolean;
   readonly supports: {
+    readonly sideChats?: boolean;
     readonly settlement: boolean;
     readonly snooze: boolean;
     readonly pinning: boolean;
@@ -53,6 +55,9 @@ export function buildThreadActionMenuItems(
   state: ThreadActionMenuState,
 ): ReadonlyArray<ContextMenuItem<ThreadActionMenuId>> {
   return [
+    ...(state.supports.sideChats
+      ? [{ id: "new-side-chat" as const, label: "New side chat", icon: "message-square-plus" }]
+      : []),
     ...(state.branch
       ? [
           {

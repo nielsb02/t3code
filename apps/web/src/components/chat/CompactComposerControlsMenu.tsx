@@ -1,3 +1,4 @@
+import { useChatPaneKey } from "~/chatPaneScope";
 import { ProviderInteractionMode, RuntimeMode } from "@t3tools/contracts";
 import { memo, type ReactNode } from "react";
 import { EllipsisIcon } from "lucide-react";
@@ -28,6 +29,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
+  const paneKey = useChatPaneKey();
   const size = props.size ?? "sm";
   const [open, setOpen] = useComposerMenuState(props.hidden);
 
@@ -46,7 +48,12 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
       >
         <ComposerControlIcon icon={EllipsisIcon} size={size} />
       </MenuTrigger>
-      <MenuPopup align="start" {...composerFloatingLayerProps} data-micro-dial-popup="options">
+      <MenuPopup
+        align="start"
+        {...composerFloatingLayerProps}
+        data-chat-pane-id={paneKey ?? undefined}
+        data-micro-dial-popup="options"
+      >
         {props.traitsMenuContent ? (
           <>
             {props.traitsMenuContent}

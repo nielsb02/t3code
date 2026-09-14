@@ -255,6 +255,7 @@ export interface ThreadFeedProps {
   readonly onEndFollowEnabledChange?: (enabled: boolean) => void;
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill>;
   readonly onUseArtifactTemplate?: (template: CodexArtifactTemplate) => void;
+  readonly onShareMessageWithParent?: (id: MessageId) => void;
   /** Non-null when older turns exist beyond the loaded window. */
   readonly loadEarlier?: {
     readonly loading: boolean;
@@ -1326,6 +1327,7 @@ function renderFeedEntry(
     ThreadFeedProps,
     | "environmentId"
     | "onUseArtifactTemplate"
+    | "onShareMessageWithParent"
     | "skills"
     | "dispatchingMessageId"
     | "onEditPendingMessage"
@@ -1638,6 +1640,17 @@ function renderFeedEntry(
               buttonSize={28}
               iconSize={13}
             />
+            {props.onShareMessageWithParent && renderedText.trim().length > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Share message with parent thread"
+                hitSlop={8}
+                className="min-h-7 justify-center px-2"
+                onPress={() => props.onShareMessageWithParent?.(message.id)}
+              >
+                <Text className="text-xs text-foreground-muted">Share with parent</Text>
+              </Pressable>
+            ) : null}
             <Text className="font-t3-medium text-xs tabular-nums text-adaptive-neutral-600-400">
               {timestampLabel}
             </Text>
@@ -2729,6 +2742,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             markdownContentWidth,
             skills: props.skills,
             onUseArtifactTemplate: props.onUseArtifactTemplate,
+            onShareMessageWithParent: props.onShareMessageWithParent,
           })}
         </ThreadMediaVisibility>
       </Animated.View>
@@ -2761,6 +2775,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       onToggleWorkRow,
       props.environmentId,
       props.onUseArtifactTemplate,
+      props.onShareMessageWithParent,
       props.skills,
       renderMarkdownImage,
       renderViewedImage,

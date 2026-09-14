@@ -60,7 +60,10 @@ function retainThreadActivities(activities: OrchestrationThread["activities"]) {
   }
   const pendingActivities = new Set(pending.values());
   return activities.filter(
-    (activity, index) => index >= recentStart || pendingActivities.has(activity),
+    (activity, index) =>
+      index >= recentStart ||
+      pendingActivities.has(activity) ||
+      activity.kind.startsWith("side-chat.context."),
   );
 }
 
@@ -330,6 +333,7 @@ export function projectEvent(
           {
             id: payload.threadId,
             projectId: payload.projectId,
+            ...(payload.parentThreadId ? { parentThreadId: payload.parentThreadId } : {}),
             title: payload.title,
             modelSelection: payload.modelSelection,
             runtimeMode: payload.runtimeMode,

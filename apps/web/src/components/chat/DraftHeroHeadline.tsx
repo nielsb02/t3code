@@ -1,3 +1,4 @@
+import { useChatPaneKey } from "~/chatPaneScope";
 import type { DraftId } from "~/composerDraftStore";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import type { ScopedProjectRef } from "@t3tools/contracts";
@@ -38,6 +39,7 @@ export function DraftHeroHeadline({
   activeProjectRef,
   activeProjectTitle,
 }: DraftHeroHeadlineProps) {
+  const paneKey = useChatPaneKey();
   const projects = useProjects();
   const threads = useThreadShells();
   const { environments } = useEnvironments();
@@ -130,6 +132,7 @@ export function DraftHeroHeadline({
       <MenuPopup
         align="center"
         className="max-h-80 min-w-40! w-max max-w-64 overflow-y-auto"
+        data-chat-pane-id={paneKey ?? undefined}
         data-micro-dial-popup={draftId ? "project" : undefined}
       >
         <MenuRadioGroup

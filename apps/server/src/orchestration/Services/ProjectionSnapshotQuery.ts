@@ -26,6 +26,7 @@ import type {
   OrchestrationThreadShell,
   ProjectId,
   ThreadId,
+  ThreadContextTransfer,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import type * as Option from "effect/Option";
@@ -77,6 +78,18 @@ export interface ProjectionThreadDetailQuery {
  * ProjectionSnapshotQueryShape - Service API for read-model snapshots.
  */
 export interface ProjectionSnapshotQueryShape {
+  readonly getSideChatWorktrees: () => Effect.Effect<
+    ReadonlyArray<{ readonly parentThreadId: ThreadId; readonly worktreePath: string }>,
+    ProjectionRepositoryError
+  >;
+  readonly getThreadContextTransfers: (
+    threadId: ThreadId,
+    query?: {
+      readonly statuses?: ReadonlyArray<ThreadContextTransfer["status"]>;
+      readonly transferId?: string;
+    },
+  ) => Effect.Effect<ReadonlyArray<ThreadContextTransfer>, ProjectionRepositoryError>;
+
   /** Read the latest request or resolution without loading the thread history. */
   readonly getUserInputActivity: (input: {
     readonly threadId: ThreadId;
@@ -203,6 +216,7 @@ export interface ProjectionSnapshotQueryShape {
    */
   readonly getThreadShellById: (
     threadId: ThreadId,
+    options?: { readonly includeArchived?: boolean },
   ) => Effect.Effect<Option.Option<OrchestrationThreadShell>, ProjectionRepositoryError>;
 
   /** Read the active thread and session facts used to ingest provider events. */

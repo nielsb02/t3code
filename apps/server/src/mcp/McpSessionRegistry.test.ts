@@ -6,6 +6,7 @@ import { HttpServer } from "effect/unstable/http";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
+import * as McpInvocationContext from "./McpInvocationContext.ts";
 
 const environmentId = EnvironmentId.make("environment-1");
 const makeFakeHttpServer = (hostname: string, port = 43123) =>
@@ -125,5 +126,29 @@ it.effect("does not keep credentials of other threads alive", () =>
     timestamp += 2;
 
     expect(yield* registry.resolve(token)).toBeUndefined();
+  }),
+);
+
+it.effect("keeps reporting credentials separate from browser access", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry(() => 1_000);
+    const issued = yield* registry.issue({
+      threadId: ThreadId.make("side-chat"),
+      providerInstanceId: ProviderInstanceId.make("claude"),
+      capabilities: ["side-chat"],
+    });
+    const scope = yield* registry.resolve(
+      issued.config.authorizationHeader.slice("Bearer ".length),
+    );
+    expect(scope?.capabilities).toEqual(new Set(["side-chat"]));
+    if (!scope) throw new Error("Expected the issued credential to resolve");
+    const error = yield* McpInvocationContext.requireMcpCapability("preview").pipe(
+      Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+      Effect.flip,
+    );
+    expect(error).toMatchObject({
+      _tag: "PreviewAutomationUnavailableError",
+      capability: "preview",
+    });
   }),
 );

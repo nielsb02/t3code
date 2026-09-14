@@ -1,3 +1,4 @@
+import { orderThreadsForDeletion } from "@t3tools/shared/threadHierarchy";
 import { useAtomValue } from "@effect/atom-react";
 import * as Schema from "effect/Schema";
 import {
@@ -104,6 +105,7 @@ import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
 } from "../threadSelectionStore";
+import { useSideChatActions } from "../hooks/useSideChatActions";
 import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
@@ -124,15 +126,12 @@ import { vcsEnvironment } from "../state/vcs";
 import { threadEnvironment } from "../state/threads";
 import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
-import {
-  buildThreadRouteParams,
-  resolveActiveThreadRouteRef,
-  resolveThreadRouteTarget,
-} from "../threadRoutes";
+import { resolveActiveThreadRouteRef, resolveThreadRouteTarget } from "../threadRoutes";
 import { formatRelativeTimeLabel, parseTimestampDate } from "../timestampFormat";
 import type { SidebarThreadSummary } from "../types";
 import { cn } from "~/lib/utils";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
+import { groupSideChats } from "./Sidebar.sideChats";
 import { buildThreadActionMenuItems } from "./threadActionMenu.logic";
 import {
   animateSidebarLayoutChanges,
@@ -1445,6 +1444,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         isRegeneratingTitle && "opacity-[0.55]",
       )}
     >
+      {thread.parentThreadId ? (
+        <GitBranchIcon
+          aria-label="Side chat"
+          className="mr-1 inline size-3.5 text-muted-foreground"
+        />
+      ) : null}
       {thread.title}
     </span>
   );
@@ -2094,6 +2099,7 @@ export default function Sidebar() {
     archiveThread,
     deleteThread,
   } = useThreadActions();
+  const { createSideChat, openThread } = useSideChatActions();
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -2504,10 +2510,15 @@ export default function Sidebar() {
       const supportsSettlement = capabilities?.threadSettlement === true;
       const supportsSnooze = capabilities?.threadSnooze === true;
       const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-      if (capabilities?.threadActiveReorder === true) activeReorderable.add(threadKey);
+      if (!thread.parentThreadId && capabilities?.threadActiveReorder === true)
+        activeReorderable.add(threadKey);
       // Older servers retain their existing drag actions. Active placement
       // additionally requires its own ordering capability at the drop target.
-      if (capabilities?.threadPinning === true && capabilities.threadPinReorder === true) {
+      if (
+        !thread.parentThreadId &&
+        capabilities?.threadPinning === true &&
+        capabilities.threadPinReorder === true
+      ) {
         draggable.add(threadKey);
       }
       if (optimisticDrop?.key === threadKey) {
@@ -2556,7 +2567,7 @@ export default function Sidebar() {
             }),
       draggableThreadKeys: draggable,
       activeReorderableThreadKeys: activeReorderable,
-      activeThreads:
+      activeThreads: groupSideChats(
         optimisticDrop?.section !== "active" || optimisticDrop.order === null
           ? sortedActive
           : orderItemsByPreferredIds({
@@ -2564,6 +2575,7 @@ export default function Sidebar() {
               preferredIds: optimisticDrop.order,
               getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
             }),
+      ),
       // Soonest wake first: "what comes back next" is the shelf's question.
       snoozedThreads: snoozed.toSorted(
         (left, right) =>
@@ -2781,12 +2793,9 @@ export default function Sidebar() {
       if (isMobile) {
         setOpenMobile(false);
       }
-      void router.navigate({
-        to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(threadRef),
-      });
+      void openThread(threadRef);
     },
-    [clearSelection, isMobile, router, setOpenMobile, setSelectionAnchor],
+    [clearSelection, isMobile, openThread, setOpenMobile, setSelectionAnchor],
   );
 
   const navigateToDraft = useCallback(
@@ -3832,7 +3841,12 @@ export default function Sidebar() {
         if (confirmed._tag === "Failure" || !confirmed.value) return;
       }
       const { deletedThreadKeys, firstFailure } = await deleteSelectedThreadEntries({
-        entries: threadKeys.map((threadKey) => ({ threadKey })),
+        entries: orderThreadsForDeletion(
+          threadKeys.flatMap((threadKey) => {
+            const thread = threadByKeyRef.current.get(threadKey);
+            return thread ? [{ ...thread, threadKey }] : [];
+          }),
+        ),
         delete: async ({ threadKey }, deletedThreadKeys) => {
           const thread = threadByKeyRef.current.get(threadKey);
           if (!thread) return null;
@@ -3923,6 +3937,9 @@ export default function Sidebar() {
               isRunning:
                 thread.session?.status === "running" && thread.session.activeTurnId != null,
               supports: {
+                sideChats:
+                  serverConfigs.get(thread.environmentId)?.environment.capabilities
+                    .threadSideChats === true && thread.session?.providerName === "codex",
                 settlement: supportsSettlement,
                 snooze: supportsSnooze,
                 pinning: supportsPinning,
@@ -3951,6 +3968,20 @@ export default function Sidebar() {
               ),
             );
             if (projectGroup) openProjectSettings(projectGroup);
+            return;
+          }
+          case "new-side-chat": {
+            try {
+              await createSideChat(threadRef);
+            } catch (error) {
+              toastManager.add(
+                stackedThreadToast({
+                  type: "error",
+                  title: "Could not create side chat",
+                  description: error instanceof Error ? error.message : "An error occurred.",
+                }),
+              );
+            }
             return;
           }
           case "new-thread-on-branch": {
@@ -4110,6 +4141,7 @@ export default function Sidebar() {
       copyPathToClipboard,
       copyThreadIdToClipboard,
       deleteThread,
+      createSideChat,
       handleMultiSelectContextMenu,
       markThreadUnread,
       openProjectSettings,

@@ -752,6 +752,8 @@ describe("OrchestrationEngine", () => {
       Layer.provide(noProjectSettleScripts),
       Layer.provide(
         Layer.succeed(ProjectionSnapshotQuery, {
+          getSideChatWorktrees: () => Effect.succeed([]),
+          getThreadContextTransfers: () => Effect.succeed([]),
           getUserInputActivity: () => Effect.die("unused"),
           getCommandReadModel: () => Effect.succeed(commandReadModel),
           getSnapshot: () =>

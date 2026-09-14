@@ -1,3 +1,4 @@
+import { useChatPaneKey, ownsChatPaneInput } from "../../chatPaneScope";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import type {
   ApprovalRequestId,
@@ -765,6 +766,9 @@ function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children:
     <div
       className="pointer-events-auto fixed z-40 flex flex-col"
       data-composer-drawer-layer="true"
+      data-chat-pane-id={
+        props.anchor?.closest<HTMLElement>("[data-chat-pane-id]")?.dataset.chatPaneId
+      }
       style={{
         bottom: position.bottom,
         left: position.left,
@@ -937,6 +941,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
   onToggleInteractionMode: () => void;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
+  const chatPaneKey = useChatPaneKey();
   const size = props.size ?? "sm";
   const [open, setOpen] = useComposerMenuState(props.hidden);
   const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
@@ -1018,6 +1023,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
             alignItemWithTrigger={false}
             {...composerFloatingLayerProps}
             data-micro-dial-popup="permissions"
+            data-chat-pane-id={chatPaneKey ?? undefined}
           >
             {runtimeModeOptions.map((mode) => {
               const option = runtimeModeConfig[mode];
@@ -1320,6 +1326,7 @@ export interface ChatComposerProps {
 // --------------------------------------------------------------------------
 
 export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps) {
+  const chatPaneKey = useChatPaneKey();
   const {
     composerDraftTarget,
     environmentId,
@@ -4142,6 +4149,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   useEffect(() => {
     const handler = (event: globalThis.KeyboardEvent) => {
+      if (!ownsChatPaneInput(chatPaneKey, event.target)) return;
       const command = resolveShortcutCommand(event, keybindings, {
         context: {
           terminalFocus: getTerminalFocusOwner() !== null,
@@ -4177,6 +4185,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     projectSelectionRequired,
     stashCurrentPrompt,
     terminalOpen,
+    chatPaneKey,
   ]);
 
   // ------------------------------------------------------------------

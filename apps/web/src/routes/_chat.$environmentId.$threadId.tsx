@@ -1,5 +1,8 @@
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { useRightPanelStore } from "../rightPanelStore";
+import { buildThreadRouteParams } from "../threadRoutes";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 
 import ChatView from "../components/ChatView";
 import { threadHasStarted } from "../components/ChatView.logic";
@@ -25,6 +28,13 @@ function ChatThreadRouteView() {
     threadRef === null ? null : environmentShell.stateAtom(threadRef.environmentId),
   );
   const serverThreadShell = useThreadShell(threadRef);
+  const parentThreadId = serverThreadShell?.parentThreadId;
+  const parentRef = useMemo(
+    () =>
+      threadRef && parentThreadId ? scopeThreadRef(threadRef.environmentId, parentThreadId) : null,
+    [threadRef, parentThreadId],
+  );
+  const parentShell = useThreadShell(parentRef);
   const serverThreadDetail = useThreadDetail(threadRef);
   const serverThreadStatus = useThreadStatus(threadRef);
   const environmentThreadRefs = useEnvironmentThreadRefs(threadRef?.environmentId ?? null);
@@ -58,6 +68,19 @@ function ChatThreadRouteView() {
   const environmentHasAnyThreads = environmentHasServerThreads || environmentHasDraftThreads;
 
   useEffect(() => {
+    if (!threadRef || !parentRef || !parentShell) return;
+    useRightPanelStore.getState().openSideChat(parentRef, threadRef.threadId);
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(parentRef),
+      replace: true,
+      hash: true,
+      state: true,
+      resetScroll: false,
+    });
+  }, [navigate, parentRef, parentShell, threadRef]);
+
+  useEffect(() => {
     if (!threadRef || !bootstrapComplete) {
       return;
     }
@@ -80,7 +103,8 @@ function ChatThreadRouteView() {
 
   return (
     <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
-      {renderState === "ready" || (renderState === "loading" && serverThreadShell !== null) ? (
+      {!parentShell &&
+      (renderState === "ready" || (renderState === "loading" && serverThreadShell !== null)) ? (
         <ChatView
           environmentId={threadRef.environmentId}
           threadId={threadRef.threadId}

@@ -75,6 +75,7 @@ export function useMicroControls(options: {
     }
 
     function popup(): HTMLElement | null {
+      const paneKey = root.closest<HTMLElement>("[data-chat-pane-id]")?.dataset.chatPaneId;
       const ids = new Set(
         Array.from(
           root.querySelectorAll<HTMLElement>(CONTROL_SELECTOR),
@@ -83,7 +84,12 @@ export function useMicroControls(options: {
       );
       return (
         Array.from(document.querySelectorAll<HTMLElement>(POPUP_SELECTOR)).find(
-          (candidate) => ids.has(candidate.dataset.microDialPopup) && visible(candidate),
+          (candidate) =>
+            ids.has(candidate.dataset.microDialPopup) &&
+            visible(candidate) &&
+            (!paneKey ||
+              candidate.closest<HTMLElement>("[data-chat-pane-id]")?.dataset.chatPaneId ===
+                paneKey),
         ) ?? null
       );
     }

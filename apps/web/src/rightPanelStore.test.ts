@@ -20,6 +20,93 @@ beforeEach(() => {
   useRightPanelStore.setState({ byThreadKey: {}, userActionRevisionByThreadKey: {} });
 });
 
+describe("side chat panel surfaces", () => {
+  const childId = ThreadId.make("child-ui");
+  const childRef = scopeThreadRef(refA.environmentId, childId);
+  const childSurface = { id: "side-chat:child-ui", kind: "side-chat", threadId: childId };
+
+  it("opens and activates one tab per child beside the parent's existing surfaces", () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "diff");
+    const revision = store.getUserActionRevision(refA);
+    store.openSideChat(refA, childId);
+    store.openFile(refA, "src/settings.tsx");
+    store.openSideChat(refA, childId);
+
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: childSurface.id,
+      surfaces: [
+        { id: "diff", kind: "diff" },
+        childSurface,
+        expect.objectContaining({ kind: "file", relativePath: "src/settings.tsx" }),
+      ],
+    });
+    expect(store.openProactive(refA, { id: "diff", kind: "diff" }, revision)).toBe(false);
+    store.activateSurface(refA, "diff");
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("diff");
+    store.activateSurface(refA, childSurface.id);
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)).toEqual(
+      childSurface,
+    );
+  });
+
+  it("closes and reopens tabs without touching the child's panel or another environment", () => {
+    const otherEnvironment = scopeThreadRef("env-2" as EnvironmentId, refA.threadId);
+    const store = useRightPanelStore.getState();
+    store.openFile(childRef, "src/child.tsx");
+    store.openSideChat(otherEnvironment, childId);
+    store.open(refA, "diff");
+    store.openSideChat(refA, childId);
+    const childState = selectThreadRightPanelState(
+      useRightPanelStore.getState().byThreadKey,
+      childRef,
+    );
+    const otherState = selectThreadRightPanelState(
+      useRightPanelStore.getState().byThreadKey,
+      otherEnvironment,
+    );
+
+    store.closeSurface(refA, childSurface.id);
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("diff");
+    store.openSideChat(refA, childId);
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)).toEqual(
+      childSurface,
+    );
+    store.closeAllSurfaces(refA);
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).surfaces,
+    ).toEqual([]);
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, childRef)).toBe(
+      childState,
+    );
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, otherEnvironment),
+    ).toBe(otherState);
+  });
+
+  it("restores the selected side chat from persisted panel state", async () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "files");
+    store.openSideChat(refA, childId);
+    const expected = useRightPanelStore.getState().byThreadKey;
+    const { storage, name } = useRightPanelStore.persist.getOptions();
+    if (!storage || !name) throw new Error("Panel persistence storage is unavailable");
+    const persisted = await storage.getItem(name);
+    if (!persisted) throw new Error("Panel state was not persisted");
+    expect(migratePersistedRightPanelState(JSON.parse(JSON.stringify(persisted.state)))).toEqual({
+      byThreadKey: expected,
+    });
+    useRightPanelStore.setState({ byThreadKey: {} });
+    await storage.setItem(name, persisted);
+    await useRightPanelStore.persist.rehydrate();
+    expect(useRightPanelStore.getState().byThreadKey).toEqual(expected);
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)).toEqual(
+      childSurface,
+    );
+  });
+});
+
 describe("rightPanelStore", () => {
   const completedDiff = { id: "diff", kind: "diff" } as const;
   const linkedPullRequest = pullRequestSurface({

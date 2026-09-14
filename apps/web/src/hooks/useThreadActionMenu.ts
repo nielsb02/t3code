@@ -20,6 +20,7 @@ import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
 import {
   readEnvironmentSupportsPinning,
+  readEnvironmentSupportsSideChats,
   readEnvironmentSupportsSettlement,
   readEnvironmentSupportsSnooze,
   readEnvironmentSupportsTitleRegeneration,
@@ -38,6 +39,7 @@ import { useUiStateStore } from "../uiStateStore";
 import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
+import { useSideChatActions } from "./useSideChatActions";
 import { useThreadActions } from "./useThreadActions";
 
 function failureToast(title: string, error: unknown) {
@@ -68,6 +70,7 @@ export function useThreadActionMenu(input: {
 }) {
   const { threadRef, projectCwd, onStartRename } = input;
   const router = useRouter();
+  const { createSideChat } = useSideChatActions();
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
@@ -130,6 +133,9 @@ export function useThreadActionMenu(input: {
         if (!thread) return;
         const now = new Date();
         const supports = {
+          sideChats:
+            readEnvironmentSupportsSideChats(threadRef.environmentId) &&
+            thread.session?.providerName === "codex",
           settlement: readEnvironmentSupportsSettlement(threadRef.environmentId),
           snooze: readEnvironmentSupportsSnooze(threadRef.environmentId),
           pinning: readEnvironmentSupportsPinning(threadRef.environmentId),
@@ -204,6 +210,14 @@ export function useThreadActionMenu(input: {
               to: "/projects/$projectKey",
               params: { projectKey },
             });
+            return;
+          }
+          case "new-side-chat": {
+            try {
+              await createSideChat(threadRef);
+            } catch (error) {
+              failureToast("Could not create side chat", error);
+            }
             return;
           }
           case "new-thread-on-branch": {
@@ -330,6 +344,7 @@ export function useThreadActionMenu(input: {
     },
     [
       archiveThread,
+      createSideChat,
       confirmThreadArchive,
       confirmThreadDelete,
       confirmAndUnpinThread,

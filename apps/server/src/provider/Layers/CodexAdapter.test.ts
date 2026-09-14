@@ -23,6 +23,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it, vi } from "@effect/vitest";
 
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -2694,3 +2695,139 @@ it.effect("flushes managed native logs when the adapter layer shuts down", () =>
     }
   }),
 );
+
+sessionErrorLayer("Codex side-chat sessions", (it) => {
+  it.effect("opens a native fork using source resume state without resuming the source", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      NodeAssert.ok(adapter.forkSession);
+      yield* adapter.forkSession({
+        sourceResumeCursor: { threadId: "native-parent" },
+        session: {
+          threadId: asThreadId("side-chat-native"),
+          runtimeMode: "approval-required",
+          cwd: process.cwd(),
+        },
+      });
+      NodeAssert.equal(
+        sessionRuntimeFactory.lastRuntime?.options.forkSourceThreadId,
+        "native-parent",
+      );
+      NodeAssert.equal(sessionRuntimeFactory.lastRuntime?.options.resumeCursor, undefined);
+      NodeAssert.equal(sessionRuntimeFactory.lastRuntime?.options.threadId, "side-chat-native");
+    }),
+  );
+
+  for (const outcome of ["completed", "failed", "oversized"] as const) {
+    it.effect(`cleans up the temporary handoff runtime after ${outcome}`, () =>
+      Effect.gen(function* () {
+        let helper: FakeCodexRuntime | undefined;
+        sessionRuntimeFactory.factory.mockImplementationOnce((options) => {
+          helper = new FakeCodexRuntime(options);
+          const runtime = helper;
+          runtime.sendTurn = () =>
+            Effect.gen(function* () {
+              const event = (method: string, payload: unknown): ProviderEvent => ({
+                id: asEventId(`handoff-${method}`),
+                turnId: asTurnId("helper-turn"),
+                provider: ProviderDriverKind.make("codex"),
+                threadId: options.threadId,
+                createdAt: "2026-01-01T00:00:00.000Z",
+                kind: "notification",
+                method,
+                payload,
+              });
+              yield* runtime.emit(
+                event("item/completed", {
+                  item: {
+                    type: "agentMessage",
+                    phase: "commentary",
+                    text: "Do not copy commentary",
+                  },
+                }),
+              );
+              yield* runtime.emit(
+                event("item/completed", {
+                  item: {
+                    type: "agentMessage",
+                    phase: "final_answer",
+                    text: outcome === "oversized" ? "x".repeat(64_001) : "Exact Codex handoff",
+                  },
+                }),
+              );
+              yield* runtime.emit(
+                event("turn/completed", {
+                  turn: { status: outcome === "failed" ? "failed" : "completed" },
+                }),
+              );
+              return { threadId: options.threadId, turnId: asTurnId("helper-turn") };
+            });
+          return Effect.succeed(runtime);
+        });
+        const adapter = yield* CodexAdapter;
+        NodeAssert.ok(adapter.generateHandoff);
+        const result = yield* adapter
+          .generateHandoff({
+            sourceResumeCursor: { threadId: "native-parent" },
+            session: {
+              threadId: asThreadId("parent"),
+              runtimeMode: "full-access",
+              cwd: process.cwd(),
+            },
+            prompt: "Implement the UI",
+          })
+          .pipe(Effect.result);
+        NodeAssert.ok(helper);
+        NodeAssert.equal(helper.options.handoff, true);
+        NodeAssert.equal(helper.options.forkSourceThreadId, "native-parent");
+        NodeAssert.equal(helper.options.resumeCursor, undefined);
+        NodeAssert.equal(helper.closeImpl.mock.calls.length, 1);
+        if (outcome === "completed") {
+          NodeAssert.equal(result._tag, "Success");
+          NodeAssert.equal(result.success, "Exact Codex handoff");
+        } else {
+          NodeAssert.equal(result._tag, "Failure");
+        }
+      }),
+    );
+  }
+  for (const outcome of ["cancelled", "timed out"] as const) {
+    it.effect(`closes a ${outcome} handoff process`, () =>
+      Effect.gen(function* () {
+        const started = yield* Deferred.make<void>();
+        let helper: FakeCodexRuntime | undefined;
+        sessionRuntimeFactory.factory.mockImplementationOnce((options) => {
+          helper = new FakeCodexRuntime(options);
+          helper.sendTurn = () =>
+            Deferred.succeed(started, undefined).pipe(
+              Effect.as({ threadId: options.threadId, turnId: asTurnId("pending-helper") }),
+            );
+          return Effect.succeed(helper);
+        });
+        const adapter = yield* CodexAdapter;
+        NodeAssert.ok(adapter.generateHandoff);
+        const fiber = yield* adapter
+          .generateHandoff({
+            sourceResumeCursor: { threadId: "native-parent" },
+            session: {
+              threadId: asThreadId("parent"),
+              cwd: process.cwd(),
+              runtimeMode: "full-access",
+            },
+            prompt: "Implement UI",
+          })
+          .pipe(Effect.result, Effect.forkChild);
+        yield* Deferred.await(started);
+        if (outcome === "cancelled") {
+          yield* Fiber.interrupt(fiber);
+        } else {
+          yield* TestClock.adjust("3 minutes");
+          const result = yield* Fiber.join(fiber);
+          NodeAssert.equal(result._tag, "Failure");
+        }
+        NodeAssert.ok(helper);
+        NodeAssert.equal(helper.closeImpl.mock.calls.length, 1);
+      }),
+    );
+  }
+});

@@ -1,3 +1,4 @@
+import { useChatPaneKey } from "~/chatPaneScope";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
@@ -97,6 +98,7 @@ export function BranchToolbarBranchSelector({
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarBranchSelectorProps) {
+  const paneKey = useChatPaneKey();
   const startFromOriginSwitchId = useId();
   const stopThreadSession = useAtomCommand(threadEnvironment.stopSession, "thread session stop");
   const updateThreadMetadata = useAtomCommand(
@@ -801,6 +803,7 @@ export function BranchToolbarBranchSelector({
         side="top"
         className="flex w-80 flex-col"
         {...composerFloatingLayerProps}
+        data-chat-pane-id={paneKey ?? undefined}
         data-micro-dial-popup="branch"
       >
         <div className="shrink-0 px-3 pt-2.5">

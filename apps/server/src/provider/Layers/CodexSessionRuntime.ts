@@ -1,4 +1,11 @@
 import {
+  HANDOFF_CONFIG,
+  assertHandoffGuard,
+  forkCodexThread,
+  readHandoffConfig,
+  handoffLaunchArgs,
+} from "./CodexSideChat.ts";
+import {
   ApprovalRequestId,
   DEFAULT_MODEL,
   EventId,
@@ -166,6 +173,8 @@ export interface CodexSessionRuntimeOptions {
   readonly serviceTier?: CodexServiceTier | undefined;
   readonly resumeCursor?: CodexResumeCursor;
   readonly appServerArgs?: ReadonlyArray<string>;
+  readonly forkSourceThreadId?: string;
+  readonly handoff?: boolean;
 }
 
 export interface CodexSessionRuntimeSendTurnInput {
@@ -532,7 +541,7 @@ function buildThreadStartParams(input: {
   readonly runtimeMode: RuntimeMode;
   readonly model: string | undefined;
   readonly serviceTier: CodexServiceTier | undefined;
-}): EffectCodexSchema.V2ThreadStartParams {
+}) {
   const config = runtimeModeToThreadConfig(input.runtimeMode);
   return {
     cwd: input.cwd,
@@ -1209,39 +1218,56 @@ export const makeCodexSessionRuntime = (
       ...(resolvedHomePath ? { CODEX_HOME: resolvedHomePath } : {}),
     };
     const extendEnv = options.environment === undefined;
-    const appServerArgs = codexSessionAppServerArgs(options.appServerArgs, options.launchArgs);
-    const spawnCommand = yield* resolveSpawnCommand(options.binaryPath, appServerArgs, {
-      env,
-      extendEnv,
-    });
-    const child = yield* spawner
-      .spawn(
-        ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-          cwd: options.cwd,
-          env,
-          extendEnv,
-          forceKillAfter: CODEX_APP_SERVER_FORCE_KILL_AFTER,
-          shell: spawnCommand.shell,
-        }),
-      )
-      .pipe(
-        Effect.provideService(Scope.Scope, runtimeScope),
-        Effect.mapError(
-          (cause) =>
-            new CodexErrors.CodexAppServerSpawnError({
-              command: `${options.binaryPath} app-server`,
-              cause,
-            }),
-        ),
+    const spawnClient = Effect.fn("CodexSessionRuntime.spawnClient")(function* (
+      config?: Readonly<Record<string, unknown>>,
+    ) {
+      const appServerArgs = codexSessionAppServerArgs(
+        [...(options.appServerArgs ?? []), ...(config ? handoffLaunchArgs(config) : [])],
+        options.launchArgs,
       );
+      const spawnCommand = yield* resolveSpawnCommand(options.binaryPath, appServerArgs, {
+        env,
+        extendEnv,
+      });
+      const child = yield* spawner
+        .spawn(
+          ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+            cwd: options.cwd,
+            env,
+            extendEnv,
+            forceKillAfter: CODEX_APP_SERVER_FORCE_KILL_AFTER,
+            shell: spawnCommand.shell,
+          }),
+        )
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new CodexErrors.CodexAppServerSpawnError({
+                command: `${options.binaryPath} app-server`,
+                cause,
+              }),
+          ),
+        );
+      const clientContext = yield* Layer.build(CodexClient.layerChildProcess(child));
+      const client = yield* Effect.service(CodexClient.CodexAppServerClient).pipe(
+        Effect.provide(clientContext),
+      );
+      return { child, client };
+    });
 
-    const clientContext = yield* CodexClient.layerChildProcess(child).pipe(
-      Layer.build,
-      Effect.provideService(Scope.Scope, runtimeScope),
-    );
-    const client = yield* Effect.service(CodexClient.CodexAppServerClient).pipe(
-      Effect.provide(clientContext),
-    );
+    // Codex merges hooks.json and plugin hooks with config hooks. Discover their
+    // native keys without opening a thread, then disable them only in this helper.
+    const handoffConfig = options.handoff
+      ? yield* Effect.scoped(
+          Effect.gen(function* () {
+            const { client } = yield* spawnClient(HANDOFF_CONFIG);
+            yield* client.request("initialize", buildCodexInitializeParams());
+            yield* client.notify("initialized", undefined);
+            return yield* readHandoffConfig(client, options.cwd);
+          }),
+        )
+      : undefined;
+    const { child, client } = yield* spawnClient(handoffConfig);
     const serverNotifications = yield* Queue.unbounded<CodexServerNotification>();
     const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
     const randomUUIDv4 = (purpose: CodexErrors.CodexAppServerIdentifierPurpose) =>
@@ -1945,6 +1971,10 @@ export const makeCodexSessionRuntime = (
 
     yield* client.handleServerRequest("item/commandExecution/requestApproval", (payload) =>
       Effect.gen(function* () {
+        if (options.handoff)
+          return yield* CodexErrors.CodexAppServerRequestError.invalidParams(
+            "Tools are disabled in context handoff sessions.",
+          );
         const requestId = ApprovalRequestId.make(yield* randomUUIDv4("command-approval-request"));
         const turnId = TurnId.make(payload.turnId);
         const itemId = ProviderItemId.make(payload.itemId);
@@ -2001,6 +2031,10 @@ export const makeCodexSessionRuntime = (
 
     yield* client.handleServerRequest("item/fileChange/requestApproval", (payload) =>
       Effect.gen(function* () {
+        if (options.handoff)
+          return yield* CodexErrors.CodexAppServerRequestError.invalidParams(
+            "Tools are disabled in context handoff sessions.",
+          );
         const requestId = ApprovalRequestId.make(
           yield* randomUUIDv4("file-change-approval-request"),
         );
@@ -2059,6 +2093,10 @@ export const makeCodexSessionRuntime = (
 
     yield* client.handleServerRequest("mcpServer/elicitation/request", (payload) =>
       Effect.gen(function* () {
+        if (options.handoff)
+          return yield* CodexErrors.CodexAppServerRequestError.invalidParams(
+            "Tools are disabled in context handoff sessions.",
+          );
         if (toMcpElicitationResponse(payload, "accept").action !== "accept") {
           yield* Effect.logWarning("Declined an unsupported MCP elicitation.", {
             serverName: payload.serverName,
@@ -2124,6 +2162,10 @@ export const makeCodexSessionRuntime = (
 
     yield* client.handleServerRequest("item/tool/requestUserInput", (payload) =>
       Effect.gen(function* () {
+        if (options.handoff)
+          return yield* CodexErrors.CodexAppServerRequestError.invalidParams(
+            "Tools are disabled in context handoff sessions.",
+          );
         const requestId = ApprovalRequestId.make(yield* randomUUIDv4("user-input-request"));
         const turnId = TurnId.make(payload.turnId);
         const itemId = ProviderItemId.make(payload.itemId);
@@ -2263,15 +2305,41 @@ export const makeCodexSessionRuntime = (
 
       const requestedModel = normalizeCodexModelSlug(options.model);
 
-      const opened = yield* openCodexThread({
-        client,
-        threadId: options.threadId,
-        runtimeMode: options.runtimeMode,
-        cwd: options.cwd,
-        requestedModel,
-        serviceTier: options.serviceTier,
-        resumeThreadId: readResumeCursorThreadId(options.resumeCursor),
-      });
+      if (options.handoff) {
+        yield* client
+          .request("hooks/list", { cwds: [options.cwd] })
+          .pipe(Effect.flatMap(assertHandoffGuard));
+      }
+      const opened = yield* options.forkSourceThreadId
+        ? forkCodexThread({
+            client,
+            sourceThreadId: options.forkSourceThreadId,
+            params: {
+              ...buildThreadStartParams({
+                cwd: options.cwd,
+                runtimeMode: options.runtimeMode,
+                model: requestedModel,
+                serviceTier: options.serviceTier,
+              }),
+              ...(handoffConfig
+                ? {
+                    ephemeral: true,
+                    approvalPolicy: "never",
+                    sandbox: "read-only",
+                    config: handoffConfig,
+                  }
+                : {}),
+            },
+          })
+        : openCodexThread({
+            client,
+            threadId: options.threadId,
+            runtimeMode: options.runtimeMode,
+            cwd: options.cwd,
+            requestedModel,
+            serviceTier: options.serviceTier,
+            resumeThreadId: readResumeCursorThreadId(options.resumeCursor),
+          });
 
       const providerThreadId = opened.thread.id;
       const session = {
@@ -2354,7 +2422,12 @@ export const makeCodexSessionRuntime = (
             // has even if the setting changed after the session started.
             browserToolsAvailable: hasConfiguredMcpServer(options.appServerArgs),
           });
-          const rawResponse = yield* client.raw.request("turn/start", params);
+          const rawResponse = yield* client.raw.request("turn/start", {
+            ...params,
+            ...(options.handoff
+              ? { approvalPolicy: "never", sandboxPolicy: { type: "readOnly" } }
+              : {}),
+          });
           const response = yield* decodeV2TurnStartResponse(rawResponse).pipe(
             Effect.mapError((error) =>
               CodexErrors.CodexAppServerProtocolParseError.fromSchemaError(
