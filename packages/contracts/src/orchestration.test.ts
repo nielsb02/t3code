@@ -1256,9 +1256,9 @@ it("isProviderSendTurnSupportedImageMimeType accepts raster formats and rejects 
 it.effect("accepts bounded agent reports internally but never as client commands", () =>
   Effect.gen(function* () {
     const report = {
-      type: "thread.context.report",
-      commandId: "report-1",
-      threadId: "child-1",
+      type: "thread.context.report" as const,
+      commandId: CommandId.make("report-1"),
+      threadId: ThreadId.make("child-1"),
       message: "UI is ready.\nPlease connect persistence.",
       createdAt: "2026-01-01T00:00:00.000Z",
     };
