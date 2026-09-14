@@ -161,6 +161,7 @@ export function createPullRequestEnvironmentAtoms<R, E>(
             input.projectId,
             input.repository,
             input.number,
+            input.workspace ?? null,
             input.commit ?? null,
             input.changeType,
             input.oldPath,
@@ -191,9 +192,17 @@ export function createPullRequestEnvironmentAtoms<R, E>(
       tag: WS_METHODS.pullRequestsUpdateComment,
       scheduler: commandScheduler,
       concurrency: serialPerEnvironment,
-      onSuccess: ({ environmentId, input: { projectId, repository, number } }, registry) =>
+      onSuccess: (
+        { environmentId, input: { projectId, repository, number, workspace } },
+        registry,
+      ) =>
         Effect.sync(() =>
-          registry.refresh(activity({ environmentId, input: { projectId, repository, number } })),
+          registry.refresh(
+            activity({
+              environmentId,
+              input: { projectId, repository, number, ...(workspace ? { workspace } : {}) },
+            }),
+          ),
         ),
     }),
     submitReview: createEnvironmentRpcCommand(runtime, {

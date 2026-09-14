@@ -1,3 +1,4 @@
+import type { OrchestrationCommand } from "@t3tools/contracts";
 import { McpServer, McpSchema } from "effect/unstable/ai";
 import { SideChatToolkitRegistrationLive } from "../../mcp/McpHttpServer.ts";
 import { McpInvocationContext, type McpInvocationScope } from "../../mcp/McpInvocationContext.ts";
@@ -4357,6 +4358,29 @@ describe("ProviderCommandReactor", () => {
         ]);
       }),
   );
+  effectIt.effect(
+    "reads shared worktree references for active and archived children, excluding deleted ones",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        yield* seedSideChat(harness, "codex");
+        const expected = [{ parentThreadId: "thread-1", worktreePath: "/shared-feature" }];
+        expect(yield* harness.snapshotQuery.getSideChatWorktrees()).toEqual(expected);
+        yield* harness.engine.dispatch({
+          type: "thread.archive",
+          commandId: CommandId.make("archive-worktree-child"),
+          threadId: ThreadId.make("child"),
+        });
+        expect(yield* harness.snapshotQuery.getSideChatWorktrees()).toEqual(expected);
+        yield* harness.engine.dispatch({
+          type: "thread.delete",
+          commandId: CommandId.make("delete-worktree-child"),
+          threadId: ThreadId.make("child"),
+        });
+        expect(yield* harness.snapshotQuery.getSideChatWorktrees()).toEqual([]);
+      }),
+  );
+
   for (const provider of ["codex", "claude"]) {
     for (const delivery of ["delivered", "cancelled", "raced"] as const) {
       const cancelled = delivery !== "delivered";

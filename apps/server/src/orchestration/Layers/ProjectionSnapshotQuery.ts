@@ -3425,6 +3425,25 @@ pending_approval_requests AS (
         ),
       );
 
+  const listSideChatWorktrees = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: Schema.Struct({ parentThreadId: ThreadId, worktreePath: Schema.String }),
+    execute: () => sql`
+      SELECT DISTINCT parent_thread_id AS "parentThreadId", worktree_path AS "worktreePath"
+      FROM projection_threads
+      WHERE deleted_at IS NULL AND parent_thread_id IS NOT NULL AND worktree_path IS NOT NULL
+    `,
+  });
+  const getSideChatWorktrees: ProjectionSnapshotQueryShape["getSideChatWorktrees"] = () =>
+    listSideChatWorktrees(undefined).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getSideChatWorktrees:query",
+          "ProjectionSnapshotQuery.getSideChatWorktrees:decode",
+        ),
+      ),
+    );
+
   const getThreadContextTransfers: ProjectionSnapshotQueryShape["getThreadContextTransfers"] = (
     threadId,
     query,
@@ -3461,6 +3480,7 @@ pending_approval_requests AS (
     );
 
   return {
+    getSideChatWorktrees,
     getThreadContextTransfers,
     getCommandReadModel,
     getUserInputActivity,

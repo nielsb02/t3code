@@ -78,6 +78,10 @@ export interface ProjectionThreadDetailQuery {
  * ProjectionSnapshotQueryShape - Service API for read-model snapshots.
  */
 export interface ProjectionSnapshotQueryShape {
+  readonly getSideChatWorktrees: () => Effect.Effect<
+    ReadonlyArray<{ readonly parentThreadId: ThreadId; readonly worktreePath: string }>,
+    ProjectionRepositoryError
+  >;
   readonly getThreadContextTransfers: (
     threadId: ThreadId,
     query?: {

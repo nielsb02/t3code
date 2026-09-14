@@ -2,8 +2,8 @@
 export function orderThreadsForDeletion<
   T extends {
     readonly id: string;
-    readonly parentThreadId?: string | null;
-    readonly environmentId?: string;
+    readonly parentThreadId?: string | null | undefined;
+    readonly environmentId?: string | undefined;
   },
 >(threads: readonly T[]): T[] {
   const key = (thread: T, id = thread.id) => JSON.stringify([thread.environmentId, id]);

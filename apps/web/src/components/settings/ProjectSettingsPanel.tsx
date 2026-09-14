@@ -47,6 +47,7 @@ import {
 } from "../../hooks/useSettings";
 import { useT3ProjectFileState } from "../../hooks/useT3ProjectFileScripts";
 import { ProjectActionsList } from "./ProjectActionsList";
+import { ProjectRepositorySettings } from "./ProjectRepositorySettings.tsx";
 import { isElectron } from "../../env";
 import {
   decodeProjectScriptKeybindingRule,
@@ -1201,7 +1202,7 @@ function ProjectDetail({
           {hasMultipleCheckouts ? (
             <SettingsRow
               title="Checkout"
-              description="Actions and grouping belong to this checkout."
+              description="Repository discovery, actions, and grouping belong to this checkout."
               control={
                 <Select
                   value={selectedCheckout.physicalProjectKey}
@@ -1223,6 +1224,13 @@ function ProjectDetail({
                   </SelectPopup>
                 </Select>
               }
+            />
+          ) : null}
+          {selectedServerConfig?.environment.capabilities.workspaceRepositories === true ? (
+            <ProjectRepositorySettings
+              key={selectedCheckout.physicalProjectKey}
+              environmentId={selectedCheckout.environmentId}
+              cwd={selectedCheckout.workspaceRoot}
             />
           ) : null}
           <SettingsRow

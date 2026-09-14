@@ -21,6 +21,7 @@ const RIGHT_PANEL_KINDS = [
   "preview",
   "terminal",
   "pull-request",
+  "workspace-pull-requests",
   "agents",
   "side-chat",
 ] as const;
@@ -67,6 +68,7 @@ export type RightPanelSurface =
       repository: string;
       number: number;
     }
+  | { id: "workspace-pull-requests"; kind: "workspace-pull-requests" }
   | { id: "agents"; kind: "agents" }
   | { id: `side-chat:${string}`; kind: "side-chat"; threadId: ThreadId };
 
@@ -156,6 +158,8 @@ const singletonSurface = (
       return { id: "files", kind };
     case "agents":
       return { id: "agents", kind };
+    case "workspace-pull-requests":
+      return { id: "workspace-pull-requests", kind };
   }
 };
 

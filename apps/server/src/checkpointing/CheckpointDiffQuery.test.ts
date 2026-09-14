@@ -75,6 +75,7 @@ describe("CheckpointDiffQuery.layer", () => {
         Layer.provideMerge(Layer.succeed(CheckpointStore.CheckpointStore, checkpointStore)),
         Layer.provideMerge(
           Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
+            getSideChatWorktrees: () => Effect.succeed([]),
             getThreadContextTransfers: () => Effect.succeed([]),
             getUserInputActivity: () => Effect.die("unused"),
             getCommandReadModel: () =>
@@ -190,6 +191,7 @@ describe("CheckpointDiffQuery.layer", () => {
         Layer.provideMerge(Layer.succeed(CheckpointStore.CheckpointStore, checkpointStore)),
         Layer.provideMerge(
           Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
+            getSideChatWorktrees: () => Effect.succeed([]),
             getThreadContextTransfers: () => Effect.succeed([]),
             getUserInputActivity: () => Effect.die("unused"),
             getCommandReadModel: () =>
@@ -280,6 +282,7 @@ describe("CheckpointDiffQuery.layer", () => {
         Layer.provideMerge(Layer.succeed(CheckpointStore.CheckpointStore, checkpointStore)),
         Layer.provideMerge(
           Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
+            getSideChatWorktrees: () => Effect.succeed([]),
             getThreadContextTransfers: () => Effect.succeed([]),
             getUserInputActivity: () => Effect.die("unused"),
             getCommandReadModel: () =>
@@ -355,6 +358,7 @@ describe("CheckpointDiffQuery.layer", () => {
         Layer.provideMerge(Layer.succeed(CheckpointStore.CheckpointStore, checkpointStore)),
         Layer.provideMerge(
           Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
+            getSideChatWorktrees: () => Effect.succeed([]),
             getThreadContextTransfers: () => Effect.succeed([]),
             getUserInputActivity: () => Effect.die("unused"),
             getCommandReadModel: () =>
@@ -415,6 +419,7 @@ describe("CheckpointDiffQuery.layer", () => {
         Layer.provideMerge(Layer.succeed(CheckpointStore.CheckpointStore, checkpointStore)),
         Layer.provideMerge(
           Layer.succeed(ProjectionSnapshotQuery.ProjectionSnapshotQuery, {
+            getSideChatWorktrees: () => Effect.succeed([]),
             getThreadContextTransfers: () => Effect.succeed([]),
             getUserInputActivity: () => Effect.die("unused"),
             getCommandReadModel: () =>

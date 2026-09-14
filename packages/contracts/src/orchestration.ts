@@ -815,6 +815,7 @@ const ThreadCreateCommand = Schema.Struct({
 });
 
 export const MAX_THREAD_CONTEXT_TEXT_LENGTH = 64_000;
+const ThreadContextText = Schema.String.check(Schema.isMaxLength(MAX_THREAD_CONTEXT_TEXT_LENGTH));
 
 export const ThreadContextTransfer = Schema.Struct({
   transferId: CommandId,
@@ -830,7 +831,7 @@ export const ThreadContextTransfer = Schema.Struct({
     "failed",
     "cancelled",
   ]),
-  text: Schema.optional(Schema.String),
+  text: Schema.optional(ThreadContextText),
   detail: Schema.optional(Schema.String),
 });
 export type ThreadContextTransfer = typeof ThreadContextTransfer.Type;
@@ -1180,10 +1181,7 @@ export const ClientOrchestrationCommand = Schema.Union([
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
 
-export const ThreadReportMessage = Schema.String.check(
-  Schema.isMaxLength(MAX_THREAD_CONTEXT_TEXT_LENGTH),
-  Schema.isPattern(/\S/),
-);
+export const ThreadReportMessage = ThreadContextText.check(Schema.isPattern(/\S/));
 
 const ThreadContextReportCommand = Schema.Struct({
   type: Schema.Literal("thread.context.report"),

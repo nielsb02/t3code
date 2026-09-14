@@ -9,6 +9,7 @@ import {
   CommonActions,
   StackActions,
   useNavigation,
+  useFocusEffect,
   type StaticScreenProps,
 } from "@react-navigation/native";
 import { SymbolView } from "../../../components/AppSymbol";
@@ -27,7 +28,7 @@ import { useEnvironmentQuery } from "../../../state/query";
 import { useThreadSelection } from "../../../state/use-thread-selection";
 import { useSelectedThreadGitActions } from "../../../state/use-selected-thread-git-actions";
 import { useSelectedThreadGitState } from "../../../state/use-selected-thread-git-state";
-import { useSelectedThreadWorktree } from "../../../state/use-selected-thread-worktree";
+import { useWorkspaceRepositories } from "../../../state/use-workspace-repositories";
 import { vcsEnvironment } from "../../../state/vcs";
 import { resolveGitOverviewReviewNavigationAction } from "./git-overview-navigation";
 import { MetaCard, SheetListRow, menuItemIconName, statusSummary } from "./gitSheetComponents";
@@ -50,9 +51,22 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
   const environmentId = EnvironmentId.make(props.route.params.environmentId);
   const threadId = ThreadId.make(props.route.params.threadId);
   const { selectedThread } = useThreadSelection();
-  const { selectedThreadCwd, selectedThreadWorktreePath } = useSelectedThreadWorktree();
+  const {
+    selectedThreadCwd,
+    selectedThreadWorktreePath,
+    repositories,
+    selectedPath,
+    selectRepository,
+    refreshRepositories,
+    repositoryError,
+  } = useWorkspaceRepositories();
   const gitState = useSelectedThreadGitState();
   const gitActions = useSelectedThreadGitActions();
+  useFocusEffect(
+    useCallback(() => {
+      refreshRepositories();
+    }, [refreshRepositories]),
+  );
   const theme = useUniwindTheme();
   const foregroundColor = theme["--color-foreground"];
   const sheetColor = theme["--color-sheet"];
@@ -224,6 +238,30 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
         <RefreshControl refreshing={isPullRefreshing} onRefresh={() => void handlePullRefresh()} />
       }
     >
+      {repositoryError ? <Text>{repositoryError}</Text> : null}
+      {repositories.length > 1 || (repositories.length === 1 && selectedPath !== ".") ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {repositories.map((repository) => (
+            <Pressable
+              key={repository.path}
+              accessibilityRole="button"
+              accessibilityState={{
+                selected: selectedPath === repository.path,
+                disabled: busy || !repository.available,
+              }}
+              disabled={busy || !repository.available}
+              onPress={() => selectRepository(repository.path)}
+              className="mr-2 rounded-xl border border-border bg-card px-3 py-2"
+            >
+              <Text>
+                {selectedPath === repository.path ? "✓ " : ""}
+                {repository.path === "." ? "Workspace" : repository.path}
+                {repository.available ? "" : " (unavailable)"}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      ) : null}
       <View
         className={
           isInspector

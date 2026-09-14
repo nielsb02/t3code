@@ -1009,6 +1009,7 @@ export function pullRequestActionNeedsHostRefresh(action: PullRequestAction): bo
 type SnapshotStorage = Pick<Storage, "getItem" | "setItem">;
 
 export interface PullRequestDetailSnapshotRef {
+  readonly workspace?: { readonly threadId: string; readonly repositoryPath: string } | undefined;
   readonly projectId: string;
   readonly repository: string;
   readonly number: number;
@@ -1018,7 +1019,7 @@ const pullRequestDetailSnapshotKey = (
   environmentId: string,
   reference: PullRequestDetailSnapshotRef,
 ) =>
-  `t3.pullRequests.detail:${environmentId}:${reference.projectId}:${reference.repository}#${reference.number}`;
+  `t3.pullRequests.detail:${environmentId}:${reference.projectId}:${reference.repository}#${reference.number}${reference.workspace ? `:${JSON.stringify(reference.workspace)}` : ""}`;
 
 const decodeDetailSnapshot = Schema.decodeUnknownOption(PullRequestDetail);
 
