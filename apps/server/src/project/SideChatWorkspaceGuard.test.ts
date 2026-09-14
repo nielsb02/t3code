@@ -138,7 +138,7 @@ it.effect(
           const result = yield* operations
             .withMutation(["/alias/task"], Effect.void)
             .pipe(Effect.result);
-          expect(result._tag).toBe("Failure");
+          expect(result._tag).toBe("Success");
           return yield* Effect.fail("removal failed");
         }),
       ).pipe(Effect.flip);

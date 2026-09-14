@@ -118,3 +118,30 @@ it.effect("missing paths use normalized absolute paths for both kinds of ownersh
     Effect.provide(layer.pipe(Layer.provide(FileSystem.layerNoop({})), Layer.provide(Path.layer))),
   ),
 );
+
+it.effect(
+  "exclusive removal allows its nested Git operation while blocking other callers until release",
+  () =>
+    Effect.gen(function* () {
+      const guard = yield* WorktreeOperationGuard;
+      const entered = yield* Deferred.make<void>();
+      const removal = yield* guard
+        .withExclusiveMutation(
+          "/repo/task",
+          Effect.gen(function* () {
+            yield* guard.withMutation(["/alias/task"], Effect.void);
+          yield* Deferred.succeed(entered, undefined);
+          return yield* Effect.never;
+          }),
+        )
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(entered);
+      expect(
+        (yield* guard.withMutation(["/alias/task"], Effect.void).pipe(Effect.result))._tag,
+      ).toBe("Failure");
+      expect(yield* guard.tryAcquireCleanup("/repo/task")).toBeNull();
+      yield* guard.withMutation(["/repo/other"], Effect.void);
+      yield* Fiber.interrupt(removal);
+      yield* guard.withMutation(["/repo/task"], Effect.void);
+    }).pipe(Effect.provide(testLayer)),
+);

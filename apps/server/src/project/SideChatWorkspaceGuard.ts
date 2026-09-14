@@ -18,22 +18,22 @@ export const withSideChatWorktreeRemoval = <A, E, R>(
   Effect.gen(function* () {
     const path = yield* Path.Path;
     const operations = yield* WorktreeOperationGuard;
-    return yield* Effect.acquireUseRelease(
-      operations.tryAcquireCleanup(path.resolve(input.cwd, input.path)),
-      (release): Effect.Effect<A, E | GitCommandError, R> =>
-        release
-          ? effect
-          : Effect.fail(
-              new GitCommandError({
-                operation: "removeWorktree",
-                command: "git worktree remove",
-                cwd: input.cwd,
-                detail:
-                  "This checkout has an operation in progress. Wait for it to finish before removing it.",
-              }),
-            ),
-      (release) => Effect.sync(() => release?.()),
-    );
+    return yield* operations
+      .withExclusiveMutation(path.resolve(input.cwd, input.path), effect)
+      .pipe(
+        Effect.catchTag(
+          "WorktreeCleanupBusyError",
+          (cause) =>
+            new GitCommandError({
+              operation: "removeWorktree",
+              command: "git worktree remove",
+              cwd: input.cwd,
+              detail:
+                "This checkout has an operation in progress. Wait for it to finish before removing it.",
+              cause,
+            }),
+        ),
+      );
   });
 
 export const assertSideChatBootstrapAllowed = Effect.fn("assertSideChatBootstrapAllowed")(
