@@ -35,6 +35,9 @@ async function getMermaid(appearance: MermaidAppearance): Promise<Mermaid> {
   const mermaid = await mermaidPromise;
   mermaid.initialize({
     securityLevel: "strict",
+    // HTML label measurements can include page scaling and skip wrapping.
+    // SVG text uses local coordinates, so long labels stay inside their nodes.
+    htmlLabels: false,
     startOnLoad: false,
     suppressErrorRendering: true,
     theme: appearance === "dark" ? "dark" : "default",

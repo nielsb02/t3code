@@ -41,6 +41,7 @@ describe("MermaidDiagram", () => {
       expect(diagram.props.dangerouslySetInnerHTML.__html).toContain("<svg");
       expect(mermaid.initialize).toHaveBeenCalledWith({
         securityLevel: "strict",
+        htmlLabels: false,
         startOnLoad: false,
         suppressErrorRendering: true,
         theme: "dark",
