@@ -276,7 +276,15 @@ export function ThreadSideChats(props: {
                       void cancelContext({
                         environmentId: props.thread.environmentId,
                         input: { threadId: props.thread.id, transferId: transfer.transferId },
-                      }).finally(() => setBusy(false));
+                      })
+                        .then((result) => {
+                          if (result._tag !== "Success")
+                            Alert.alert(
+                              "Couldn't cancel update",
+                              "Check your connection and try again.",
+                            );
+                        })
+                        .finally(() => setBusy(false));
                     }}
                   >
                     <Text className="font-t3-medium">Cancel update</Text>
@@ -336,9 +344,13 @@ export function ThreadSideChats(props: {
                         })
                           .then((result) => {
                             if (result._tag === "Success") {
-                              if (props.thread.parentThreadId)
-                                openThread(props.thread.parentThreadId);
+                              if (parent) openThread(parent.id);
                               else props.onClose();
+                            } else {
+                              Alert.alert(
+                                "Couldn't archive side chat",
+                                "Check your connection and try again.",
+                              );
                             }
                           })
                           .finally(() => setBusy(false));

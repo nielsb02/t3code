@@ -99,6 +99,7 @@ import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionRe
 import {
   assertSideChatBootstrapAllowed,
   assertWorktreeNotSharedWithSideChat,
+  withSideChatWorktreeRemoval,
 } from "./project/SideChatWorkspaceGuard.ts";
 import {
   observeRpcEffect as instrumentRpcEffect,
@@ -1264,6 +1265,8 @@ const makeWsRpcLayer = (
       const dispatchNormalizedCommand = (
         normalizedCommand: OrchestrationCommand,
       ): Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchCommandError> => {
+        const parentThreadId =
+          normalizedCommand.type === "thread.create" ? normalizedCommand.parentThreadId : undefined;
         const dispatchEffect =
           normalizedCommand.type === "thread.turn.start" && normalizedCommand.bootstrap
             ? dispatchBootstrapTurnStart(normalizedCommand)
@@ -1282,7 +1285,18 @@ const makeWsRpcLayer = (
               );
 
         return startup
-          .enqueueCommand(dispatchEffect)
+          .enqueueCommand(
+            parentThreadId
+              ? Effect.gen(function* () {
+                  const parent = yield* projectionSnapshotQuery.getThreadShellById(parentThreadId);
+                  const worktreePath = Option.getOrNull(parent)?.worktreePath;
+                  return yield* worktreeOperations.withMutation(
+                    worktreePath ? [worktreePath] : [],
+                    dispatchEffect,
+                  );
+                })
+              : dispatchEffect,
+          )
           .pipe(
             Effect.mapError((cause) =>
               toDispatchCommandError(cause, "Failed to dispatch orchestration command"),
@@ -2619,23 +2633,26 @@ const makeWsRpcLayer = (
         [WS_METHODS.vcsRemoveWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsRemoveWorktree,
-            Effect.gen(function* () {
-              const worktrees = yield* projectionSnapshotQuery.getSideChatWorktrees().pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new GitCommandError({
-                      operation: "removeWorktree",
-                      command: "git worktree remove",
-                      cwd: input.cwd,
-                      detail: "Could not check whether side chats share this checkout.",
-                      cause,
-                    }),
-                ),
-              );
-              yield* assertWorktreeNotSharedWithSideChat(input, worktrees);
-              yield* gitWorkflow.removeWorktree(input);
-              yield* refreshGitStatus(input.cwd);
-            }),
+            withSideChatWorktreeRemoval(
+              input,
+              Effect.gen(function* () {
+                const worktrees = yield* projectionSnapshotQuery.getSideChatWorktrees().pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new GitCommandError({
+                        operation: "removeWorktree",
+                        command: "git worktree remove",
+                        cwd: input.cwd,
+                        detail: "Could not check whether side chats share this checkout.",
+                        cause,
+                      }),
+                  ),
+                );
+                yield* assertWorktreeNotSharedWithSideChat(input, worktrees);
+                yield* gitWorkflow.removeWorktree(input);
+                yield* refreshGitStatus(input.cwd);
+              }),
+            ),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsCreateRef]: (input) =>

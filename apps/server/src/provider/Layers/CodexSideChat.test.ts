@@ -1,10 +1,13 @@
 import * as NodeAssert from "node:assert/strict";
 import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
+import { EventId, ProviderDriverKind, ThreadId, TurnId } from "@t3tools/contracts";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import type * as CodexSchema from "effect-codex-app-server/schema";
 import { describe } from "vite-plus/test";
 import {
+  collectCodexHandoff,
   assertHandoffGuard,
   forkCodexThread,
   readHandoffConfig,
@@ -281,3 +284,58 @@ describe("handoff tool guard", () => {
     );
   }
 });
+
+for (const willRetry of [true, false]) {
+  it.effect(
+    `handoff ${willRetry ? "survives retryable" : "rejects terminal"} provider errors`,
+    () =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.make("handoff-thread");
+        const turnId = TurnId.make("handoff-turn");
+        const now = "2026-09-14T00:00:00.000Z";
+        const result = yield* collectCodexHandoff(
+          {
+            start: () =>
+              Effect.succeed({
+                provider: ProviderDriverKind.make("codex"),
+                status: "ready",
+                runtimeMode: "approval-required",
+                threadId,
+                createdAt: now,
+                updatedAt: now,
+              }),
+            sendTurn: () => Effect.succeed({ threadId, turnId }),
+            events: Stream.fromIterable(
+              [
+                { method: "error", payload: { willRetry } },
+                {
+                  method: "item/completed",
+                  payload: {
+                    item: {
+                      type: "agentMessage",
+                      phase: "final_answer",
+                      text: "The inherited context.",
+                    },
+                  },
+                },
+                { method: "turn/completed", payload: { turn: { status: "completed" } } },
+              ].map((event, index) => ({
+                ...event,
+                id: EventId.make(`event-${index}`),
+                kind: "notification" as const,
+                provider: ProviderDriverKind.make("codex"),
+                threadId,
+                turnId,
+                createdAt: now,
+              })),
+            ),
+          },
+          "Summarize",
+        ).pipe(Effect.result);
+        if (willRetry) {
+          NodeAssert.equal(result._tag, "Success");
+          if (result._tag === "Success") NodeAssert.equal(result.success, "The inherited context.");
+        } else NodeAssert.equal(result._tag, "Failure");
+      }),
+  );
+}

@@ -2714,6 +2714,51 @@ projectionSnapshotLayer("ProjectionSnapshotQuery windowed thread detail", (it) =
     }),
   );
 
+  it.effect(
+    "pins pending side-chat payloads without retaining terminal history outside the activity window",
+    () =>
+      Effect.gen(function* () {
+        yield* seedFanOutThread();
+        const snapshotQuery = yield* ProjectionSnapshotQuery;
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`DELETE FROM projection_thread_activities`;
+        yield* sql`
+        WITH RECURSIVE rows(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM rows WHERE n < 501)
+        INSERT INTO projection_thread_activities (activity_id, thread_id, turn_id, tone, kind, summary, payload_json, sequence, created_at)
+        SELECT printf('recent-%04d', n), 'thread-w', 'turn-5', 'info', 'tool.completed', 'Done', '{}', n, '2026-03-01T00:04:00.000Z' FROM rows
+      `;
+        for (const status of [
+          "requested",
+          "prepared",
+          "delivering",
+          "delivered",
+          "cancelled",
+          "failed",
+        ] as const) {
+          yield* sql`
+          INSERT INTO projection_thread_activities (activity_id, thread_id, turn_id, tone, kind, summary, payload_json, sequence, created_at)
+          VALUES (${`context:${status}`}, 'thread-w', NULL, 'info', ${`side-chat.context.${status}`}, 'Context',
+            json_object('transferId', ${status}, 'sourceThreadId', 'parent', 'sourceTurnId', NULL, 'direction', 'from-parent', 'status', ${status}, 'text', 'Context payload'), NULL, '2026-03-01T00:00:00.000Z')
+        `;
+        }
+        const detail = Option.getOrThrow(yield* snapshotQuery.getThreadDetailById(threadW));
+        const page = Option.getOrThrow(
+          yield* snapshotQuery.getThreadDetailSnapshot(threadW, { turnLimit: 2 }),
+        );
+        for (const activities of [detail.activities, page.thread.activities]) {
+          assert.deepEqual(
+            activities
+              .filter((activity) => activity.kind.startsWith("side-chat.context."))
+              .map((activity) => activity.id)
+              .sort(),
+            ["context:delivering", "context:prepared", "context:requested"],
+          );
+          assert.equal(activities.length, 503);
+        }
+        assert.equal((yield* snapshotQuery.getThreadContextTransfers(threadW)).length, 6);
+      }),
+  );
+
   it.effect("bounds activity hydration and preserves unresolved requests", () =>
     Effect.gen(function* () {
       yield* seedFanOutThread();

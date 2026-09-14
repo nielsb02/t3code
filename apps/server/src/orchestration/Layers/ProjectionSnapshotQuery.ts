@@ -1651,6 +1651,7 @@ pending_approval_requests AS (
           FROM projection_thread_activities
           WHERE thread_id = ${threadId}
             AND kind LIKE 'side-chat.context.%'
+            AND json_extract(payload_json, '$.status') IN ('requested', 'prepared', 'delivering')
         )
   `;
 

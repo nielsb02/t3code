@@ -11,9 +11,12 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 
 import {
+  withSideChatWorktreeRemoval,
   assertSideChatBootstrapAllowed,
   assertWorktreeNotSharedWithSideChat,
 } from "./SideChatWorkspaceGuard.ts";
+
+import { WorktreeOperationGuard, layer as worktreeGuardLayer } from "./WorktreeOperationGuard.ts";
 
 const parentThreadId = ThreadId.make("parent");
 const createThread: NonNullable<ThreadTurnStartBootstrap["createThread"]> = {
@@ -121,4 +124,34 @@ it.effect("allows unrelated worktrees and checkouts without child references", (
       { parentThreadId, worktreePath: null },
     ]);
   }).pipe(Effect.provide(paths)),
+);
+
+it.effect(
+  "removal holds exclusive checkout ownership through the reference check and releases on failure",
+  () =>
+    Effect.gen(function* () {
+      const operations = yield* WorktreeOperationGuard;
+      const input = { cwd: "/repo", path: "task", force: true };
+      yield* withSideChatWorktreeRemoval(
+        input,
+        Effect.gen(function* () {
+          const result = yield* operations
+            .withMutation(["/alias/task"], Effect.void)
+            .pipe(Effect.result);
+          expect(result._tag).toBe("Failure");
+          return yield* Effect.fail("removal failed");
+        }),
+      ).pipe(Effect.flip);
+      yield* operations.withMutation(
+        ["/repo/task"],
+        Effect.gen(function* () {
+          const result = yield* withSideChatWorktreeRemoval(
+            input,
+            Effect.die("must not remove"),
+          ).pipe(Effect.result);
+          expect(result._tag).toBe("Failure");
+        }),
+      );
+      yield* withSideChatWorktreeRemoval(input, Effect.void);
+    }).pipe(Effect.provide(worktreeGuardLayer.pipe(Layer.provideMerge(paths)))),
 );

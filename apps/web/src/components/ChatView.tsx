@@ -1394,9 +1394,11 @@ function SideChatPanel({
   const status = useThreadStatus(threadRef);
   if (!shell || shell.parentThreadId !== parentRef.threadId || threadId === parentRef.threadId) {
     return (
-      <div className="p-4 text-sm text-muted-foreground">
-        This side chat is no longer available.
-      </div>
+      <ChatPaneScope paneKey={scopedThreadKey(threadRef)} embedded>
+        <div className="p-4 text-sm text-muted-foreground">
+          This side chat is no longer available.
+        </div>
+      </ChatPaneScope>
     );
   }
   return (

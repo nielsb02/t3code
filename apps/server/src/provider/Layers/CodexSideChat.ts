@@ -282,9 +282,13 @@ const HandoffTurn = Schema.Struct({
 });
 const isHandoffMessage = Schema.is(HandoffMessage);
 const isHandoffTurn = Schema.is(HandoffTurn);
+const isRetryingError = Schema.is(Schema.Struct({ willRetry: Schema.Literal(true) }));
 
 export const collectCodexHandoff = Effect.fn("collectCodexHandoff")(function* (
-  runtime: import("./CodexSessionRuntime.ts").CodexSessionRuntimeShape,
+  runtime: Pick<
+    import("./CodexSessionRuntime.ts").CodexSessionRuntimeShape,
+    "start" | "sendTurn" | "events"
+  >,
   prompt: string,
 ) {
   yield* runtime.start();
@@ -303,7 +307,10 @@ export const collectCodexHandoff = Effect.fn("collectCodexHandoff")(function* (
   yield* runtime.events.pipe(
     Stream.runForEach((event) =>
       Effect.gen(function* () {
-        if (event.method === "error" || event.method === "session/exited") {
+        if (
+          (event.method === "error" && !isRetryingError(event.payload)) ||
+          event.method === "session/exited"
+        ) {
           yield* fail("Codex stopped before producing the context handoff. Retry the side chat.");
           return;
         }

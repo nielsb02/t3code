@@ -8,6 +8,33 @@ import {
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import { WorktreeOperationGuard } from "./WorktreeOperationGuard.ts";
+
+/** Reserve cleanup before reading saved references so a side-chat bootstrap cannot race removal. */
+export const withSideChatWorktreeRemoval = <A, E, R>(
+  input: VcsRemoveWorktreeInput,
+  effect: Effect.Effect<A, E, R>,
+) =>
+  Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const operations = yield* WorktreeOperationGuard;
+    return yield* Effect.acquireUseRelease(
+      operations.tryAcquireCleanup(path.resolve(input.cwd, input.path)),
+      (release): Effect.Effect<A, E | GitCommandError, R> =>
+        release
+          ? effect
+          : Effect.fail(
+              new GitCommandError({
+                operation: "removeWorktree",
+                command: "git worktree remove",
+                cwd: input.cwd,
+                detail:
+                  "This checkout has an operation in progress. Wait for it to finish before removing it.",
+              }),
+            ),
+      (release) => Effect.sync(() => release?.()),
+    );
+  });
 
 export const assertSideChatBootstrapAllowed = Effect.fn("assertSideChatBootstrapAllowed")(
   function* (
