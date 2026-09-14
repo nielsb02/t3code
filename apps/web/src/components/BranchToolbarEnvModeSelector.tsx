@@ -1,3 +1,4 @@
+import { useChatPaneKey } from "~/chatPaneScope";
 import { FolderGit2Icon, FolderGitIcon, FolderIcon, HistoryIcon } from "lucide-react";
 import { memo, useMemo } from "react";
 
@@ -37,6 +38,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
   previousWorktreeLabel,
   onUsePreviousWorktree,
 }: BranchToolbarEnvModeSelectorProps) {
+  const paneKey = useChatPaneKey();
   const showPreviousWorktree = Boolean(previousWorktreeLabel && onUsePreviousWorktree);
   const envModeItems = useMemo(
     () => [
@@ -118,6 +120,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
       <SelectPopup
         alignItemWithTrigger={false}
         {...composerFloatingLayerProps}
+        data-chat-pane-id={paneKey ?? undefined}
         data-micro-dial-popup="workspace"
       >
         <SelectGroup>

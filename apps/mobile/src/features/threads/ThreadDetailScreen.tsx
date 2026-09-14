@@ -111,6 +111,7 @@ export interface ThreadDetailScreenProps {
   readonly environmentLabel: string | null;
   readonly feedbackSubmissions: ReadonlyArray<CodexFeedbackSubmission>;
   readonly onDismissFeedback: (id: MessageId) => void;
+  readonly onShareMessageWithParent?: (id: MessageId) => void;
   readonly selectedThreadFeed: ReadonlyArray<ThreadFeedEntry>;
   readonly activeWorkStartedAt: string | null;
   readonly isCompacting: boolean;
@@ -879,6 +880,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             onEndFollowEnabledChange={setEndFollowEnabled}
             skills={selectedProviderSkills}
             onUseArtifactTemplate={handleUseArtifactTemplate}
+            onShareMessageWithParent={props.onShareMessageWithParent}
             loadEarlier={props.loadEarlier ?? null}
           />
         </View>

@@ -20,6 +20,53 @@ on Windows and Linux to start a new thread and immediately open another draft. T
 next draft keeps the workspace mode and base branch you selected. With **New
 worktree**, each background submission creates its own worktree.
 
+## Side chats
+
+Use a side chat to explore a question or work on a smaller part of a Codex task.
+After the parent has completed a turn, choose **New side chat** above the conversation
+or from its thread menu. On mobile, open **Side chats** from the conversation toolbar.
+Choose the model before sending the side chat's first message:
+
+- **Codex**, using the parent's provider instance, starts an independent native fork
+  through the parent's latest completed turn.
+- **Claude** receives a task-focused handoff written by a temporary Codex fork.
+  This adds a Codex generation before Claude starts. It is a new summary, not an
+  export of Codex's internal compaction. T3 does not maintain its own rolling summary.
+
+The parent's unfinished turn is not included. A current Codex CLI with native fork
+support is required; a failed context transfer is shown in the conversation.
+
+Side chats inherit the parent's checkout when created. Changes appear in the same
+files and branch, so divide concurrent coding work by file or area. A side chat stays
+in that checkout if the parent later moves. This version does not create separate
+worktrees or merge branches for side chats.
+
+On desktop, side chats open as tabs in the right panel while the main conversation
+stays open. Each conversation has its own composer and model picker. Close a tab
+to hide it; reopen it from the parent's **Side chats** selector or the sidebar.
+Active sidebar rows keep visible children beside their parent.
+Use a child's menu to pin, settle, or snooze it.
+
+Use **Update context** to prepare a fresh Codex handoff from the parent. The update is
+included when the side chat next sends a message. Context does not continuously sync.
+Use **Share answer** to pass a completed side-chat answer to the parent. This records
+background context for the parent's next message and does not start a parent turn.
+Open **Context** to inspect pending updates and their text. You can cancel an optional
+update marked **Ready for next turn** until it starts being included in a provider turn.
+Completed and cancelled updates stay in context history, hidden by default.
+
+You can also ask Codex or Claude in a side chat to report findings or questions back
+to the parent. The agent sends a focused message without sharing its conversation
+or compaction. Reports appear in **Context** and can be cancelled before delivery.
+They are included on the parent's next turn; they do not start or interrupt work.
+
+Side chats are saved as ordinary threads and do not expire. **Close tab** hides a chat.
+Use **Archive side chat** in its actions menu to remove it from active chats while
+retaining its history; undo the archive or restore it from **Settings → Archived threads**.
+**Delete side chat** removes the conversation history after confirmation. Archiving, settling, or deleting a side chat does not
+clean up its shared checkout. Delete a parent's children before deleting the parent,
+or archive the parent to retain the family.
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.

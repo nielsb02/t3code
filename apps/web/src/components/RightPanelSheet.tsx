@@ -1,4 +1,5 @@
 import { type ReactNode } from "react";
+import { useChatPaneKey } from "../chatPaneScope";
 
 import {
   RIGHT_PANEL_SHEET_CLASS_NAME,
@@ -13,6 +14,7 @@ export function RightPanelSheet(props: {
   underFloatingPreview?: boolean;
   onClose: () => void;
 }) {
+  const paneKey = useChatPaneKey();
   return (
     <Sheet
       open={props.open}
@@ -23,6 +25,7 @@ export function RightPanelSheet(props: {
       }}
     >
       <SheetPopup
+        data-chat-pane-id={paneKey ?? undefined}
         transitionDurationMs={props.animationDurationMs}
         side="right"
         showCloseButton={false}

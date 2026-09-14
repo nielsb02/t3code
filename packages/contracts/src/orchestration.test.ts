@@ -1252,3 +1252,20 @@ it("isProviderSendTurnSupportedImageMimeType accepts raster formats and rejects 
   assert.strictEqual(isProviderSendTurnSupportedImageMimeType("IMAGE/JPEG"), true);
   assert.strictEqual(isProviderSendTurnSupportedImageMimeType("image/svg+xml"), false);
 });
+
+it.effect("accepts bounded agent reports internally but never as client commands", () =>
+  Effect.gen(function* () {
+    const report = {
+      type: "thread.context.report",
+      commandId: "report-1",
+      threadId: "child-1",
+      message: "UI is ready.\nPlease connect persistence.",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    assert.deepEqual(yield* decodeOrchestrationCommand(report), report);
+    assert.ok(yield* decodeClientOrchestrationCommand(report).pipe(Effect.flip));
+    for (const message of ["", " \n", "x".repeat(64_001)]) {
+      assert.ok(yield* decodeOrchestrationCommand({ ...report, message }).pipe(Effect.flip));
+    }
+  }),
+);

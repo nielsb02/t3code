@@ -56,6 +56,8 @@ const makeThread = (
 
 const makeProviderService = (liveThreadIds: ReadonlyArray<ThreadId> = []) =>
   ({
+    forkSession: () => Effect.die("unused"),
+    generateHandoff: () => Effect.die("unused"),
     startSession: () => Effect.die("unused"),
     sendTurn: () => Effect.die("unused"),
     compactThread: () => Effect.die("unused"),

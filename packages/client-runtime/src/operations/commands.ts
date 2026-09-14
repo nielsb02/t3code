@@ -32,6 +32,9 @@ export type CreateProjectInput = CommandInput<"project.create">;
 export type UpdateProjectInput = CommandInput<"project.meta.update">;
 export type DeleteProjectInput = CommandInput<"project.delete">;
 export type CreateThreadInput = CommandInput<"thread.create">;
+export type RefreshThreadContextInput = CommandInput<"thread.context.refresh">;
+export type CancelThreadContextInput = CommandInput<"thread.context.cancel">;
+export type ShareThreadContextInput = CommandInput<"thread.context.share">;
 export type DeleteThreadInput = CommandInput<"thread.delete">;
 export type ArchiveThreadInput = CommandInput<"thread.archive">;
 export type UnarchiveThreadInput = CommandInput<"thread.unarchive">;
@@ -129,6 +132,36 @@ export const createThread: (input: CreateThreadInput) => CommandEffect = Effect.
     type: "thread.create",
     commandId: metadata.commandId,
     createdAt: metadata.createdAt,
+  });
+});
+
+export const refreshThreadContext: (input: RefreshThreadContextInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.refreshThreadContext",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "thread.context.refresh",
+    ...(yield* timestampedCommandMetadata(input)),
+  });
+});
+
+export const cancelThreadContext: (input: CancelThreadContextInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.cancelThreadContext",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "thread.context.cancel",
+    ...(yield* timestampedCommandMetadata(input)),
+  });
+});
+
+export const shareThreadContext: (input: ShareThreadContextInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.shareThreadContext",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "thread.context.share",
+    ...(yield* timestampedCommandMetadata(input)),
   });
 });
 

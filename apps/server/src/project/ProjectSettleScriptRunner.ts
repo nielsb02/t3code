@@ -64,6 +64,18 @@ export const make = Effect.gen(function* () {
     if (!thread || !project) return { kind: "none" } as const;
     const scripts = settleProjectScripts(yield* settings.getSettings, project);
     if (scripts.length === 0) return { kind: "none" } as const;
+    if (
+      thread.parentThreadId ||
+      readModel.threads.some(
+        (child) => child.parentThreadId === thread.id && child.deletedAt === null,
+      )
+    ) {
+      return {
+        kind: "skipped",
+        detail:
+          "This checkout is shared by a parent and its side chats. Settle actions do not clean up shared side-chat workspaces.",
+      } as const;
+    }
     if (backgroundLiveness.getThreadBackgroundLiveness(thread.id) !== null) {
       return {
         kind: "skipped",

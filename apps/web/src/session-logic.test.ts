@@ -471,6 +471,15 @@ describe("workEntryIndicatesToolNeutralStatus", () => {
 });
 
 describe("deriveWorkLogEntries", () => {
+  it("keeps context notices in the context menu without duplicating them in the timeline", () => {
+    const activities = [
+      makeActivity({ id: "tool", kind: "tool.completed", summary: "Read file" }),
+      ...["requested", "prepared", "delivered", "cancelled", "failed"].map((status) =>
+        makeActivity({ kind: `side-chat.context.${status}`, summary: "Context update" }),
+      ),
+    ];
+    expect(deriveWorkLogEntries(activities).map((entry) => entry.id)).toEqual(["tool"]);
+  });
   it("keeps the latest task progress without emitting plan-update log entries", () => {
     const activities = [
       makeActivity({ id: "before", kind: "tool.completed", summary: "Read files", sequence: 0 }),

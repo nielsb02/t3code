@@ -23,6 +23,9 @@ import {
   PreviewStandardToolkit,
 } from "./toolkits/preview/tools.ts";
 
+import { SideChatToolkit } from "./toolkits/sideChat/tools.ts";
+import { SideChatToolkitHandlersLive } from "./toolkits/sideChat/handlers.ts";
+
 const unauthorized = HttpServerResponse.jsonUnsafe(
   {
     error: "invalid_mcp_credential",
@@ -226,4 +229,11 @@ const McpTransportLive = McpServer.layerHttp({
   protocols: [McpProtocol.v2025_06_18],
 }).pipe(Layer.provide(McpAuthMiddlewareLive));
 
-export const layer = PreviewToolkitRegistrationLive.pipe(Layer.provideMerge(McpTransportLive));
+export const SideChatToolkitRegistrationLive = McpServer.toolkit(SideChatToolkit).pipe(
+  Layer.provide(SideChatToolkitHandlersLive),
+);
+
+export const layer = Layer.mergeAll(
+  PreviewToolkitRegistrationLive,
+  SideChatToolkitRegistrationLive,
+).pipe(Layer.provideMerge(McpTransportLive));

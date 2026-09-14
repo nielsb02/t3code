@@ -1,3 +1,6 @@
+import { McpServer, McpSchema } from "effect/unstable/ai";
+import { SideChatToolkitRegistrationLive } from "../../mcp/McpHttpServer.ts";
+import { McpInvocationContext, type McpInvocationScope } from "../../mcp/McpInvocationContext.ts";
 import * as WorktreeOperationGuard from "../../project/WorktreeOperationGuard.ts";
 import { noProjectSettleScripts } from "../../project/ProjectSettleScriptRunner.testing.ts";
 // @effect-diagnostics nodeBuiltinImport:off
@@ -29,6 +32,7 @@ import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Option from "effect/Option";
@@ -176,7 +180,10 @@ describe("ProviderCommandReactor", () => {
     readonly titleRegenerationCompletionDispatchFailures?: number;
     readonly titleRegenerationBeforeStart?: "one" | "two";
     readonly serverActivation?: Effect.Effect<void>;
+    readonly cancelBeforeContextClaim?: boolean;
     readonly beforeReadySessionDispatch?: () => Effect.Effect<void>;
+    readonly generateHandoffEffect?: ProviderServiceShape["generateHandoff"];
+    readonly sendTurnEffect?: ProviderServiceShape["sendTurn"];
     readonly compactThreadEffect?: () => Effect.Effect<void, ProviderAdapterRequestError>;
     readonly interruptTurnEffect?: () => Effect.Effect<void, ProviderAdapterRequestError>;
     readonly stopSessionEffect?: () => Effect.Effect<void, ProviderAdapterRequestError>;
@@ -263,11 +270,13 @@ describe("ProviderCommandReactor", () => {
         ),
       );
     });
-    const sendTurn = vi.fn((_: unknown) =>
-      Effect.succeed({
-        threadId: ThreadId.make("thread-1"),
-        turnId: asTurnId("turn-1"),
-      }),
+    const sendTurn = vi.fn(
+      (request: Parameters<ProviderServiceShape["sendTurn"]>[0]) =>
+        input?.sendTurnEffect?.(request) ??
+        Effect.succeed({
+          threadId: ThreadId.make("thread-1"),
+          turnId: asTurnId("turn-1"),
+        }),
     );
     const compactThread = vi.fn((_: ThreadId) => input?.compactThreadEffect?.() ?? Effect.void);
     const interruptTurn = vi.fn((_: unknown) => input?.interruptTurnEffect?.() ?? Effect.void);
@@ -352,7 +361,16 @@ describe("ProviderCommandReactor", () => {
     ];
 
     const unsupported = () => Effect.die(new Error("Unsupported provider call in test")) as never;
+    const forkSession = vi.fn<ProviderServiceShape["forkSession"]>((request) =>
+      startSession(request.threadId, request.input),
+    );
+    const generateHandoff = vi.fn<ProviderServiceShape["generateHandoff"]>(
+      input?.generateHandoffEffect ??
+        (() => Effect.succeed("Native Codex handoff: preserve the existing settings API.")),
+    );
     const service: ProviderServiceShape = {
+      forkSession,
+      generateHandoff,
       startSession: startSession as ProviderServiceShape["startSession"],
       sendTurn: sendTurn as ProviderServiceShape["sendTurn"],
       compactThread,
@@ -434,6 +452,17 @@ describe("ProviderCommandReactor", () => {
               ) {
                 return Effect.die(new Error("Injected title regeneration completion failure"));
               }
+            }
+            if (input?.cancelBeforeContextClaim && command.type === "thread.context.claim") {
+              return engine
+                .dispatch({
+                  type: "thread.context.cancel",
+                  commandId: CommandId.make(`race-cancel:${command.commandId}`),
+                  threadId: command.threadId,
+                  transferId: command.transferId,
+                  createdAt: command.createdAt,
+                })
+                .pipe(Effect.andThen(engine.dispatch(command)));
             }
             return (
               command.type === "thread.session.set" && command.session.status === "ready"
@@ -597,6 +626,8 @@ describe("ProviderCommandReactor", () => {
           }),
         ),
       tryHandlePromptCommand,
+      forkSession,
+      generateHandoff,
       startSession,
       sendTurn,
       compactThread,
@@ -4026,5 +4057,808 @@ describe("ProviderCommandReactor", () => {
       expect(thread?.session?.status).toBe("stopped");
       expect(thread?.session?.providerInstanceId).toBe(ProviderInstanceId.make("codex_work"));
     }),
+  );
+  const seedSideChat = (harness: Awaited<ReturnType<typeof createHarness>>, instanceId: string) =>
+    Effect.gen(function* () {
+      const createdAt = "2026-01-01T00:00:00.000Z";
+      yield* harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.make("parent-session"),
+        threadId: ThreadId.make("thread-1"),
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "ready",
+          providerName: "codex",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: createdAt,
+        },
+        createdAt,
+      });
+      yield* harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.make("parent-worktree"),
+        threadId: ThreadId.make("thread-1"),
+        branch: "t3/temporary",
+        worktreePath: "/shared-feature",
+      });
+      yield* harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("create-child"),
+        threadId: ThreadId.make("child"),
+        parentThreadId: ThreadId.make("thread-1"),
+        projectId: asProjectId("project-1"),
+        title: "Side chat",
+        modelSelection: {
+          instanceId: ProviderInstanceId.make(instanceId),
+          model: instanceId === "codex" ? "gpt-5-codex" : "claude-sonnet",
+        },
+        runtimeMode: "approval-required",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      });
+    });
+
+  const startSideChatTurn = (
+    harness: Awaited<ReturnType<typeof createHarness>>,
+    suffix = "first",
+    modelSelection?: ModelSelection,
+  ) =>
+    harness.engine.dispatch({
+      type: "thread.turn.start",
+      ...(modelSelection ? { modelSelection } : {}),
+      commandId: CommandId.make(`child-turn-${suffix}`),
+      threadId: ThreadId.make("child"),
+      message: {
+        messageId: asMessageId(`child-message-${suffix}`),
+        role: "user",
+        text: "Implement the settings UI",
+        attachments: [],
+      },
+      runtimeMode: "approval-required",
+      interactionMode: "default",
+      createdAt: "2026-01-01T00:01:00.000Z",
+    });
+
+  const contextReceipt = (harness: Awaited<ReturnType<typeof createHarness>>, status: string) =>
+    Effect.gen(function* () {
+      const events = yield* harness.engine.subscribeDomainEvents;
+      return yield* Stream.runHead(
+        events.pipe(
+          Stream.filter(
+            (event) =>
+              event.type === "thread.activity-appended" &&
+              event.payload.activity.kind === `side-chat.context.${status}`,
+          ),
+        ),
+      ).pipe(Effect.forkChild);
+    });
+
+  effectIt.effect(
+    "forks a Codex child natively and persists its shared workspace relationship",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        yield* seedSideChat(harness, "codex");
+        const receipt = yield* contextReceipt(harness, "delivered");
+        yield* startSideChatTurn(harness);
+        yield* Fiber.join(receipt);
+        yield* Effect.promise(() => harness.drain());
+        expect(harness.sendTurn.mock.calls[0]?.[0].input).toContain("<t3_side_chat>");
+        expect(harness.sendTurn.mock.calls[0]?.[0].input).toContain("report_to_parent");
+        expect(harness.forkSession).toHaveBeenCalledTimes(1);
+        expect(harness.forkSession.mock.calls[0]?.[0].sourceThreadId).toBe("thread-1");
+        expect(harness.generateHandoff).not.toHaveBeenCalled();
+        expect(harness.renameBranch).not.toHaveBeenCalled();
+        expect(harness.createWorktree).not.toHaveBeenCalled();
+        const snapshot = yield* harness.snapshotQuery.getCommandReadModel();
+        expect(snapshot.threads.find((thread) => thread.id === "child")).toMatchObject({
+          parentThreadId: "thread-1",
+          branch: "t3/temporary",
+          worktreePath: "/shared-feature",
+        });
+      }),
+  );
+
+  effectIt.effect(
+    "passes the exact Codex handoff to Claude while retaining a clean user message",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        yield* seedSideChat(harness, "claude");
+        const receipt = yield* contextReceipt(harness, "delivered");
+        yield* startSideChatTurn(harness);
+        yield* Fiber.join(receipt);
+        yield* Effect.promise(() => harness.drain());
+        expect(harness.generateHandoff).toHaveBeenCalledTimes(1);
+        expect(harness.generateHandoff.mock.calls[0]?.[0].prompt).toContain(
+          "Implement the settings UI",
+        );
+        expect(harness.sendTurn.mock.calls[0]?.[0].input).toContain(
+          "Native Codex handoff: preserve the existing settings API.",
+        );
+        expect(harness.sendTurn.mock.calls[0]?.[0].threadId).toBe("child");
+        expect(harness.sendTurn.mock.calls[0]?.[0].input).toContain("<t3_side_chat>");
+        expect(harness.forkSession).not.toHaveBeenCalled();
+        const transfers = yield* harness.snapshotQuery.getThreadContextTransfers(
+          ThreadId.make("child"),
+        );
+        expect(transfers).toMatchObject([
+          {
+            status: "delivered",
+            text: "Native Codex handoff: preserve the existing settings API.",
+          },
+        ]);
+        const thread = yield* harness.snapshotQuery.getThreadDetailById(ThreadId.make("child"));
+        expect(
+          Option.getOrThrow(thread)
+            .messages.filter((message) => message.role === "user")
+            .map((message) => message.text),
+        ).toEqual(["Implement the settings UI"]);
+      }),
+  );
+
+  effectIt.effect(
+    "refreshes context without starting either conversation and keeps failed sends pending",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() =>
+          createHarness({
+            sendTurnEffect: () =>
+              Effect.fail(
+                new ProviderAdapterRequestError({
+                  provider: "codex",
+                  method: "sendTurn",
+                  detail: "Connection failed before send",
+                }),
+              ),
+          }),
+        );
+        yield* seedSideChat(harness, "claude");
+        const prepared = yield* contextReceipt(harness, "prepared");
+        yield* harness.engine.dispatch({
+          type: "thread.context.refresh",
+          commandId: CommandId.make("refresh-child"),
+          threadId: ThreadId.make("child"),
+          createdAt: "2026-01-01T00:01:00.000Z",
+        });
+        yield* Fiber.join(prepared);
+        expect(harness.sendTurn).not.toHaveBeenCalled();
+        expect(harness.startSession).not.toHaveBeenCalled();
+        const events = yield* harness.engine.subscribeDomainEvents;
+        const failure = yield* Stream.runHead(
+          events.pipe(
+            Stream.filter(
+              (event) =>
+                event.type === "thread.activity-appended" &&
+                event.payload.activity.kind === "provider.turn.start.failed",
+            ),
+          ),
+        ).pipe(Effect.forkChild);
+        yield* startSideChatTurn(harness);
+        yield* Fiber.join(failure);
+        expect(
+          (yield* harness.snapshotQuery.getThreadContextTransfers(ThreadId.make("child"))).every(
+            (transfer) => transfer.status === "prepared",
+          ),
+        ).toBe(true);
+      }),
+  );
+
+  effectIt.effect.each(["interrupt", "delete", "archive"] as const)(
+    "keeps the main thread responsive and cancels handoff on child %s",
+    (action) =>
+      Effect.gen(function* () {
+        const handoffStarted = yield* Deferred.make<void>();
+        const handoffCancelled = yield* Deferred.make<void>();
+        const parentSent = yield* Deferred.make<void>();
+        const harness = yield* Effect.promise(() =>
+          createHarness({
+            generateHandoffEffect: () =>
+              Deferred.succeed(handoffStarted, undefined).pipe(
+                Effect.andThen(Effect.never),
+                Effect.ensuring(Deferred.succeed(handoffCancelled, undefined)),
+              ),
+            sendTurnEffect: (input) =>
+              Deferred.succeed(parentSent, undefined).pipe(
+                Effect.as({ threadId: input.threadId, turnId: asTurnId("parent-turn") }),
+              ),
+          }),
+        );
+        yield* seedSideChat(harness, "claude");
+        yield* startSideChatTurn(harness);
+        yield* Deferred.await(handoffStarted);
+        // Give the main thread a local checkout so its ordinary worktree recovery is irrelevant.
+        yield* harness.engine.dispatch({
+          type: "thread.meta.update",
+          commandId: CommandId.make("parent-local"),
+          threadId: ThreadId.make("thread-1"),
+          branch: null,
+          worktreePath: null,
+        });
+        yield* harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("parent-turn"),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: asMessageId("parent-message"),
+            role: "user",
+            text: "Continue the main task",
+            attachments: [],
+          },
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          createdAt: "2026-01-01T00:02:00.000Z",
+        });
+        yield* Deferred.await(parentSent);
+        if (action === "archive") {
+          yield* harness.engine.dispatch({
+            type: "thread.archive",
+            commandId: CommandId.make("archive-child"),
+            threadId: ThreadId.make("child"),
+          });
+        } else if (action === "delete") {
+          yield* harness.engine.dispatch({
+            type: "thread.delete",
+            commandId: CommandId.make("delete-child"),
+            threadId: ThreadId.make("child"),
+          });
+        } else {
+          yield* harness.engine.dispatch({
+            type: "thread.turn.interrupt",
+            commandId: CommandId.make("interrupt-child"),
+            threadId: ThreadId.make("child"),
+            createdAt: "2026-01-01T00:03:00.000Z",
+          });
+        }
+        yield* Deferred.await(handoffCancelled);
+        yield* Effect.promise(() => harness.drain());
+        expect(harness.sendTurn.mock.calls.map(([input]) => input.threadId)).toEqual(["thread-1"]);
+      }),
+  );
+
+  effectIt.effect(
+    "shares a persisted answer absent from the in-memory transcript without waking the parent",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        yield* seedSideChat(harness, "claude");
+        yield* Effect.promise(() =>
+          runtime!.runPromise(
+            Effect.gen(function* () {
+              const sql = yield* SqlClient.SqlClient;
+              yield* sql`INSERT INTO projection_thread_messages (message_id, thread_id, turn_id, role, text, attachments_json, is_streaming, created_at, updated_at) VALUES ('persisted-answer', 'child', NULL, 'assistant', 'The settings endpoint must remain unchanged.', NULL, 0, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`;
+            }),
+          ),
+        );
+        yield* harness.engine.dispatch({
+          type: "thread.context.share",
+          commandId: CommandId.make("share-persisted"),
+          threadId: ThreadId.make("child"),
+          messageId: asMessageId("persisted-answer"),
+          createdAt: "2026-01-01T00:01:00.000Z",
+        });
+        yield* Effect.promise(() => harness.drain());
+        expect(harness.sendTurn).not.toHaveBeenCalled();
+        expect(harness.startSession).not.toHaveBeenCalled();
+        expect(
+          yield* harness.snapshotQuery.getThreadContextTransfers(ThreadId.make("thread-1")),
+        ).toMatchObject([
+          {
+            direction: "to-parent",
+            sourceThreadId: "child",
+            status: "prepared",
+            text: "The settings endpoint must remain unchanged.",
+          },
+        ]);
+      }),
+  );
+  for (const provider of ["codex", "claude"]) {
+    for (const delivery of ["delivered", "cancelled", "raced"] as const) {
+      const cancelled = delivery !== "delivered";
+      effectIt.effect(`routes ${provider} agent reports through MCP: ${delivery}`, () =>
+        Effect.gen(function* () {
+          const sent = yield* Deferred.make<void>();
+          const harness = yield* Effect.promise(() =>
+            createHarness({
+              cancelBeforeContextClaim: delivery === "raced",
+              sendTurnEffect: (input) =>
+                Deferred.succeed(sent, undefined).pipe(
+                  Effect.as({ threadId: input.threadId, turnId: asTurnId("report-test-turn") }),
+                ),
+            }),
+          );
+          yield* seedSideChat(harness, provider);
+          const scope: McpInvocationScope = {
+            environmentId: EnvironmentId.make("report-test"),
+            threadId: ThreadId.make("child"),
+            providerSessionId: "report-session",
+            providerInstanceId: ProviderInstanceId.make(provider),
+            capabilities: new Set(["side-chat"]),
+            issuedAt: 1,
+          };
+          const report = "UI is ready.\nPlease connect the save action to persistence.";
+          yield* Effect.gen(function* () {
+            const server = yield* McpServer.McpServer;
+            const call = (message: string, invocation = scope) =>
+              server
+                .callTool({
+                  name: "report_to_parent",
+                  arguments: { message, threadId: "unrelated-thread" },
+                })
+                .pipe(Effect.provideService(McpInvocationContext, invocation));
+            for (const invalid of ["", " \n", "x".repeat(64_001)]) {
+              expect(yield* call(invalid).pipe(Effect.flip)).toMatchObject({
+                _tag: "InvalidParams",
+              });
+            }
+            expect(
+              (yield* call(report, { ...scope, capabilities: new Set(["preview"]) })).isError,
+            ).toBe(true);
+            const result = yield* call(report);
+            expect(result.isError).not.toBe(true);
+            expect(result.structuredContent).toMatchObject({
+              status: "queued",
+              delivery: "parent-next-turn",
+            });
+          }).pipe(
+            Effect.provideService(
+              McpSchema.McpServerClient,
+              McpSchema.McpServerClient.of({
+                clientId: 1,
+                protocolVersion: "2025-06-18",
+                initializePayload: {
+                  protocolVersion: "2025-06-18",
+                  capabilities: {},
+                  clientInfo: { name: "report-test", version: "1" },
+                },
+                getClient: Effect.die("unused"),
+              }),
+            ),
+            Effect.provide(
+              SideChatToolkitRegistrationLive.pipe(
+                Layer.provideMerge(McpServer.McpServer.layer),
+                Layer.provide(Layer.succeed(OrchestrationEngineService, harness.engine)),
+                Layer.provide(NodeServices.layer),
+              ),
+            ),
+          );
+          yield* Effect.promise(() => harness.drain());
+          expect(harness.sendTurn).not.toHaveBeenCalled();
+          expect(harness.generateHandoff).not.toHaveBeenCalled();
+          const transfers = yield* harness.snapshotQuery.getThreadContextTransfers(
+            ThreadId.make("thread-1"),
+          );
+          expect(transfers).toHaveLength(1);
+          const transfer = transfers[0]!;
+          expect(transfer).toMatchObject({
+            text: report,
+            sourceThreadId: "child",
+            direction: "to-parent",
+            status: "prepared",
+          });
+          if (delivery === "cancelled") {
+            const cancellation = {
+              type: "thread.context.cancel",
+              commandId: CommandId.make("cancel-report"),
+              threadId: ThreadId.make("thread-1"),
+              transferId: transfer.transferId,
+              createdAt: "2026-01-01T00:00:01.000Z",
+            } satisfies OrchestrationCommand;
+            yield* harness.engine.dispatch(cancellation);
+            yield* harness.engine.dispatch({
+              ...cancellation,
+              commandId: CommandId.make("cancel-report-again"),
+            });
+          }
+          const receipt = cancelled ? undefined : yield* contextReceipt(harness, "delivered");
+          yield* harness.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make("parent-after-report"),
+            threadId: ThreadId.make("thread-1"),
+            message: {
+              messageId: asMessageId("parent-after-report"),
+              role: "user",
+              text: "Continue",
+              attachments: [],
+            },
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+            createdAt: "2026-01-01T00:01:00.000Z",
+          });
+          yield* Deferred.await(sent);
+          if (receipt) yield* Fiber.join(receipt);
+          yield* Effect.promise(() => harness.drain());
+          const input = harness.sendTurn.mock.calls[0]?.[0].input;
+          if (cancelled) expect(input).toBe("Continue");
+          else {
+            expect(input).toContain(report);
+            expect(input).toContain("from thread child");
+          }
+          expect(
+            yield* harness.snapshotQuery.getThreadContextTransfers(ThreadId.make("thread-1")),
+          ).toMatchObject([
+            { transferId: transfer.transferId, status: cancelled ? "cancelled" : "delivered" },
+          ]);
+        }),
+      );
+    }
+  }
+
+  effectIt.effect("cancelled context stays out of the next provider turn", () =>
+    Effect.gen(function* () {
+      const sent = yield* Deferred.make<void>();
+      const harness = yield* Effect.promise(() =>
+        createHarness({
+          sendTurnEffect: (input) =>
+            Deferred.succeed(sent, undefined).pipe(
+              Effect.as({ threadId: input.threadId, turnId: asTurnId("cancel-test-turn") }),
+            ),
+        }),
+      );
+      const threadId = ThreadId.make("thread-1");
+      const transferId = CommandId.make("cancel-test-transfer");
+      yield* harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make("prepare-cancel-test"),
+        threadId,
+        activity: {
+          id: EventId.make(`context:${transferId}`),
+          kind: "side-chat.context.prepared",
+          tone: "info",
+          summary: "Pending context",
+          payload: {
+            transferId,
+            sourceThreadId: ThreadId.make("child"),
+            sourceTurnId: null,
+            direction: "to-parent",
+            status: "prepared",
+            text: "Accidentally shared finding",
+          },
+          turnId: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+      yield* harness.engine.dispatch({
+        type: "thread.context.cancel",
+        commandId: CommandId.make("cancel-test"),
+        threadId,
+        transferId,
+        createdAt: "2026-01-01T00:00:01.000Z",
+      });
+      expect(
+        yield* harness.snapshotQuery.getThreadContextTransfers(threadId, {
+          statuses: ["prepared"],
+        }),
+      ).toEqual([]);
+      expect(yield* harness.snapshotQuery.getThreadContextTransfers(threadId)).toMatchObject([
+        { transferId, status: "cancelled" },
+      ]);
+      yield* harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("turn-after-cancel"),
+        threadId,
+        message: {
+          messageId: asMessageId("message-after-cancel"),
+          role: "user",
+          text: "Continue",
+          attachments: [],
+        },
+        runtimeMode: "approval-required",
+        interactionMode: "default",
+        createdAt: "2026-01-01T00:01:00.000Z",
+      });
+      yield* Deferred.await(sent);
+      yield* Effect.promise(() => harness.drain());
+      expect(harness.sendTurn.mock.calls[0]?.[0].input).toBe("Continue");
+      expect(yield* harness.snapshotQuery.getThreadContextTransfers(threadId)).toMatchObject([
+        { transferId, status: "cancelled" },
+      ]);
+    }),
+  );
+  effectIt.effect("claims context before provider delivery and rejects a late cancellation", () =>
+    Effect.gen(function* () {
+      const release = yield* Deferred.make<void>();
+      const harness = yield* Effect.promise(() =>
+        createHarness({
+          sendTurnEffect: (input) =>
+            Deferred.await(release).pipe(
+              Effect.as({ threadId: input.threadId, turnId: asTurnId("claimed-turn") }),
+            ),
+        }),
+      );
+      const threadId = ThreadId.make("thread-1");
+      const transferId = CommandId.make("claim-test-transfer");
+      yield* harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.make("prepare-claim"),
+        threadId,
+        activity: {
+          id: EventId.make(`context:${transferId}`),
+          tone: "info",
+          kind: "side-chat.context.prepared",
+          summary: "Pending",
+          payload: {
+            transferId,
+            sourceThreadId: ThreadId.make("child"),
+            sourceTurnId: null,
+            direction: "to-parent",
+            status: "prepared",
+            text: "Keep this context",
+          },
+          turnId: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+      const claimed = yield* contextReceipt(harness, "delivering");
+      const delivered = yield* contextReceipt(harness, "delivered");
+      yield* harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("claim-start"),
+        threadId,
+        message: {
+          messageId: asMessageId("claim-message"),
+          role: "user",
+          text: "Continue",
+          attachments: [],
+        },
+        runtimeMode: "approval-required",
+        interactionMode: "default",
+        createdAt: "2026-01-01T00:01:00.000Z",
+      });
+      yield* Fiber.join(claimed);
+      const cancel = yield* harness.engine
+        .dispatch({
+          type: "thread.context.cancel",
+          commandId: CommandId.make("late-cancel"),
+          threadId,
+          transferId,
+          createdAt: "2026-01-01T00:01:01.000Z",
+        })
+        .pipe(Effect.result);
+      expect(cancel._tag).toBe("Failure");
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(delivered);
+      yield* Effect.promise(() => harness.drain());
+      expect(harness.sendTurn.mock.calls[0]?.[0].input).toContain("Keep this context");
+      expect(yield* harness.snapshotQuery.getThreadContextTransfers(threadId)).toMatchObject([
+        { status: "delivered" },
+      ]);
+    }),
+  );
+  effectIt.effect(
+    "batches exact pending context within the provider budget and does not resend delivered transfers",
+    () =>
+      Effect.gen(function* () {
+        const thirdSend = yield* Deferred.make<void>();
+        let sendCount = 0;
+        const harness = yield* Effect.promise(() =>
+          createHarness({
+            sendTurnEffect: (input) =>
+              Effect.gen(function* () {
+                sendCount += 1;
+                if (sendCount === 3) yield* Deferred.succeed(thirdSend, undefined);
+                return { threadId: input.threadId, turnId: asTurnId(`turn-${sendCount}`) };
+              }),
+          }),
+        );
+        const threadId = ThreadId.make("thread-1");
+        for (const index of [1, 2]) {
+          yield* harness.engine.dispatch({
+            type: "thread.activity.append",
+            commandId: CommandId.make(`prepare-${index}`),
+            threadId,
+            activity: {
+              id: EventId.make(`context:bulk-${index}`),
+              tone: "info",
+              kind: "side-chat.context.prepared",
+              summary: "Pending context",
+              payload: {
+                transferId: CommandId.make(`bulk-${index}`),
+                sourceThreadId: ThreadId.make("child"),
+                sourceTurnId: null,
+                direction: "to-parent",
+                status: "prepared",
+                text: String(index).repeat(64_000),
+              },
+              turnId: null,
+              createdAt: "2026-01-01T00:00:00.000Z",
+            },
+            createdAt: "2026-01-01T00:00:00.000Z",
+          });
+        }
+        const startTurn = (index: number) =>
+          harness.engine.dispatch({
+            type: "thread.turn.start",
+            commandId: CommandId.make(`budget-turn-${index}`),
+            threadId,
+            message: {
+              messageId: asMessageId(`budget-message-${index}`),
+              role: "user",
+              text: "Continue",
+              attachments: [],
+            },
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+            createdAt: "2026-01-01T00:01:00.000Z",
+          });
+        const first = yield* contextReceipt(harness, "delivered");
+        yield* startTurn(1);
+        yield* Fiber.join(first);
+        expect(
+          (yield* harness.snapshotQuery.getThreadContextTransfers(threadId)).map(
+            (transfer) => transfer.status,
+          ),
+        ).toEqual(["prepared", "delivered"]);
+        const second = yield* contextReceipt(harness, "delivered");
+        yield* startTurn(2);
+        yield* Fiber.join(second);
+        yield* startTurn(3);
+        yield* Deferred.await(thirdSend);
+        expect(
+          harness.sendTurn.mock.calls
+            .map(([input]) => (input.input ?? "").length)
+            .every((length) => length <= 120_000),
+        ).toBe(true);
+        expect(harness.sendTurn.mock.calls[0]?.[0].input).toContain("1".repeat(64_000));
+        expect(harness.sendTurn.mock.calls[1]?.[0].input).toContain("2".repeat(64_000));
+        expect(harness.sendTurn.mock.calls[2]?.[0].input).toBe("Continue");
+        expect(
+          (yield* harness.snapshotQuery.getThreadContextTransfers(threadId)).every(
+            (transfer) => transfer.status === "delivered",
+          ),
+        ).toBe(true);
+      }),
+  );
+
+  effectIt.effect.each(["codex", "claude"])(
+    "initializes a %s side chat whose parent was archived",
+    (instanceId) =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() => createHarness());
+        yield* seedSideChat(harness, instanceId);
+        yield* harness.engine.dispatch({
+          type: "thread.archive",
+          commandId: CommandId.make("archive-parent"),
+          threadId: ThreadId.make("thread-1"),
+        });
+        expect(
+          Option.isNone(yield* harness.snapshotQuery.getThreadShellById(ThreadId.make("thread-1"))),
+        ).toBe(true);
+        const receipt = yield* contextReceipt(harness, "delivered");
+        yield* startSideChatTurn(harness);
+        yield* Fiber.join(receipt);
+        yield* Effect.promise(() => harness.drain());
+        expect(harness.sendTurn).toHaveBeenCalledTimes(1);
+      }),
+  );
+
+  effectIt.effect(
+    "persists a locally selected Claude model before handoff and retries after preparation failure",
+    () =>
+      Effect.gen(function* () {
+        const started = yield* Deferred.make<void>();
+        const failFirst = yield* Deferred.make<void>();
+        let attempts = 0;
+        const harness = yield* Effect.promise(() =>
+          createHarness({
+            generateHandoffEffect: () =>
+              Effect.gen(function* () {
+                attempts += 1;
+                if (attempts === 1) {
+                  yield* Deferred.succeed(started, undefined);
+                  yield* Deferred.await(failFirst);
+                  return yield* new ProviderAdapterRequestError({
+                    provider: "codex",
+                    method: "generateHandoff",
+                    detail: "Temporary handoff failure",
+                  });
+                }
+                return "Keep the settings API unchanged.";
+              }),
+          }),
+        );
+        yield* seedSideChat(harness, "codex");
+        const selected = { instanceId: ProviderInstanceId.make("claude"), model: "claude-sonnet" };
+        const events = yield* harness.engine.subscribeDomainEvents;
+        const failure = yield* Stream.runHead(
+          events.pipe(
+            Stream.filter(
+              (event) =>
+                event.type === "thread.activity-appended" &&
+                event.payload.activity.kind === "provider.turn.start.failed",
+            ),
+          ),
+        ).pipe(Effect.forkChild);
+        yield* startSideChatTurn(harness, "failure", selected);
+        yield* Deferred.await(started);
+        expect(
+          Option.getOrThrow(
+            yield* harness.snapshotQuery.getThreadShellById(ThreadId.make("child")),
+          ),
+        ).toMatchObject({
+          modelSelection: selected,
+          session: { status: "starting", providerInstanceId: "claude" },
+        });
+        yield* Deferred.succeed(failFirst, undefined);
+        yield* Fiber.join(failure);
+        yield* Effect.promise(() => harness.drain());
+        expect(harness.generateHandoff).toHaveBeenCalledTimes(1);
+        const receipt = yield* contextReceipt(harness, "delivered");
+        yield* startSideChatTurn(harness, "retry", selected);
+        yield* Fiber.join(receipt);
+        yield* Effect.promise(() => harness.drain());
+        expect(harness.sendTurn).toHaveBeenCalledTimes(1);
+        expect(harness.forkSession).not.toHaveBeenCalled();
+        expect(
+          (yield* harness.snapshotQuery.getCommandReadModel()).threads.find(
+            (thread) => thread.id === "child",
+          ),
+        ).toMatchObject({
+          modelSelection: selected,
+          session: { providerName: "claudeAgent", providerInstanceId: "claude" },
+        });
+      }),
+  );
+  effectIt.effect(
+    "closes only a side chat's provider session and reopens using its persisted selected model",
+    () =>
+      Effect.gen(function* () {
+        const resumed = yield* Deferred.make<void>();
+        let sends = 0;
+        const harness = yield* Effect.promise(() =>
+          createHarness({
+            sendTurnEffect: (input) =>
+              Effect.gen(function* () {
+                sends += 1;
+                if (sends === 2) yield* Deferred.succeed(resumed, undefined);
+                return { threadId: input.threadId, turnId: asTurnId(`resume-turn-${sends}`) };
+              }),
+          }),
+        );
+        yield* seedSideChat(harness, "codex");
+        const selected = { instanceId: ProviderInstanceId.make("claude"), model: "claude-sonnet" };
+        const receipt = yield* contextReceipt(harness, "delivered");
+        yield* startSideChatTurn(harness, "initial", selected);
+        yield* Fiber.join(receipt);
+        const events = yield* harness.engine.subscribeDomainEvents;
+        const stopped = yield* Stream.runHead(
+          events.pipe(
+            Stream.filter(
+              (event) =>
+                event.type === "thread.session-set" &&
+                event.payload.threadId === "child" &&
+                event.payload.session.status === "stopped",
+            ),
+          ),
+        ).pipe(Effect.forkChild);
+        yield* harness.engine.dispatch({
+          type: "thread.archive",
+          commandId: CommandId.make("close-child"),
+          threadId: ThreadId.make("child"),
+        });
+        yield* Fiber.join(stopped);
+        expect(harness.stopSession.mock.calls).toEqual([[{ threadId: "child" }]]);
+        yield* harness.engine.dispatch({
+          type: "thread.unarchive",
+          commandId: CommandId.make("reopen-child"),
+          threadId: ThreadId.make("child"),
+        });
+        yield* startSideChatTurn(harness, "resumed");
+        yield* Deferred.await(resumed);
+        expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+          provider: "claudeAgent",
+          modelSelection: selected,
+        });
+        expect(harness.generateHandoff).toHaveBeenCalledTimes(1);
+        expect(harness.sendTurn.mock.calls[1]?.[0].input).toContain("Implement the settings UI");
+        expect(harness.sendTurn.mock.calls[1]?.[0].input).toContain("<t3_side_chat>");
+      }),
   );
 });

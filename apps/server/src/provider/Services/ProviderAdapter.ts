@@ -78,6 +78,19 @@ export interface ProviderAdapterShape<TError> {
     input: ProviderSessionStartInput,
   ) => Effect.Effect<ProviderSession, TError>;
 
+  /** Native context inheritance; omitted for providers without a supported fork API. */
+  readonly forkSession?: (input: {
+    readonly sourceResumeCursor: unknown;
+    readonly session: ProviderSessionStartInput;
+  }) => Effect.Effect<ProviderSession, TError>;
+
+  /** Produce a handoff from a temporary native fork without touching the source session. */
+  readonly generateHandoff?: (input: {
+    readonly sourceResumeCursor: unknown;
+    readonly session: ProviderSessionStartInput;
+    readonly prompt: string;
+  }) => Effect.Effect<string, TError>;
+
   /**
    * Send a turn to an active provider session.
    */

@@ -1,3 +1,4 @@
+import { useChatPaneKey } from "~/chatPaneScope";
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
   type ProviderInstanceId,
@@ -55,6 +56,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
   onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
 }) {
+  const paneKey = useChatPaneKey();
   const [uncontrolledIsMenuOpen, setUncontrolledIsMenuOpen] = useState(false);
   const isMenuOpen = props.open ?? uncontrolledIsMenuOpen;
   const size = props.size ?? "sm";
@@ -223,6 +225,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       </PopoverTrigger>
       <PopoverPopup
         {...(props.isComposerOwned ? composerFloatingLayerProps : {})}
+        data-chat-pane-id={paneKey ?? undefined}
         data-micro-dial-popup={props.isComposerOwned ? "model" : undefined}
         align="start"
         className="before:hidden [--viewport-inline-padding:0]"

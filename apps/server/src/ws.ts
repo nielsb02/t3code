@@ -33,6 +33,7 @@ import {
   type OrchestrationCommand,
   type GitActionProgressEvent,
   type GitManagerServiceError,
+  GitCommandError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
   type OrchestrationShellStreamEvent,
@@ -94,6 +95,10 @@ import {
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor.ts";
+import {
+  assertSideChatBootstrapAllowed,
+  assertWorktreeNotSharedWithSideChat,
+} from "./project/SideChatWorkspaceGuard.ts";
 import {
   observeRpcEffect as instrumentRpcEffect,
   observeRpcStream as instrumentRpcStream,
@@ -1101,11 +1106,29 @@ const makeWsRpcLayer = (
             });
 
           const bootstrapProgram = Effect.gen(function* () {
+            if (bootstrap?.prepareWorktree || bootstrap?.runSetupScript) {
+              const existingThread = yield* projectionSnapshotQuery.getThreadShellById(
+                command.threadId,
+              );
+              const archivedThread =
+                Option.isNone(existingThread) && !bootstrap.createThread
+                  ? (yield* projectionSnapshotQuery.getArchivedShellSnapshot()).threads.find(
+                      (thread) => thread.id === command.threadId,
+                    )
+                  : undefined;
+              yield* assertSideChatBootstrapAllowed(
+                bootstrap,
+                Option.getOrNull(existingThread) ?? archivedThread ?? null,
+              );
+            }
             if (bootstrap?.createThread) {
               const created = yield* dispatchFromClient({
                 type: "thread.create",
                 commandId: yield* serverCommandId("bootstrap-thread-create"),
                 threadId: command.threadId,
+                ...(bootstrap.createThread.parentThreadId
+                  ? { parentThreadId: bootstrap.createThread.parentThreadId }
+                  : {}),
                 projectId: bootstrap.createThread.projectId,
                 title: bootstrap.createThread.title,
                 modelSelection: bootstrap.createThread.modelSelection,
@@ -2565,7 +2588,32 @@ const makeWsRpcLayer = (
         [WS_METHODS.vcsRemoveWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsRemoveWorktree,
-            gitWorkflow.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            Effect.gen(function* () {
+              const snapshots = yield* Effect.all(
+                [
+                  projectionSnapshotQuery.getShellSnapshot(),
+                  projectionSnapshotQuery.getArchivedShellSnapshot(),
+                ],
+                { concurrency: 2 },
+              ).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new GitCommandError({
+                      operation: "removeWorktree",
+                      command: "git worktree remove",
+                      cwd: input.cwd,
+                      detail: "Could not check whether side chats share this checkout.",
+                      cause,
+                    }),
+                ),
+              );
+              yield* assertWorktreeNotSharedWithSideChat(
+                input,
+                snapshots.flatMap((snapshot) => snapshot.threads),
+              );
+              yield* gitWorkflow.removeWorktree(input);
+              yield* refreshGitStatus(input.cwd);
+            }),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsCreateRef]: (input) =>

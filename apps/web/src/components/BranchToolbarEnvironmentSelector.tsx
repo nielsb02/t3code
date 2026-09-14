@@ -1,3 +1,4 @@
+import { useChatPaneKey } from "~/chatPaneScope";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { ScaleIcon } from "lucide-react";
 import { memo, useMemo } from "react";
@@ -34,6 +35,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
   availableEnvironments,
   onEnvironmentChange,
 }: BranchToolbarEnvironmentSelectorProps) {
+  const paneKey = useChatPaneKey();
   const activeEnvironment = useMemo(() => {
     return availableEnvironments.find((env) => env.environmentId === environmentId) ?? null;
   }, [availableEnvironments, environmentId]);
@@ -121,6 +123,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
       <SelectPopup
         alignItemWithTrigger={false}
         {...composerFloatingLayerProps}
+        data-chat-pane-id={paneKey ?? undefined}
         data-micro-dial-popup="environment"
       >
         <SelectGroup>

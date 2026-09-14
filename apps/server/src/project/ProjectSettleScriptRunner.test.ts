@@ -118,6 +118,30 @@ describe("ProjectSettleScriptRunner", () => {
     }).pipe(Effect.provide(testLayer())),
   );
 
+  it.effect.each(["child", "parent"] as const)(
+    "preserves a %s checkout shared with archived side chats",
+    (target) =>
+      Effect.gen(function* () {
+        const runner = yield* Runner.ProjectSettleScriptRunner;
+        const model = fixture();
+        const parent = model.threads[0]!;
+        const child = {
+          ...parent,
+          id: ThreadId.make("child"),
+          parentThreadId: parent.id,
+          archivedAt: NOW,
+        };
+        const plan = yield* runner.prepare({
+          threadId: target === "child" ? child.id : parent.id,
+          readModel: { ...model, threads: [parent, child] },
+        });
+        expect(plan).toMatchObject({
+          kind: "skipped",
+          detail: expect.stringContaining("side chats"),
+        });
+      }).pipe(Effect.provide(testLayer())),
+  );
+
   it.effect("never opts projects into inherited machine cleanup actions", () =>
     Effect.gen(function* () {
       const runner = yield* Runner.ProjectSettleScriptRunner;

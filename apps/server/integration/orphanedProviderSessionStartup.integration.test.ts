@@ -111,6 +111,8 @@ const startupDependencies = Layer.mergeAll(
   AnalyticsService.layerTest,
   Layer.mock(GitVcsDriver.GitVcsDriver)({}),
   Layer.succeed(ProviderService.ProviderService, {
+    forkSession: () => Effect.die("unused"),
+    generateHandoff: () => Effect.die("unused"),
     startSession: () => Effect.die("unused"),
     sendTurn: () => Effect.die("unused"),
     compactThread: () => Effect.die("unused"),

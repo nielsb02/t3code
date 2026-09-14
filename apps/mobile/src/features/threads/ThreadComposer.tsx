@@ -89,6 +89,8 @@ import {
   type ExistingThreadSettingsRouteSession,
   useExistingThreadSettingsRoutePresentation,
 } from "./ThreadSettingsSheet";
+import { sideChatProviderGroups } from "./side-chat-models";
+import { useThreadShell } from "../../state/entities";
 import {
   useThreadSettingsSheetPresentation,
   type NavigationWithFinishTransitioning,
@@ -449,11 +451,40 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     [props.serverConfig, currentModelSelection],
   );
   const providerGroups = useMemo(() => groupByProvider(modelOptions), [modelOptions]);
-  // An existing thread is bound to its harness: sessions can't move between
-  // provider instances, so the picker only offers the thread's own group.
+  const parentThreadRef = useMemo(
+    () =>
+      props.selectedThread.parentThreadId
+        ? { environmentId: props.environmentId, threadId: props.selectedThread.parentThreadId }
+        : null,
+    [props.environmentId, props.selectedThread.parentThreadId],
+  );
+  const parentThread = useThreadShell(parentThreadRef);
+  const storedThreadRef = useMemo(
+    () => ({ environmentId: props.environmentId, threadId: props.selectedThread.id }),
+    [props.environmentId, props.selectedThread.id],
+  );
+  const storedThread = useThreadShell(storedThreadRef);
+  const inheritedInstanceId = storedThread?.parentThreadId
+    ? storedThread.modelSelection.instanceId
+    : null;
+  const inheritedProvider = props.serverConfig?.providers.find(
+    (provider) => provider.instanceId === inheritedInstanceId,
+  );
+  // Before the first turn, the stored selection is inherited from the parent;
+  // model picker changes live in the local composer draft. Archived parents
+  // leave the active shell catalog, but that stored Codex instance stays usable.
+  const parentInstanceId =
+    parentThread?.modelSelection.instanceId ??
+    (inheritedProvider?.driver === "codex" ? inheritedInstanceId : null);
   const threadProviderGroups = useMemo(
-    () => providerGroups.filter((group) => group.providerKey === currentModelSelection.instanceId),
-    [providerGroups, currentModelSelection.instanceId],
+    () =>
+      sideChatProviderGroups(
+        props.selectedThread,
+        providerGroups,
+        currentModelSelection.instanceId,
+        parentInstanceId,
+      ),
+    [props.selectedThread, providerGroups, currentModelSelection.instanceId, parentInstanceId],
   );
   const currentModelOption =
     modelOptions.find(

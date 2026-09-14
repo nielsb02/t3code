@@ -1,12 +1,16 @@
+import { orderThreadsForDeletion } from "@t3tools/shared/threadHierarchy";
 import {
   EventId,
   MAX_SCRIPT_ID_LENGTH,
   SCRIPT_RUN_COMMAND_PATTERN,
   MessageId,
+  MAX_THREAD_CONTEXT_TEXT_LENGTH,
   ThreadLinkedPullRequest,
+  ThreadContextTransfer,
   UserInputRequestedPayload,
   isImportedAgentSessionMessageId,
   type OrchestrationCommand,
+  type OrchestrationMessage,
   type OrchestrationEvent,
   type OrchestrationReadModel,
   type OrchestrationThread,
@@ -195,10 +199,14 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   command,
   readModel,
   userInputActivity,
+  sharedMessage,
+  contextTransfer,
 }: {
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
   readonly userInputActivity?: OrchestrationThreadActivity;
+  readonly sharedMessage?: OrchestrationMessage;
+  readonly contextTransfer?: ThreadContextTransfer;
 }): Effect.fn.Return<
   DecideOrchestrationCommandResult,
   OrchestrationCommandRejection | PlatformError.PlatformError,
@@ -317,7 +325,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         return yield* decideCommandSequence({
           readModel,
           commands: [
-            ...activeThreads.map(
+            ...orderThreadsForDeletion(activeThreads).map(
               (thread): Extract<OrchestrationCommand, { type: "thread.delete" }> => ({
                 type: "thread.delete",
                 commandId: command.commandId,
@@ -360,6 +368,24 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const parent =
+        command.parentThreadId === undefined
+          ? undefined
+          : yield* requireThread({
+              readModel,
+              command,
+              threadId: command.parentThreadId,
+            });
+      if (
+        parent &&
+        (parent.projectId !== command.projectId || parent.session?.providerName !== "codex")
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail:
+            "Side chats require a Codex parent in the same project with an existing provider session.",
+        });
+      }
       return {
         ...(yield* withEventBase({
           aggregateKind: "thread",
@@ -376,15 +402,188 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
           interactionMode: command.interactionMode,
-          branch: command.branch,
-          worktreePath: command.worktreePath,
+          ...(parent ? { parentThreadId: parent.id } : {}),
+          branch: parent ? parent.branch : command.branch,
+          worktreePath: parent ? parent.worktreePath : command.worktreePath,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
       };
     }
 
+    case "thread.context.claim": {
+      yield* requireThread({ readModel, command, threadId: command.threadId });
+      if (!contextTransfer || contextTransfer.transferId !== command.transferId) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "This context update is no longer available.",
+        });
+      }
+      const transfer: ThreadContextTransfer =
+        contextTransfer.status === "prepared"
+          ? { ...contextTransfer, status: "delivering", deliveryId: command.commandId }
+          : contextTransfer;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.activity-appended",
+        payload: {
+          threadId: command.threadId,
+          createdAt: command.createdAt,
+          activity: {
+            id: EventId.make(`context:${command.transferId}`),
+            tone: "info",
+            kind: `side-chat.context.${transfer.status}`,
+            summary:
+              transfer.deliveryId === command.commandId
+                ? "Including context in next turn"
+                : "Context state unchanged",
+            payload: transfer,
+            turnId: null,
+            createdAt: command.createdAt,
+          },
+        },
+      };
+    }
+
+    case "thread.context.cancel": {
+      const target = yield* requireThread({ readModel, command, threadId: command.threadId });
+      if (!contextTransfer || contextTransfer.transferId !== command.transferId) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "This context update is no longer available.",
+        });
+      }
+      if (
+        (contextTransfer.status !== "prepared" && contextTransfer.status !== "cancelled") ||
+        command.transferId.startsWith("side-chat-initial:")
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Only optional context waiting for the next turn can be cancelled.",
+        });
+      }
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: target.id,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.activity-appended",
+        payload: {
+          threadId: target.id,
+          activity: {
+            id: EventId.make(`context:${command.transferId}`),
+            tone: "info",
+            kind: "side-chat.context.cancelled",
+            summary: "Context update cancelled",
+            payload: { ...contextTransfer, status: "cancelled" },
+            turnId: null,
+            createdAt: command.createdAt,
+          },
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.context.refresh":
+    case "thread.context.report":
+    case "thread.context.share": {
+      const child = yield* requireThread({ readModel, command, threadId: command.threadId });
+      if (!child.parentThreadId) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "This thread is not a side chat.",
+        });
+      }
+      const parent = yield* requireThread({ readModel, command, threadId: child.parentThreadId });
+      const sharing = command.type !== "thread.context.refresh";
+      const source = sharing ? child : parent;
+      const target = sharing ? parent : child;
+      const message =
+        command.type === "thread.context.share"
+          ? (sharedMessage ?? child.messages.find((message) => message.id === command.messageId))
+          : undefined;
+      if (
+        command.type === "thread.context.share" &&
+        (!message || message.role !== "assistant" || message.streaming || !message.text.trim())
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Choose a completed assistant answer to share.",
+        });
+      }
+      if (message && message.text.length > MAX_THREAD_CONTEXT_TEXT_LENGTH) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail:
+            "This answer is too long to share as context. Ask the side chat for a shorter answer (under 64,000 characters), then share that answer.",
+        });
+      }
+      if (
+        command.type === "thread.context.report" &&
+        (child.archivedAt !== null || parent.archivedAt !== null)
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Restore the side chat and its parent before reporting back.",
+        });
+      }
+      const text = command.type === "thread.context.report" ? command.message : message?.text;
+      const status = sharing ? ("prepared" as const) : ("requested" as const);
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: target.id,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.activity-appended",
+        payload: {
+          threadId: target.id,
+          activity: {
+            id: EventId.make(`context:${command.commandId}`),
+            tone: "info",
+            kind: `side-chat.context.${status}`,
+            summary: sharing
+              ? "Finding shared from side chat; pending next turn"
+              : "Preparing context from parent",
+            payload: {
+              transferId: command.commandId,
+              sourceThreadId: source.id,
+              sourceTurnId:
+                command.type === "thread.context.report"
+                  ? (child.session?.activeTurnId ?? null)
+                  : (message?.turnId ?? null),
+              direction: sharing ? "to-parent" : "from-parent",
+              status,
+              ...(text !== undefined ? { text } : {}),
+            },
+            turnId: null,
+            createdAt: command.createdAt,
+          },
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
     case "thread.delete": {
+      if (
+        readModel.threads.some(
+          (thread) => thread.parentThreadId === command.threadId && thread.deletedAt === null,
+        )
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail:
+            "Delete this thread's side chats first, or archive the parent to preserve their context.",
+        });
+      }
       yield* requireThread({
         readModel,
         command,
@@ -876,6 +1075,18 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      if (
+        thread.parentThreadId &&
+        ((command.branch !== undefined && command.branch !== thread.branch) ||
+          (command.worktreePath !== undefined && command.worktreePath !== thread.worktreePath))
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail:
+            "Side chats share their parent's checkout. Workspace changes belong to the parent thread.",
+        });
+      }
+
       const branch =
         command.branch !== undefined &&
         command.expectedBranch !== undefined &&

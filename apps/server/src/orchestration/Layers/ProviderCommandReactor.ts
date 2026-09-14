@@ -1,3 +1,4 @@
+import { buildSideChatInstructions } from "../../provider/SideChatInstructions.ts";
 import {
   type ChatAttachment,
   CommandId,
@@ -8,6 +9,8 @@ import {
   type ProjectId,
   type OrchestrationSession,
   ThreadId,
+  ThreadContextTransfer,
+  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   type ProviderSession,
   type RuntimeMode,
   type TurnId,
@@ -22,11 +25,14 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as FileSystem from "effect/FileSystem";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
+import * as Semaphore from "effect/Semaphore";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import type * as Scope from "effect/Scope";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
@@ -64,6 +70,9 @@ type ProviderIntentEvent = Extract<
   OrchestrationEvent,
   {
     type:
+      | "thread.archived"
+      | "thread.deleted"
+      | "thread.activity-appended"
       | "thread.meta-updated"
       | "thread.runtime-mode-set"
       | "thread.turn-start-requested"
@@ -574,6 +583,108 @@ const make = Effect.gen(function* () {
     });
   });
 
+  const decodeContext = Schema.decodeUnknownOption(ThreadContextTransfer);
+  const contextLocks = new Map<ThreadId, Semaphore.Semaphore>();
+  const sideChatTurnLocks = new Map<ThreadId, Semaphore.Semaphore>();
+  const contextTasks = new Map<ThreadId, Map<symbol, Fiber.Fiber<void, never>>>();
+  const lockFor = (locks: Map<ThreadId, Semaphore.Semaphore>, threadId: ThreadId) => {
+    let lock = locks.get(threadId);
+    if (!lock) {
+      lock = Semaphore.makeUnsafe(1);
+      locks.set(threadId, lock);
+    }
+    return lock;
+  };
+  const forkContextTask = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+    effect: Effect.Effect<unknown, never, Scope.Scope>,
+  ) {
+    const key = Symbol();
+    let tasks = contextTasks.get(threadId);
+    if (!tasks) {
+      tasks = new Map();
+      contextTasks.set(threadId, tasks);
+    }
+    const taskSet = tasks;
+    const fiber = yield* effect.pipe(
+      Effect.asVoid,
+      Effect.ensuring(
+        Effect.sync(() => {
+          taskSet.delete(key);
+          if (taskSet.size === 0) contextTasks.delete(threadId);
+        }),
+      ),
+      Effect.forkScoped,
+    );
+    taskSet.set(key, fiber);
+  });
+  const cancelContextTasks = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const tasks = contextTasks.get(threadId);
+    if (!tasks || tasks.size === 0) return false;
+    yield* Effect.forEach([...tasks.values()], Fiber.interrupt, { discard: true });
+    return true;
+  });
+  const readContextTransfers = projectionSnapshotQuery.getThreadContextTransfers;
+  const recordContext = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+    transfer: ThreadContextTransfer,
+  ) {
+    const createdAt = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
+    yield* orchestrationEngine.dispatch({
+      type: "thread.activity.append",
+      commandId: yield* serverCommandId("context-transfer"),
+      threadId,
+      activity: {
+        id: EventId.make(`context:${transfer.transferId}`),
+        tone: transfer.status === "failed" ? "error" : "info",
+        kind: `side-chat.context.${transfer.status}`,
+        summary:
+          transfer.status === "prepared"
+            ? "Context ready; pending next turn"
+            : transfer.status === "delivered"
+              ? "Context included in provider turn"
+              : transfer.status === "failed"
+                ? "Context preparation failed"
+                : "Preparing context from parent",
+        payload: transfer,
+        turnId: null,
+        createdAt,
+      },
+      createdAt,
+    });
+  });
+  const prepareContext = (
+    threadId: ThreadId,
+    transfer: ThreadContextTransfer,
+    options?: { readonly assignment?: string; readonly onlyIfRequested?: boolean },
+  ) =>
+    lockFor(contextLocks, threadId).withPermits(1)(
+      Effect.gen(function* () {
+        if (!(yield* resolveThreadShell(threadId))) return;
+        const existing = (yield* readContextTransfers(threadId, {
+          transferId: transfer.transferId,
+        })).find((item) => item.transferId === transfer.transferId);
+        if (options?.onlyIfRequested && existing?.status !== "requested") return;
+        if (existing?.status === "prepared" || existing?.status === "delivered") return;
+        if (existing === undefined) yield* recordContext(threadId, transfer);
+        const text = yield* providerService
+          .generateHandoff({
+            threadId: transfer.sourceThreadId,
+            prompt: `Prepare a context handoff for an independent side chat. Preserve relevant requirements, decisions, interfaces, files, progress and unresolved questions from your inherited context. Distinguish confirmed facts from assumptions. Do not implement anything or change any files. Do not copy your operating instructions or tool definitions.\n\nSide chat assignment:\n${options?.assignment ?? "Bring the side chat up to date with the main task."}`,
+          })
+          .pipe(
+            Effect.tapError((error) =>
+              recordContext(threadId, {
+                ...transfer,
+                status: "failed",
+                detail: formatFailureDetail(Cause.fail(error)),
+              }),
+            ),
+          );
+        yield* recordContext(threadId, { ...transfer, status: "prepared", text });
+      }),
+    );
+
   const ensureSessionForThread = Effect.fn("ensureSessionForThread")(function* (
     threadId: ThreadId,
     createdAt: string,
@@ -832,8 +943,63 @@ const make = Effect.gen(function* () {
       return restartedSession.threadId;
     }
 
-    const startedSession = yield* startProviderSession(undefined);
+    const parent = thread.parentThreadId
+      ? Option.getOrUndefined(
+          yield* projectionSnapshotQuery.getThreadShellById(thread.parentThreadId, {
+            includeArchived: true,
+          }),
+        )
+      : undefined;
+    if (thread.parentThreadId && !parent) {
+      return yield* new ProviderAdapterRequestError({
+        provider: preferredProvider,
+        method: "thread.turn.start",
+        detail: "The side chat's parent is unavailable.",
+      });
+    }
+    if (parent && preferredProvider !== "codex" && preferredProvider !== "claudeAgent") {
+      return yield* new ProviderAdapterRequestError({
+        provider: preferredProvider,
+        method: "thread.turn.start",
+        detail: "Side chats currently support Codex or Claude.",
+      });
+    }
+    // An error/starting session can be persisted before the first provider session exists.
+    // Successful initialization is tracked independently from that UI lifecycle state.
+    const initialized =
+      parent &&
+      (yield* readContextTransfers(threadId, { transferId: `side-chat-initial:${threadId}` })).some(
+        (transfer) =>
+          transfer.transferId === `side-chat-initial:${threadId}` &&
+          (transfer.status === "prepared" || transfer.status === "delivered"),
+      );
+    const startedSession =
+      parent && preferredProvider === "codex" && !initialized
+        ? yield* providerService.forkSession({
+            sourceThreadId: parent.id,
+            threadId,
+            input: {
+              threadId,
+              provider: preferredProvider,
+              providerInstanceId: desiredInstanceId,
+              ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+              title: thread.title,
+              modelSelection: desiredModelSelection,
+              runtimeMode: desiredRuntimeMode,
+            },
+          })
+        : yield* startProviderSession(undefined);
     yield* bindSessionToThread(startedSession);
+    if (parent && preferredProvider === "codex" && !initialized) {
+      yield* recordContext(threadId, {
+        transferId: CommandId.make(`side-chat-initial:${threadId}`),
+        sourceThreadId: parent.id,
+        sourceTurnId: null,
+        direction: "from-parent",
+        status: "delivered",
+        detail: "Inherited through a native Codex session fork.",
+      });
+    }
     return startedSession.threadId;
   });
 
@@ -851,6 +1017,66 @@ const make = Effect.gen(function* () {
         new Error(`Thread '${input.threadId}' was not found in read model.`),
       );
     }
+    if (thread.parentThreadId) {
+      const info = yield* providerService.getInstanceInfo(
+        (input.modelSelection ?? thread.modelSelection).instanceId,
+      );
+      if (info.driverKind !== "codex" && info.driverKind !== "claudeAgent") {
+        return yield* new ProviderAdapterRequestError({
+          provider: "codex",
+          method: "thread.turn.start",
+          detail: "Side chats currently support Codex or Claude.",
+        });
+      }
+      const selectedModel = input.modelSelection ?? thread.modelSelection;
+      if (thread.session === null && !Equal.equals(selectedModel, thread.modelSelection)) {
+        yield* orchestrationEngine.dispatch({
+          type: "thread.meta.update",
+          commandId: yield* serverCommandId("side-chat-model"),
+          threadId: thread.id,
+          modelSelection: selectedModel,
+        });
+      }
+      const transfers = yield* readContextTransfers(input.threadId, {
+        transferId: `side-chat-initial:${thread.id}`,
+      });
+      if (
+        info.driverKind === "claudeAgent" &&
+        !transfers.some(
+          (transfer) =>
+            transfer.transferId === `side-chat-initial:${thread.id}` &&
+            (transfer.status === "prepared" || transfer.status === "delivered"),
+        )
+      ) {
+        const transfer: ThreadContextTransfer = {
+          transferId: CommandId.make(`side-chat-initial:${thread.id}`),
+          sourceThreadId: thread.parentThreadId,
+          sourceTurnId: null,
+          direction: "from-parent",
+          status: "requested",
+        };
+        yield* setThreadSession({
+          threadId: thread.id,
+          session: {
+            threadId: thread.id,
+            status: "starting",
+            providerName: info.driverKind,
+            providerInstanceId: selectedModel.instanceId,
+            runtimeMode: thread.runtimeMode,
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: input.createdAt,
+          },
+          createdAt: input.createdAt,
+        });
+        yield* prepareContext(thread.id, transfer, { assignment: input.messageText });
+      }
+    }
+    for (const transfer of yield* readContextTransfers(input.threadId, {
+      statuses: ["requested"],
+    })) {
+      if (transfer.status === "requested") yield* prepareContext(input.threadId, transfer);
+    }
     yield* ensureSessionForThread(input.threadId, input.createdAt, {
       ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
       pendingTurnStart: true,
@@ -858,7 +1084,11 @@ const make = Effect.gen(function* () {
     if (input.modelSelection !== undefined) {
       threadModelSelections.set(input.threadId, input.modelSelection);
     }
-    const normalizedInput = toNonEmptyProviderInput(input.messageText);
+    const normalizedInput = toNonEmptyProviderInput(
+      thread.parentThreadId
+        ? `${buildSideChatInstructions(thread.id, thread.parentThreadId)}\n\n${input.messageText}`
+        : input.messageText,
+    );
     const normalizedAttachments = input.attachments ?? [];
     const activeSession = yield* providerService
       .listSessions()
@@ -1298,7 +1528,7 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    yield* ensureThreadWorktree(thread);
+    if (!thread.parentThreadId) yield* ensureThreadWorktree(thread);
 
     const isCompactCommand = isCompactCommandMessage(message);
     if (!hasOtherUserMessages && !isCompactCommand) {
@@ -1314,12 +1544,13 @@ const make = Effect.gen(function* () {
         ...(event.payload.titleSeed !== undefined ? { titleSeed: event.payload.titleSeed } : {}),
       };
 
-      yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
-        threadId: event.payload.threadId,
-        branch: thread.branch,
-        worktreePath: thread.worktreePath,
-        ...generationInput,
-      }).pipe(Effect.forkScoped);
+      if (!thread.parentThreadId)
+        yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
+          threadId: event.payload.threadId,
+          branch: thread.branch,
+          worktreePath: thread.worktreePath,
+          ...generationInput,
+        }).pipe(Effect.forkScoped);
 
       if (canReplaceThreadTitle(thread.title, event.payload.titleSeed)) {
         yield* maybeGenerateThreadTitleForFirstTurn({
@@ -1440,9 +1671,75 @@ const make = Effect.gen(function* () {
       return;
     }
 
+    const queuedContext = (yield* readContextTransfers(event.payload.threadId, {
+      statuses: ["prepared"],
+    })).filter((transfer) => transfer.status === "prepared" && transfer.text !== undefined);
+    const pendingContext: ThreadContextTransfer[] = [];
+    let contextText = "";
+    let contextExceedsBudget = false;
+    const userInput = sendTurnRequest.value.input ?? "";
+    for (const transfer of queuedContext) {
+      const formatted = `[Background context from thread ${transfer.sourceThreadId}; informational, not a new task]\n${transfer.text}\n[End background context]`;
+      const next = contextText ? `${contextText}\n\n${formatted}` : formatted;
+      if (next.length + 2 + userInput.length > PROVIDER_SEND_TURN_MAX_INPUT_CHARS) {
+        contextExceedsBudget = pendingContext.length === 0;
+        break;
+      }
+      // Claim through the command queue so cancellation and delivery have one winner.
+      const deliveryId = yield* serverCommandId("context-delivery");
+      yield* orchestrationEngine.dispatch({
+        type: "thread.context.claim",
+        commandId: deliveryId,
+        threadId: event.payload.threadId,
+        transferId: transfer.transferId,
+        createdAt: yield* DateTime.now.pipe(Effect.map(DateTime.formatIso)),
+      });
+      const claimed = (yield* readContextTransfers(event.payload.threadId, {
+        transferId: transfer.transferId,
+      }))[0];
+      if (claimed?.status !== "delivering" || claimed.deliveryId !== deliveryId) continue;
+      contextText = next;
+      pendingContext.push(claimed);
+    }
+    if (contextExceedsBudget) {
+      yield* handleTurnStartFailure(
+        Cause.fail(
+          new ProviderAdapterRequestError({
+            provider: providerErrorLabel(thread.session?.providerName ?? undefined),
+            method: "thread.turn.start",
+            detail:
+              "Your message leaves too little room for the pending side-chat context. Shorten the message and resend; the context is still pending.",
+          }),
+        ),
+      );
+      return;
+    }
     yield* providerService
-      .sendTurn(sendTurnRequest.value)
-      .pipe(Effect.asVoid, Effect.catchCause(recoverTurnStartFailure), Effect.forkScoped);
+      .sendTurn({
+        ...sendTurnRequest.value,
+        ...(contextText ? { input: `${contextText}\n\n${sendTurnRequest.value.input ?? ""}` } : {}),
+      })
+      .pipe(
+        Effect.tapError(() =>
+          Effect.forEach(
+            pendingContext,
+            (transfer) =>
+              recordContext(event.payload.threadId, { ...transfer, status: "prepared" }),
+            { discard: true },
+          ),
+        ),
+        Effect.tap(() =>
+          Effect.forEach(
+            pendingContext,
+            (transfer) =>
+              recordContext(event.payload.threadId, { ...transfer, status: "delivered" }),
+            { discard: true },
+          ),
+        ),
+        Effect.asVoid,
+        Effect.catchCause(recoverTurnStartFailure),
+        Effect.forkScoped,
+      );
   });
 
   const processTurnInterruptRequested = Effect.fn("processTurnInterruptRequested")(function* (
@@ -1704,6 +2001,22 @@ const make = Effect.gen(function* () {
       eventType: event.type,
     });
     switch (event.type) {
+      case "thread.activity-appended": {
+        const transfer = decodeContext(event.payload.activity.payload);
+        if (Option.isSome(transfer) && transfer.value.status === "requested") {
+          yield* forkContextTask(
+            event.payload.threadId,
+            prepareContext(event.payload.threadId, transfer.value, { onlyIfRequested: true }).pipe(
+              Effect.catchCause((cause) =>
+                Cause.hasInterruptsOnly(cause)
+                  ? Effect.interrupt
+                  : Effect.logWarning("Context preparation failed", { cause: Cause.pretty(cause) }),
+              ),
+            ),
+          );
+        }
+        return;
+      }
       case "thread.meta-updated":
         yield* threadTitleRegenerationWorker.enqueue(event);
         return;
@@ -1720,12 +2033,97 @@ const make = Effect.gen(function* () {
         );
         return;
       }
-      case "thread.turn-start-requested":
-        yield* processTurnStartRequested(event);
+      case "thread.turn-start-requested": {
+        const thread = yield* resolveThreadShell(event.payload.threadId);
+        if (thread?.parentThreadId) {
+          yield* forkContextTask(
+            thread.id,
+            lockFor(sideChatTurnLocks, thread.id)
+              .withPermits(1)(processTurnStartRequested(event))
+              .pipe(
+                Effect.catchCause((cause) =>
+                  Cause.hasInterruptsOnly(cause)
+                    ? Effect.interrupt
+                    : Effect.logWarning("Side chat turn failed", { cause: Cause.pretty(cause) }),
+                ),
+              ),
+          );
+        } else {
+          yield* processTurnStartRequested(event);
+        }
         return;
-      case "thread.turn-interrupt-requested":
+      }
+      case "thread.archived": {
+        const thread = yield* projectionSnapshotQuery.getThreadShellById(event.payload.threadId, {
+          includeArchived: true,
+        });
+        if (Option.isNone(thread) || !thread.value.parentThreadId) return;
+        yield* cancelContextTasks(event.payload.threadId);
+        for (const transfer of yield* readContextTransfers(event.payload.threadId, {
+          statuses: ["requested"],
+        })) {
+          yield* recordContext(event.payload.threadId, {
+            ...transfer,
+            status: "failed",
+            detail:
+              "Context preparation stopped when this side chat was archived. Reopen and refresh context to retry.",
+          });
+        }
+        if (
+          (yield* providerService.listSessions()).some(
+            (session) => session.threadId === event.payload.threadId,
+          )
+        ) {
+          yield* providerService.stopSession({ threadId: event.payload.threadId });
+        }
+        if (thread.value.session) {
+          yield* setThreadSession({
+            threadId: event.payload.threadId,
+            session: {
+              ...thread.value.session,
+              status: "stopped",
+              activeTurnId: null,
+              updatedAt: event.occurredAt,
+            },
+            createdAt: event.occurredAt,
+          });
+        }
+        contextLocks.delete(event.payload.threadId);
+        sideChatTurnLocks.delete(event.payload.threadId);
+        return;
+      }
+      case "thread.deleted":
+        yield* cancelContextTasks(event.payload.threadId);
+        contextLocks.delete(event.payload.threadId);
+        sideChatTurnLocks.delete(event.payload.threadId);
+        return;
+      case "thread.turn-interrupt-requested": {
+        if (yield* cancelContextTasks(event.payload.threadId)) {
+          for (const transfer of yield* readContextTransfers(event.payload.threadId, {
+            statuses: ["requested"],
+          })) {
+            if (transfer.status === "requested")
+              yield* recordContext(event.payload.threadId, {
+                ...transfer,
+                status: "failed",
+                detail: "Context preparation interrupted.",
+              });
+          }
+          const active = (yield* providerService.listSessions()).some(
+            (session) => session.threadId === event.payload.threadId,
+          );
+          if (!active) {
+            yield* setThreadSessionErrorOnTurnStartFailure({
+              threadId: event.payload.threadId,
+              createdAt: event.occurredAt,
+              detail: "Side chat context preparation interrupted. Send another message to retry.",
+            });
+            return;
+          }
+        }
         yield* processTurnInterruptRequested(event);
         return;
+      }
       case "thread.approval-response-requested":
         yield* processApprovalResponseRequested(event);
         return;
@@ -1772,6 +2170,49 @@ const make = Effect.gen(function* () {
   const worker = yield* makeDrainableWorker(processDomainEventSafely);
 
   const start: ProviderCommandReactorShape["start"] = Effect.fn("start")(function* () {
+    const interruptedContext = yield* projectionSnapshotQuery.getCommandReadModel().pipe(
+      Effect.flatMap((snapshot) =>
+        Effect.forEach(
+          snapshot.threads.filter((thread) => thread.deletedAt === null),
+          (thread) =>
+            readContextTransfers(thread.id, { statuses: ["requested", "delivering"] }).pipe(
+              Effect.map((transfers) =>
+                transfers
+                  .filter(
+                    (transfer) =>
+                      transfer.status === "requested" || transfer.status === "delivering",
+                  )
+                  .map((transfer) => ({ threadId: thread.id, transfer })),
+              ),
+            ),
+          { concurrency: 4 },
+        ),
+      ),
+      Effect.map((groups) => groups.flat()),
+      Effect.catchCause((cause) =>
+        Cause.hasInterruptsOnly(cause)
+          ? Effect.interrupt
+          : Effect.logWarning("Failed to inspect interrupted side-chat context", {
+              cause: Cause.pretty(cause),
+            }).pipe(Effect.as([])),
+      ),
+    );
+    for (const { threadId, transfer } of interruptedContext) {
+      yield* recordContext(threadId, {
+        ...transfer,
+        status: "failed",
+        detail:
+          "Context preparation was interrupted by a server restart. Refresh context to retry.",
+      }).pipe(
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.interrupt
+            : Effect.logWarning("Failed to record interrupted side-chat context", {
+                cause: Cause.pretty(cause),
+              }),
+        ),
+      );
+    }
     const interruptedTitleRegenerations = yield* findInterruptedThreadTitleRegenerations().pipe(
       Effect.catchCause((cause) => {
         if (Cause.hasInterruptsOnly(cause)) {
@@ -1785,7 +2226,11 @@ const make = Effect.gen(function* () {
     );
     const processEvent = Effect.fn("processEvent")(function* (event: OrchestrationEvent) {
       if (
+        (event.type === "thread.activity-appended" &&
+          event.payload.activity.kind === "side-chat.context.requested") ||
         (event.type === "thread.meta-updated" && event.payload.regenerateTitle === true) ||
+        event.type === "thread.archived" ||
+        event.type === "thread.deleted" ||
         event.type === "thread.runtime-mode-set" ||
         event.type === "thread.turn-start-requested" ||
         event.type === "thread.turn-interrupt-requested" ||
@@ -1833,6 +2278,11 @@ const make = Effect.gen(function* () {
     drain: Effect.gen(function* () {
       yield* worker.drain;
       yield* threadTitleRegenerationWorker.drain;
+      yield* Effect.forEach(
+        [...contextTasks.values()].flatMap((tasks) => [...tasks.values()]),
+        Fiber.join,
+        { discard: true },
+      );
     }),
   } satisfies ProviderCommandReactorShape;
 });

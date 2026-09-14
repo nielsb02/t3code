@@ -1,3 +1,4 @@
+import { useChatPaneKey } from "~/chatPaneScope";
 import {
   type ProviderDriverKind,
   type ProviderInstanceId,
@@ -557,6 +558,7 @@ export const TraitsPicker = memo(function TraitsPicker({
     size?: ComposerControlSize;
     hidden?: boolean;
   }) {
+  const paneKey = useChatPaneKey();
   const [isMenuOpen, setIsMenuOpen] = useComposerMenuState(hidden);
   const { descriptors, primarySelectDescriptor, ultrathinkPromptControlled, modelIsUnavailable } =
     getTraitsSectionVisibility({
@@ -653,6 +655,7 @@ export const TraitsPicker = memo(function TraitsPicker({
       <MenuPopup
         align="start"
         {...(isComposerOwned ? composerFloatingLayerProps : {})}
+        data-chat-pane-id={paneKey ?? undefined}
         data-micro-dial-popup={isComposerOwned && !modelIsUnavailable ? "reasoning" : undefined}
       >
         <TraitsMenuContent

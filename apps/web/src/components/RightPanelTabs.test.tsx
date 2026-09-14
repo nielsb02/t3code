@@ -1,9 +1,14 @@
-import type { DesktopPreviewFavicon, PreviewSessionSnapshot } from "@t3tools/contracts";
+import {
+  ThreadId,
+  type DesktopPreviewFavicon,
+  type PreviewSessionSnapshot,
+} from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   RightPanelTabs,
+  surfaceTitle,
   shouldOpenDefaultBrowserProfileFromMenuClick,
   surfaceShortcutActionForKey,
   surfaceShortcutTargetsTypingContext,
@@ -276,5 +281,19 @@ describe("tabMuteMenuItem", () => {
       label: "Unmute tab",
       disabled: false,
     });
+  });
+});
+
+describe("side chat tab titles", () => {
+  it("uses the latest supplied thread title and keeps a fallback while the child is unavailable", () => {
+    const threadId = ThreadId.make("ui-child");
+    const surface = { id: "side-chat:ui-child", kind: "side-chat", threadId } as const;
+    expect(surfaceTitle(surface, {}, new Map())).toBe("Side chat");
+    expect(surfaceTitle(surface, {}, new Map(), new Map([[threadId, "Settings UI"]]))).toBe(
+      "Settings UI",
+    );
+    expect(surfaceTitle(surface, {}, new Map(), new Map([[threadId, "Accessible settings"]]))).toBe(
+      "Accessible settings",
+    );
   });
 });

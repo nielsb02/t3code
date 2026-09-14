@@ -303,9 +303,25 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           envelope.command.type === "thread.user-input.dismiss"
             ? yield* projectionSnapshotQuery.getUserInputActivity(envelope.command)
             : Option.none();
+        const sharedMessage =
+          envelope.command.type === "thread.context.share"
+            ? yield* projectionSnapshotQuery.getTurnStartMessage({
+                threadId: envelope.command.threadId,
+                messageId: envelope.command.messageId,
+              })
+            : Option.none();
+        const contextTransfer =
+          envelope.command.type === "thread.context.cancel" ||
+          envelope.command.type === "thread.context.claim"
+            ? (yield* projectionSnapshotQuery.getThreadContextTransfers(envelope.command.threadId, {
+                transferId: envelope.command.transferId,
+              }))[0]
+            : undefined;
         const eventBase = yield* decideOrchestrationCommand({
           command: envelope.command,
           readModel: commandReadModel,
+          ...(contextTransfer ? { contextTransfer } : {}),
+          ...(Option.isSome(sharedMessage) ? { sharedMessage: sharedMessage.value.message } : {}),
           ...(Option.isSome(userInputActivity)
             ? { userInputActivity: userInputActivity.value }
             : {}),
@@ -436,6 +452,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           let plan = yield* settleScriptRunner.prepare({
             threadId: manualSettlementThreadId,
             readModel: commandReadModel,
+            ...(contextTransfer ? { contextTransfer } : {}),
           });
           let releaseCheckout: (() => void) | null = null;
           if (plan.kind === "ready") {

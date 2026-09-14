@@ -11,6 +11,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
   ThreadId,
+  type MessageId,
   type ProjectScript,
 } from "@t3tools/contracts";
 import {
@@ -62,6 +63,7 @@ import {
 } from "../terminal/terminalLaunchContext";
 import { terminalDebugLog } from "../terminal/terminalDebugLog";
 import { ThreadDetailScreen, type ThreadDetailScreenProps } from "./ThreadDetailScreen";
+import { ThreadSideChats } from "./ThreadSideChats";
 import {
   ThreadGitControls,
   useThreadGitCenterHeaderItems,
@@ -231,7 +233,47 @@ function ThreadRouteContent(
   const gitActions = useSelectedThreadGitActions();
   const requests = useSelectedThreadRequests();
   const interruptThreadTurn = useAtomCommand(threadEnvironment.interruptTurn, "thread interrupt");
+  const shareContext = useAtomCommand(threadEnvironment.shareContext, "share side chat finding");
+  const sharingMessage = useRef(false);
+  const handleShareMessageWithParent = useCallback(
+    (messageId: MessageId) => {
+      if (!selectedThread?.parentThreadId || sharingMessage.current) return;
+      Alert.alert(
+        "Share with parent?",
+        "This answer will be added to the parent's context for its next turn. Sharing does not start a response.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Share",
+            onPress: () => {
+              if (sharingMessage.current) return;
+              sharingMessage.current = true;
+              void shareContext({
+                environmentId: selectedThread.environmentId,
+                input: { threadId: selectedThread.id, messageId },
+              })
+                .then((result) => {
+                  Alert.alert(
+                    result._tag === "Success" ? "Shared with parent" : "Couldn't share message",
+                    result._tag === "Success"
+                      ? "The parent will receive this answer with its next turn."
+                      : "Check your connection and try again.",
+                  );
+                })
+                .finally(() => {
+                  sharingMessage.current = false;
+                });
+            },
+          },
+        ],
+      );
+    },
+    [selectedThread, shareContext],
+  );
   const navigation = useNavigation();
+  const [sideChatsVisible, setSideChatsVisible] = useState(false);
+  const openSideChats = useCallback(() => setSideChatsVisible(true), []);
+  const closeSideChats = useCallback(() => setSideChatsVisible(false), []);
   const params = props.route.params;
   const environmentIdRaw = firstRouteParam(params.environmentId);
   const environmentId = environmentIdRaw ? EnvironmentId.make(environmentIdRaw) : null;
@@ -659,6 +701,24 @@ function ThreadRouteContent(
   };
   const threadCenterHeaderItems = useThreadGitCenterHeaderItems(threadGitControlProps);
   const compactRightHeaderItems = useThreadGitRightHeaderItems(threadGitControlProps);
+  const sideChatHeaderItems = useMemo<NativeHeaderItems>(
+    () =>
+      routeEnvironmentRuntime?.serverConfig?.environment.capabilities.threadSideChats
+        ? [
+            withNativeGlassHeaderItem({
+              accessibilityLabel: "Side chats",
+              icon: { name: "bubble.left.and.bubble.right", type: "sfSymbol" as const },
+              identifier: "thread-side-chats",
+              onPress: openSideChats,
+              type: "button" as const,
+            }),
+          ]
+        : [],
+    [
+      openSideChats,
+      routeEnvironmentRuntime?.serverConfig?.environment.capabilities.threadSideChats,
+    ],
+  );
   const splitLeftHeaderItems = useMemo<NativeHeaderItems>(
     () => [
       {
@@ -704,6 +764,13 @@ function ThreadRouteContent(
     if (Platform.OS !== "android") return [];
 
     const actions: AndroidHeaderAction[] = [];
+    if (routeEnvironmentRuntime?.serverConfig?.environment.capabilities.threadSideChats) {
+      actions.push({
+        accessibilityLabel: "Side chats",
+        icon: "bubble.left.and.bubble.right",
+        onPress: openSideChats,
+      });
+    }
     if (props.onReturnToThread) {
       actions.push({
         accessibilityLabel: "Return to chat",
@@ -739,6 +806,8 @@ function ThreadRouteContent(
     }
     return actions;
   }, [
+    openSideChats,
+    routeEnvironmentRuntime?.serverConfig?.environment.capabilities.threadSideChats,
     fileInspector.supported,
     handleOpenFilesInspector,
     handleOpenTerminal,
@@ -840,6 +909,17 @@ function ThreadRouteContent(
       <GitActionProgressOverlay progress={gitActionProgress} onDismiss={dismissGitActionResult} />
 
       <View className="flex-1 bg-screen">
+        {serverConfig?.environment.capabilities.threadSideChats && sideChatsVisible ? (
+          <ThreadSideChats
+            key={selectedThread.id}
+            thread={selectedThread}
+            detail={selectedThreadDetail}
+            serverConfig={serverConfig}
+            connected={routeConnectionState === "connected"}
+            visible={sideChatsVisible}
+            onClose={closeSideChats}
+          />
+        ) : null}
         <ThreadDetailScreen
           selectedThread={selectedThreadWithDraftSettings ?? selectedThread}
           contentPresentation={contentPresentation}
@@ -848,6 +928,13 @@ function ThreadRouteContent(
           environmentLabel={selectedEnvironmentConnection?.environmentLabel ?? null}
           feedbackSubmissions={composer.feedbackSubmissions}
           onDismissFeedback={composer.dismissFeedback}
+          onShareMessageWithParent={
+            selectedThread.parentThreadId &&
+            serverConfig?.environment.capabilities.threadSideChats &&
+            routeConnectionState === "connected"
+              ? handleShareMessageWithParent
+              : undefined
+          }
           selectedThreadFeed={composer.selectedThreadFeed}
           activeWorkStartedAt={composer.activeWorkStartedAt}
           isCompacting={composer.isCompacting}
@@ -928,7 +1015,10 @@ function ThreadRouteContent(
           // reserved for future breadcrumbs/status).
           unstable_headerRightItems:
             Platform.OS === "ios"
-              ? () => (layout.usesSplitView ? threadCenterHeaderItems : compactRightHeaderItems)
+              ? () => [
+                  ...sideChatHeaderItems,
+                  ...(layout.usesSplitView ? threadCenterHeaderItems : compactRightHeaderItems),
+                ]
               : undefined,
           unstable_headerSubtitle: usesNativeHeaderGlass ? headerSubtitle : undefined,
         }}
