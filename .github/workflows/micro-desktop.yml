@@ -128,9 +128,10 @@ jobs:
         if: steps.plan.outputs.build == 'true'
         env:
           T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
         run: |
           set -euo pipefail
-          base_version="$(node -p "require('./apps/desktop/package.json').version")"
+          base_version="${UPSTREAM_TAG#v}"
           version="${base_version}-micro.${GITHUB_RUN_NUMBER}"
           node scripts/update-release-package-versions.ts "$version"
           cp .env.example .env

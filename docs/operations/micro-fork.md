@@ -28,8 +28,11 @@ When there is no new release, the job skips the expensive build. It records a
 successful check once per calendar month, keeping repository activity from going
 stale and allowing the schedule to keep running through quiet upstream periods.
 Manual runs and pushes build the current fork even when no newer upstream tag
-exists. Runs are serialized, and a simultaneous manual source push causes the
-automation's normal fast-forward push to fail instead of overwriting changes.
+exists. Build versions use the included upstream release tag plus the workflow run
+number, for example `v0.0.40` becomes `0.0.40-micro.22`, regardless of the version
+left in upstream package manifests. Runs are serialized, and a simultaneous manual
+source push causes the automation's normal fast-forward push to fail instead of
+overwriting changes.
 
 ## Installing a build
 
