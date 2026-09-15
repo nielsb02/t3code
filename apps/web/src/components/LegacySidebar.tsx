@@ -1,3 +1,5 @@
+import { sideChatsByParent } from "@t3tools/shared/threadHierarchy";
+import { SidebarSideTasks } from "./SidebarSideTasks";
 import { Spinner } from "~/components/ui/spinner";
 import {
   ArchiveIcon,
@@ -305,8 +307,11 @@ function buildThreadJumpLabelMap(input: {
   return mapping.size > 0 ? mapping : EMPTY_THREAD_JUMP_LABELS;
 }
 
+const EMPTY_SIDE_CHATS: readonly SidebarThreadSummary[] = [];
+
 interface SidebarThreadRowProps {
   thread: SidebarThreadSummary;
+  sideChats: readonly SidebarThreadSummary[];
   orderedProjectThreadKeys: readonly string[];
   isActive: boolean;
   openPullRequestsInRightPanel: boolean;
@@ -883,6 +888,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           </div>
         </div>
       </SidebarMenuSubButton>
+      <SidebarSideTasks threads={props.sideChats} />
     </SidebarMenuSubItem>
   );
 });
@@ -894,6 +900,7 @@ interface SidebarProjectThreadListProps {
   hiddenThreadStatus: ThreadStatusPill | null;
   orderedProjectThreadKeys: readonly string[];
   renderedThreads: readonly SidebarThreadSummary[];
+  sideChats: ReadonlyMap<string, readonly SidebarThreadSummary[]>;
   showEmptyThreadState: boolean;
   shouldShowThreadPanel: boolean;
   isThreadListExpanded: boolean;
@@ -1003,6 +1010,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
             <SidebarThreadRow
               key={threadKey}
               thread={thread}
+              sideChats={props.sideChats.get(threadKey) ?? EMPTY_SIDE_CHATS}
               orderedProjectThreadKeys={orderedProjectThreadKeys}
               isActive={activeRouteThreadKey === threadKey}
               openPullRequestsInRightPanel={openPullRequestsInRightPanel}
@@ -1202,6 +1210,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const sidebarThreadByKeyRef = useRef(sidebarThreadByKey);
   sidebarThreadByKeyRef.current = sidebarThreadByKey;
   const projectThreads = sidebarThreads;
+  const sideChats = useMemo(() => sideChatsByParent(projectThreads), [projectThreads]);
   const projectPreferenceKeys = useMemo(() => projectExpansionPreferenceKeys(project), [project]);
   const projectExpanded = useUiStateStore((state) =>
     resolveProjectExpanded(state.projectExpandedById, projectPreferenceKeys),
@@ -1276,7 +1285,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       });
     };
     const visibleProjectThreads = sortThreads(
-      projectThreads.filter((thread) => thread.archivedAt === null),
+      projectThreads.filter((thread) => thread.archivedAt === null && !thread.parentThreadId),
       threadSortOrder,
     );
     const projectStatus = resolveProjectStatusIndicator(
@@ -2390,6 +2399,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       </div>
 
       <SidebarProjectThreadList
+        sideChats={sideChats}
         projectKey={project.projectKey}
         projectExpanded={projectExpanded}
         hasOverflowingThreads={hasOverflowingThreads}
@@ -3347,7 +3357,7 @@ export default function LegacySidebar() {
   }, []);
 
   const visibleThreads = useMemo(
-    () => sidebarThreads.filter((thread) => thread.archivedAt === null),
+    () => sidebarThreads.filter((thread) => thread.archivedAt === null && !thread.parentThreadId),
     [sidebarThreads],
   );
   const sortedProjects = useMemo(() => {
@@ -3387,7 +3397,7 @@ export default function LegacySidebar() {
       sortedProjects.flatMap((project) => {
         const projectThreads = sortThreads(
           (threadsByProjectKey.get(project.projectKey) ?? []).filter(
-            (thread) => thread.archivedAt === null,
+            (thread) => thread.archivedAt === null && !thread.parentThreadId,
           ),
           sidebarThreadSortOrder,
         );

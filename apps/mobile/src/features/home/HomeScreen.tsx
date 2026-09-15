@@ -827,6 +827,7 @@ export function HomeScreen(props: HomeScreenProps) {
         <ThreadListV2Row
           onNewThreadOnBranch={props.onNewThreadOnBranch}
           thread={thread}
+          sideChats={item.item.sideChats}
           variant={item.item.variant}
           hasQueuedMessages={queuedThreadKeys.has(movedId)}
           snoozed={item.item.snoozed}

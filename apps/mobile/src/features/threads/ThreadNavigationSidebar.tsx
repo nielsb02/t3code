@@ -800,6 +800,7 @@ function ThreadNavigationSidebarPane(
         return (
           previous.key === item.key &&
           previous.item.thread === item.item.thread &&
+          previous.item.sideChats === item.item.sideChats &&
           previous.item.variant === item.item.variant &&
           previous.item.snoozed === item.item.snoozed &&
           previous.item.pinned === item.item.pinned &&
@@ -893,6 +894,7 @@ function ThreadNavigationSidebarPane(
             <ThreadListV2Row
               onNewThreadOnBranch={props.onNewThreadOnBranch}
               thread={thread}
+              sideChats={item.item.sideChats}
               variant={item.item.variant}
               hasQueuedMessages={queuedThreadKeys.has(`${thread.environmentId}:${thread.id}`)}
               snoozed={item.item.snoozed}

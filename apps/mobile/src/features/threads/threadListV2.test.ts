@@ -1276,3 +1276,35 @@ describe("mobile move availability", () => {
     expect(assignments![0]!.orderKey < "dd").toBe(true);
   });
 });
+
+describe("side tasks in the main overview", () => {
+  it("keeps children beneath their parent and out of task counts and reorder plans", () => {
+    const parent = makeThread({ id: ThreadId.make("parent"), title: "Feature" });
+    const child = makeThread({
+      id: ThreadId.make("child"),
+      title: "UI slice",
+      parentThreadId: parent.id,
+    });
+    const archived = { ...child, id: ThreadId.make("archived-child"), archivedAt: NOW };
+    const pinned = { ...child, id: ThreadId.make("pinned-child"), pinnedAt: NOW };
+    const settled = {
+      ...child,
+      id: ThreadId.make("settled-child"),
+      settledOverride: "settled" as const,
+    };
+    const threads = [child, parent, archived, pinned, settled];
+    const layout = buildThreadListV2Items({
+      threads,
+      environmentId: null,
+      searchQuery: "",
+      now: NOW,
+    });
+    expect(layout.items.map((item) => item.thread.id)).toEqual([parent.id]);
+    expect(layout.items[0]?.sideChats).toEqual([child, pinned, settled]);
+    expect(layout.settledCount).toBe(0);
+    expect(getThreadListV2OrderedSection({ threads, section: "active", now: NOW })).toEqual([
+      parent,
+    ]);
+    expect(getThreadListV2OrderedSection({ threads, section: "pinned", now: NOW })).toEqual([]);
+  });
+});

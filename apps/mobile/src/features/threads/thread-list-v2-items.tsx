@@ -1,3 +1,4 @@
+import { ThreadSideTaskOverview } from "./ThreadSideTaskOverview";
 import type {
   EnvironmentProject,
   EnvironmentThreadShell,
@@ -333,6 +334,7 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
 });
 
 export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
+  readonly sideChats?: readonly EnvironmentThreadShell[];
   readonly thread: EnvironmentThreadShell;
   readonly variant: "card" | "slim";
   /** A message for this thread is waiting in the outbox. */
@@ -1014,6 +1016,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           </ControlPillMenu>
         )}
       </ThreadSwipeable>
+      <ThreadSideTaskOverview
+        key={`${thread.environmentId}:${thread.id}`}
+        threads={props.sideChats ?? []}
+        onSelect={props.onSelectThread}
+      />
     </>
   );
 });

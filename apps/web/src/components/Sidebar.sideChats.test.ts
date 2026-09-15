@@ -1,36 +1,32 @@
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import { groupSideChats } from "./Sidebar.sideChats";
+import { summarizeSideChatActivity } from "./Sidebar.sideChats";
 
-const thread = (id: string, parent?: string, environment = "one") => ({
-  id: ThreadId.make(id),
-  environmentId: EnvironmentId.make(environment),
-  ...(parent ? { parentThreadId: ThreadId.make(parent) } : {}),
-});
+const ready = { session: null, hasPendingApprovals: false, hasPendingUserInput: false };
 
-describe("side chat families", () => {
-  it("places descendants after their parent while preserving sibling and root order", () => {
-    const items = [
-      thread("child", "root"),
-      thread("other"),
-      thread("grandchild", "child"),
-      thread("root"),
-      thread("sibling", "root"),
-    ];
-    expect(groupSideChats(items).map((item) => item.id)).toEqual([
-      "other",
-      "root",
-      "child",
-      "grandchild",
-      "sibling",
-    ]);
+describe("side task activity", () => {
+  it("keeps idle tasks quiet and shows ongoing background work", () => {
+    expect(
+      summarizeSideChatActivity([
+        ready,
+        { ...ready, backgroundLiveness: "working" },
+        { ...ready, backgroundLiveness: "monitoring" },
+      ]),
+    ).toEqual({ working: 1, monitoring: 1, attention: 0 });
   });
-  it("keeps children visible when their parent is in another shelf or environment", () => {
-    const items = [thread("child", "root", "two"), thread("root"), thread("orphan", "absent")];
-    expect(groupSideChats(items)).toEqual(items);
+  it("counts tasks needing a response once, ahead of background work", () => {
+    expect(
+      summarizeSideChatActivity([
+        {
+          ...ready,
+          hasPendingApprovals: true,
+          hasPendingUserInput: true,
+          backgroundLiveness: "working",
+        },
+        { ...ready, hasPendingUserInput: true },
+      ]),
+    ).toEqual({ working: 0, monitoring: 0, attention: 2 });
   });
-  it("neither loses nor repeats rows in a cyclic remote snapshot", () => {
-    const items = [thread("a", "b"), thread("b", "a")];
-    expect(groupSideChats(items)).toEqual(items);
+  it("has no activity for an empty family", () => {
+    expect(summarizeSideChatActivity([])).toEqual({ working: 0, monitoring: 0, attention: 0 });
   });
 });
