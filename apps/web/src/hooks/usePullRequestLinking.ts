@@ -21,17 +21,25 @@ import {
 import {
   findProjectForChangeRequest,
   findProjectOnChangeRequestHost,
+  findWorkspaceProjectForChangeRequest,
   matchesLinkedPullRequestUrl,
   parseChangeRequestUrl,
 } from "~/lib/openPullRequestLink";
 import { useProjects, useServerConfigs } from "~/state/entities";
 import { threadEnvironment } from "~/state/threads";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { usePullRequestWorkspace } from "./usePullRequestWorkspace";
 
 /** Routes link actions through the command advertised by this environment. */
-export function usePullRequestLinking(environmentId: EnvironmentId | null | undefined) {
+export function usePullRequestLinking(
+  environmentId: EnvironmentId | null | undefined,
+  threadRef?: ScopedThreadRef | null,
+) {
   const configs = useServerConfigs();
   const projects = useProjects();
+  const workspace = usePullRequestWorkspace(
+    threadRef?.environmentId === environmentId ? threadRef : null,
+  );
   const capabilities =
     environmentId == null ? undefined : configs.get(environmentId)?.environment.capabilities;
   const mode = threadPullRequestLinkMode(capabilities);
@@ -46,6 +54,12 @@ export function usePullRequestLinking(environmentId: EnvironmentId | null | unde
       const parsed = parseChangeRequestUrl(url);
       if (parsed === null || mode === "unsupported") return false;
       return (
+        (mode === "multiple" &&
+          findWorkspaceProjectForChangeRequest(
+            workspace.project,
+            workspace.repositories,
+            parsed,
+          ) !== undefined) ||
         (mode === "multiple" ? findProjectOnChangeRequestHost : findProjectForChangeRequest)(
           environmentProjects,
           parsed,
@@ -100,5 +114,15 @@ export function usePullRequestLinking(environmentId: EnvironmentId | null | unde
       }
     };
     return { mode, canLink, isLinked, changeLink };
-  }, [capabilities, environmentId, link, mode, projects, unlink, updateMetadata]);
+  }, [
+    capabilities,
+    environmentId,
+    link,
+    mode,
+    projects,
+    unlink,
+    updateMetadata,
+    workspace.project,
+    workspace.repositories,
+  ]);
 }

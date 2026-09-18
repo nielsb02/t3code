@@ -196,8 +196,11 @@ closed reviews refresh periodically so reopening one on the host is detected. Me
 when requested. With **Auto-settle merged threads** enabled, a thread can settle after every linked
 review is terminal. An open or unsynced link keeps it active.
 
-Cross-repository links use a project on the same host. Azure DevOps reviews require a project checked
-out from the matching organization and repository.
+Linked reviews use matching repositories declared in the thread's checkout, so a workspace containing
+several repositories does not need a separate T3 project for each one. Other cross-repository links
+use a registered project on the same host. Azure DevOps reviews require a checkout from the matching
+organization and repository. Older remote servers may require registering the child repository as a
+project until the server is updated.
 
 ## GitHub stacks
 

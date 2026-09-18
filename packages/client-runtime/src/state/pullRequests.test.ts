@@ -1,6 +1,8 @@
 import {
   EnvironmentId,
   ProjectId,
+  ThreadId,
+  type PullRequestRef,
   PullRequestOperationError,
   WS_METHODS,
   type PullRequestStack,
@@ -626,6 +628,178 @@ for (const source of ["pending", "pending-local", "failed", "offline"] as const)
   );
 }
 
+for (const workspace of [
+  { threadId: ThreadId.make("origin-thread") },
+  { threadId: ThreadId.make("origin-thread"), repositoryPath: "projects/app" },
+]) {
+  it.live(
+    `keeps ${workspace.repositoryPath ?? "inferred"} workspace scope on the origin when routing`,
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const sourceInputs: PullRequestRef[] = [];
+          const alternateInputs: PullRequestRef[] = [];
+          const invalidations: { local: boolean; reference?: PullRequestRef }[] = [];
+          let alternateAccount = "123";
+          const failure = new PullRequestOperationError({
+            operation: "summary",
+            detail: "Source host unreachable",
+          });
+          const clientFor = (local: boolean) =>
+            ({
+              [local ? WS_METHODS.pullRequestsRoutingIdentity : WS_METHODS.pullRequestsRouting]:
+                () =>
+                  Effect.succeed({
+                    host: "github.com",
+                    provider: "github",
+                    viewer: "octocat",
+                    accountId: local ? alternateAccount : "123",
+                  }),
+              [WS_METHODS.pullRequestsSummary]: (input: PullRequestRef) => {
+                (local ? alternateInputs : sourceInputs).push(input);
+                return local && input.workspace === undefined
+                  ? Effect.succeed({
+                      projectId: input.projectId,
+                      repository: input.repository,
+                      number: input.number,
+                      state: "merged",
+                    })
+                  : Effect.fail(failure);
+              },
+              [WS_METHODS.pullRequestsRunAction]: (input: PullRequestRef) => {
+                (local ? alternateInputs : sourceInputs).push(input);
+                return local && input.workspace !== undefined ? Effect.fail(failure) : Effect.void;
+              },
+              [WS_METHODS.pullRequestsInvalidate]: ({
+                reference,
+              }: {
+                reference?: PullRequestRef;
+              }) =>
+                Effect.sync(() => {
+                  invalidations.push({ local, ...(reference ? { reference } : {}) });
+                }),
+            }) as unknown as WsRpcProtocolClient;
+          const { environmentRegistry, supervisor } = yield* makeTestRuntime(
+            clientFor(false),
+            clientFor(true),
+          );
+          const reference = {
+            projectId: ProjectId.make("origin-project"),
+            host: "github.com",
+            repository: "org/app",
+            number: 7,
+            workspace,
+          };
+          yield* Effect.gen(function* () {
+            const route = createPullRequestRouter();
+            const summary = yield* route(WS_METHODS.pullRequestsSummary, reference);
+            expect(summary.state).toBe("merged");
+            yield* route(WS_METHODS.pullRequestsRunAction, { ...reference, action: "merge" });
+            alternateAccount = "other";
+            yield* route(WS_METHODS.pullRequestsRunAction, { ...reference, action: "close" });
+            yield* route(WS_METHODS.pullRequestsInvalidate, { reference });
+            expect(sourceInputs.length).toBeGreaterThanOrEqual(2);
+            expect(sourceInputs.every((input) => input.workspace === workspace)).toBe(true);
+            expect(alternateInputs).toHaveLength(2);
+            expect(alternateInputs.every((input) => !("workspace" in input))).toBe(true);
+            expect(
+              invalidations.some((input) => input.local && input.reference !== undefined),
+            ).toBe(true);
+            expect(
+              invalidations
+                .filter((input) => input.local)
+                .every((input) => input.reference?.workspace === undefined),
+            ).toBe(true);
+            expect(
+              invalidations.some(
+                (input) => !input.local && input.reference?.workspace === workspace,
+              ),
+            ).toBe(true);
+          }).pipe(
+            Effect.provideService(EnvironmentRegistry.EnvironmentRegistry, environmentRegistry),
+            Effect.provideService(GitHubRoutingPermissions, trustedRouting),
+            Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+          );
+        }),
+      ),
+  );
+}
+
+it.live("invalidates every origin thread scope after a routed PR mutation", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      let sourceAvailable = false;
+      let state = "open";
+      const sourceCache = new Map([
+        ["one", "open"],
+        ["two", "open"],
+      ]);
+      const clientFor = (local: boolean) =>
+        ({
+          [local ? WS_METHODS.pullRequestsRoutingIdentity : WS_METHODS.pullRequestsRouting]: () =>
+            Effect.succeed({
+              host: "github.com",
+              provider: "github",
+              viewer: "octocat",
+              accountId: "123",
+            }),
+          [WS_METHODS.pullRequestsSummary]: (input: PullRequestRef) =>
+            local || sourceAvailable
+              ? Effect.succeed({
+                  projectId: input.projectId,
+                  repository: input.repository,
+                  number: input.number,
+                  state: local
+                    ? state
+                    : (sourceCache.get(input.workspace?.threadId ?? "") ?? state),
+                })
+              : Effect.never,
+          [WS_METHODS.pullRequestsRunAction]: () =>
+            Effect.sync(() => {
+              state = "merged";
+            }),
+          [WS_METHODS.pullRequestsInvalidate]: ({ reference }: { reference?: PullRequestRef }) =>
+            Effect.sync(() => {
+              if (!local && reference?.workspace !== undefined)
+                sourceCache.delete(reference.workspace.threadId);
+            }),
+        }) as unknown as WsRpcProtocolClient;
+      const { environmentRegistry, supervisor } = yield* makeTestRuntime(
+        clientFor(false),
+        clientFor(true),
+      );
+      const references = ["one", "two"].map((id) => ({
+        projectId: ProjectId.make("origin-project"),
+        host: "github.com",
+        repository: "org/app",
+        number: 7,
+        workspace: { threadId: ThreadId.make(id) },
+      }));
+      yield* Effect.gen(function* () {
+        const route = createPullRequestRouter();
+        for (const reference of references)
+          expect((yield* route(WS_METHODS.pullRequestsSummary, reference)).state).toBe("open");
+        yield* route(WS_METHODS.pullRequestsRunAction, { ...references[0]!, action: "merge" });
+        sourceAvailable = true;
+        for (const reference of references)
+          expect((yield* route(WS_METHODS.pullRequestsSummary, reference)).state).toBe("merged");
+        sourceAvailable = false;
+        sourceCache.set("one", "merged");
+        sourceCache.set("two", "merged");
+        state = "closed";
+        yield* route(WS_METHODS.pullRequestsInvalidate, { reference: references[0]! });
+        sourceAvailable = true;
+        for (const reference of references)
+          expect((yield* route(WS_METHODS.pullRequestsSummary, reference)).state).toBe("closed");
+      }).pipe(
+        Effect.provideService(EnvironmentRegistry.EnvironmentRegistry, environmentRegistry),
+        Effect.provideService(GitHubRoutingPermissions, trustedRouting),
+        Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+      );
+    }),
+  ),
+);
+
 it.live("keeps source workspace metadata when an alternate answers a detail read", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -795,6 +969,68 @@ it.effect("keeps concurrent diff file reads on different hosts separate", () =>
         { _tag: "Success", value: { newContents: "github.example.com" } },
       ]);
       expect(calls).toEqual(["github.com", "github.example.com"]);
+    }),
+  ),
+);
+
+it.effect("keeps workspace reads and cached edits isolated to their thread", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const client = {
+        [WS_METHODS.pullRequestsSubscribeRefreshes]: () => Stream.never,
+        [WS_METHODS.pullRequestsDetail]: (input: PullRequestRef) =>
+          Effect.succeed({
+            title: input.workspace?.threadId ?? "wrapper",
+            labels: [],
+          }),
+        [WS_METHODS.pullRequestsSetLabels]: () => Effect.void,
+      } as unknown as WsRpcProtocolClient;
+      const { atoms, registry } = yield* makeTestRuntime(client);
+      const target = {
+        environmentId: TARGET.environmentId,
+        input: {
+          projectId: ProjectId.make("project-1"),
+          host: "github.example.com",
+          repository: "org/app",
+          number: 7,
+          workspace: { threadId: ThreadId.make("one") },
+        },
+      };
+      const first = atoms.detail(target);
+      const second = atoms.detail({
+        ...target,
+        input: { ...target.input, workspace: { threadId: ThreadId.make("two") } },
+      });
+      const explicit = atoms.detail({
+        ...target,
+        input: {
+          ...target.input,
+          workspace: { threadId: ThreadId.make("one"), repositoryPath: "projects/app" },
+        },
+      });
+      const unmounts = [first, second, explicit].map((atom) => registry.mount(atom));
+      yield* Effect.addFinalizer(() => Effect.sync(() => unmounts.forEach((unmount) => unmount())));
+      expect(
+        (yield* AtomRegistry.getResult(registry, first, { suspendOnWaiting: true })).title,
+      ).toBe("one");
+      expect(
+        (yield* AtomRegistry.getResult(registry, second, { suspendOnWaiting: true })).title,
+      ).toBe("two");
+      expect(
+        (yield* AtomRegistry.getResult(registry, explicit, { suspendOnWaiting: true })).title,
+      ).toBe("one");
+      const added = yield* Effect.promise(() =>
+        atoms.setLabels.run(registry, {
+          ...target,
+          input: { ...target.input, labels: ["new"], applied: true },
+        }),
+      );
+      expect(added._tag).toBe("Success");
+      expect((yield* AtomRegistry.getResult(registry, first)).labels).toEqual([
+        { name: "new", color: null },
+      ]);
+      expect((yield* AtomRegistry.getResult(registry, second)).labels).toEqual([]);
+      expect((yield* AtomRegistry.getResult(registry, explicit)).labels).toEqual([]);
     }),
   ),
 );

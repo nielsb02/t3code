@@ -807,6 +807,9 @@ export const make = Effect.gen(function* () {
     resolveKind = resolveProviderKind,
   ): Effect.fn.Return<SupportedProject, PullRequestError> {
     if (ref.workspace === undefined) return yield* requireHostProject(ref);
+    const { repositoryPath, threadId } = ref.workspace;
+    const requestedHost = ref.host?.trim().toLowerCase();
+    const requestedRepository = ref.repository.trim().toLowerCase();
     const invalid = (detail: string) =>
       new PullRequestOperationError({ operation: "resolveRepository", detail });
     const snapshot = yield* projections.getShellSnapshot().pipe(
@@ -820,59 +823,118 @@ export const make = Effect.gen(function* () {
       ),
     );
     const wrapper = snapshot.projects.find((project) => project.id === ref.projectId);
-    const thread = snapshot.threads.find((thread) => thread.id === ref.workspace?.threadId);
+    const thread = snapshot.threads.find((thread) => thread.id === threadId);
     if (!wrapper || !thread || thread.projectId !== wrapper.id)
       return yield* invalid("The thread does not belong to the selected project.");
-    if (Option.isNone(workspaceRepositories))
+    if (repositoryPath === undefined && requestedHost === undefined)
+      return yield* invalid("A host is required to find the linked repository in this workspace.");
+    if (Option.isNone(workspaceRepositories)) {
+      if (repositoryPath === undefined) return yield* requireHostProject(ref);
       return yield* invalid("Workspace repository discovery is unavailable.");
+    }
     const members = yield* workspaceRepositories.value
       .list(thread.worktreePath ?? wrapper.workspaceRoot)
       .pipe(
-        Effect.mapError(
-          (cause) =>
-            new PullRequestOperationError({
-              operation: "resolveRepository",
-              detail: "Workspace repositories could not be read.",
-              cause,
-            }),
+        Effect.catch((cause) =>
+          repositoryPath === undefined
+            ? Effect.succeed([])
+            : Effect.fail(
+                new PullRequestOperationError({
+                  operation: "resolveRepository",
+                  detail: "Workspace repositories could not be read.",
+                  cause,
+                }),
+              ),
         ),
       );
-    const member = members.find((member) => member.path === ref.workspace?.repositoryPath);
-    if (!member || !member.available)
+    const repositoryKey = canonicalRepositoryKey(`${requestedHost}/${requestedRepository}`);
+    const candidates = members.filter((member) => {
+      if (repositoryPath !== undefined) return member.path === repositoryPath && member.available;
+      if (!member.available || !member.repositoryIdentity) return false;
+      const identity = member.repositoryIdentity;
+      if (identity.provider === "azure-devops")
+        return canonicalRepositoryKey(identity.canonicalKey.toLowerCase()) === repositoryKey;
+      const repository = sourceControlRepositorySelector(identity)?.toLowerCase();
+      return (
+        repository !== undefined &&
+        (repository === requestedRepository ||
+          ((identity.provider === "forgejo" || identity.provider === "unknown") &&
+            isSshRemoteUrl(identity.locator.remoteUrl) &&
+            requestedRepository.endsWith(`/${repository}`)))
+      );
+    });
+    if (repositoryPath !== undefined && candidates.length === 0)
       return yield* invalid("The selected repository is not available in this workspace.");
-    const project = {
+    const projects = candidates.map((member) => ({
       ...wrapper,
       workspaceRoot: member.cwd,
       repositoryIdentity: member.repositoryIdentity,
-    };
-    const repository = sourceControlRepositorySelector(project.repositoryIdentity);
-    if (!repository || repository.toLowerCase() !== ref.repository.trim().toLowerCase())
-      return yield* invalid("The change request does not belong to the selected repository.");
-    const refined = yield* refineUnknownProjectKinds([project], {}, resolveKind);
-    const identity = project.repositoryIdentity;
-    if (!identity) return yield* invalid("The selected repository has no remote identity.");
-    let kind = identity.provider as SourceControlProviderKind;
-    let refinedProvider: SourceControlProviderInfo | null | undefined;
-    if (kind === "unknown" || (kind === "forgejo" && isSshRemoteUrl(identity.locator.remoteUrl))) {
-      const provider = detectSourceControlProviderFromRemoteUrl(identity.locator.remoteUrl);
-      refinedProvider = provider === null ? null : refined.get(provider.baseUrl);
-      kind = refinedProvider?.kind ?? kind;
+    }));
+    const refined = yield* refineUnknownProjectKinds(
+      projects,
+      requestedHost === undefined ? {} : { host: requestedHost },
+      resolveKind,
+    );
+    for (const project of projects) {
+      const identity = project.repositoryIdentity;
+      const repository = sourceControlRepositorySelector(identity);
+      if (!identity || !repository)
+        return yield* invalid("The selected repository has no remote identity.");
+      if (repositoryPath !== undefined && repository.toLowerCase() !== requestedRepository)
+        return yield* invalid("The change request does not belong to the selected repository.");
+      let kind = identity.provider as SourceControlProviderKind;
+      let refinedProvider: SourceControlProviderInfo | null | undefined;
+      if (
+        kind === "unknown" ||
+        (kind === "forgejo" && isSshRemoteUrl(identity.locator.remoteUrl))
+      ) {
+        const provider = detectSourceControlProviderFromRemoteUrl(identity.locator.remoteUrl);
+        refinedProvider = provider === null ? null : refined.get(provider.baseUrl);
+        kind = refinedProvider?.kind ?? kind;
+      }
+      if (repositoryPath === undefined && kind !== "azure-devops") {
+        const basePath =
+          refinedProvider?.kind === "forgejo"
+            ? new URL(refinedProvider.baseUrl).pathname.replace(/^\/+|\/+$/g, "")
+            : "";
+        const webRepository =
+          basePath &&
+          (isSshRemoteUrl(identity.locator.remoteUrl) || !repository.startsWith(`${basePath}/`))
+            ? `${basePath}/${repository}`
+            : repository;
+        if (webRepository.toLowerCase() !== requestedRepository) continue;
+      }
+      const api = registry.get(kind);
+      if (!api) {
+        if (repositoryPath === undefined) continue;
+        return yield* new PullRequestUnavailableError({ reason: "provider-unsupported" });
+      }
+      const host =
+        refinedProvider?.kind === "forgejo"
+          ? new URL(refinedProvider.baseUrl).host.toLowerCase()
+          : pullRequestHostOf(identity, kind);
+      const matchesHost =
+        repositoryPath === undefined && kind === "azure-devops"
+          ? canonicalRepositoryKey(identity.canonicalKey.toLowerCase()) === repositoryKey
+          : requestedHost === undefined || requestedHost === host;
+      if (!matchesHost) {
+        if (repositoryPath === undefined) continue;
+        return yield* invalid(
+          "The change request does not belong to the selected repository host.",
+        );
+      }
+      return {
+        cursorKey: listCursorKey(
+          host,
+          kind === "azure-devops" ? identity.canonicalKey : repository,
+        ),
+        project,
+        repository,
+        host,
+        api: withRateLimitBackoff(api, host, rateLimits),
+      };
     }
-    const api = registry.get(kind);
-    if (!api) return yield* new PullRequestUnavailableError({ reason: "provider-unsupported" });
-    const host =
-      refinedProvider?.kind === "forgejo"
-        ? new URL(refinedProvider.baseUrl).host.toLowerCase()
-        : pullRequestHostOf(identity, kind);
-    if (ref.host !== undefined && ref.host.toLowerCase() !== host)
-      return yield* invalid("The change request does not belong to the selected repository host.");
-    return {
-      cursorKey: listCursorKey(host, kind === "azure-devops" ? identity.canonicalKey : repository),
-      project,
-      repository,
-      host,
-      api: withRateLimitBackoff(api, host, rateLimits),
-    };
+    return yield* requireHostProject(ref);
   });
 
   /**
@@ -2327,6 +2389,7 @@ export const make = Effect.gen(function* () {
             ref.projectId,
             ref.workspace?.threadId,
             ref.workspace?.repositoryPath,
+            ref.host?.trim().toLowerCase(),
             ref.repository.trim().toLowerCase(),
           ].join("\0");
           const group = byScope.get(key);
@@ -2383,6 +2446,7 @@ export const make = Effect.gen(function* () {
                             ...stat,
                             projectId: ref.projectId,
                             workspace: ref.workspace,
+                            ...(ref.host === undefined ? {} : { host: ref.host }),
                           }))
                       : [],
                   ),
@@ -2956,14 +3020,17 @@ export const make = Effect.gen(function* () {
     (key: string) => {
       const [, refs] = JSON.parse(key) as [
         number,
-        ReadonlyArray<[string, string, number, number, PullRequestRef["workspace"] | null]>,
+        ReadonlyArray<
+          [string, string, number, number, PullRequestRef["workspace"] | null, string | null]
+        >,
       ];
       return listStatsUncached({
-        refs: refs.map(([projectId, repository, number, , workspace]) => ({
+        refs: refs.map(([projectId, repository, number, , workspace, host]) => ({
           projectId,
           repository,
           number,
           ...(workspace ? { workspace } : {}),
+          ...(host === null ? {} : { host }),
         })),
       } as unknown as PullRequestListStatsInput).pipe(
         Effect.flatMap((result) =>
@@ -2988,6 +3055,7 @@ export const make = Effect.gen(function* () {
               ref.number,
               refEpoch(ref),
               ref.workspace ?? null,
+              ref.host?.toLowerCase() ?? null,
             ] as const,
         )
         .toSorted((left, right) =>
@@ -3020,6 +3088,7 @@ export const make = Effect.gen(function* () {
           stat.projectId === ref.projectId &&
           stat.repository.toLowerCase() === ref.repository.toLowerCase() &&
           stat.number === ref.number &&
+          (ref.workspace === undefined || stat.host?.toLowerCase() === ref.host?.toLowerCase()) &&
           JSON.stringify(stat.workspace ?? null) === JSON.stringify(ref.workspace ?? null),
       );
       if (stat !== undefined) recordStats(key, stat, at);

@@ -2301,7 +2301,7 @@ function useChatMarkdownState({
   const openPreview = useAtomCommand(previewEnvironment.open, {
     reportFailure: false,
   });
-  const pullRequestLinking = usePullRequestLinking(threadRef?.environmentId);
+  const pullRequestLinking = usePullRequestLinking(threadRef?.environmentId, threadRef);
   const environmentId = threadRef?.environmentId ?? explicitEnvironmentId ?? null;
   const remoteOpen = useRemoteOpenResolution(environmentId);
   const canUseShellActions = canUseMarkdownFileShellActions(

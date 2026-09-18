@@ -1093,7 +1093,9 @@ export function pullRequestActionNeedsHostRefresh(action: PullRequestAction): bo
 type SnapshotStorage = Pick<Storage, "getItem" | "setItem">;
 
 export interface PullRequestDetailSnapshotRef {
-  readonly workspace?: { readonly threadId: string; readonly repositoryPath: string } | undefined;
+  readonly workspace?:
+    | { readonly threadId: string; readonly repositoryPath?: string | undefined }
+    | undefined;
   readonly host?: string | undefined;
   readonly projectId: string;
   readonly repository: string;

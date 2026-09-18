@@ -6,6 +6,7 @@ import {
   PullRequestCapabilities,
   PullRequestListInput,
   PullRequestListResult,
+  PullRequestRef,
   PullRequestReviewerRequestInput,
   pullRequestHostOf,
   resolvePullRequestAuthorFilter,
@@ -272,7 +273,7 @@ describe("naming the reader as the author to narrow by", () => {
   });
 });
 
-it("preserves workspace scope on pull request actions and rejects incomplete scope", () => {
+it("preserves workspace scope on pull request actions and requires its thread", () => {
   const action = {
     projectId: "p1",
     repository: "org/app",
@@ -281,5 +282,29 @@ it("preserves workspace scope on pull request actions and rejects incomplete sco
     workspace: { threadId: "t1", repositoryPath: "projects/app" },
   };
   expect(decodeAction(action).workspace).toEqual(action.workspace);
-  expect(() => decodeAction({ ...action, workspace: { threadId: "t1" } })).toThrow();
+  expect(() =>
+    decodeAction({ ...action, workspace: { repositoryPath: "projects/app" } }),
+  ).toThrow();
+});
+
+describe("PullRequestRef workspace", () => {
+  it("accepts thread context with or without an explicit repository path", () => {
+    const decode = Schema.decodeUnknownSync(PullRequestRef);
+    const reference = {
+      projectId: "wrapper",
+      host: "github.com",
+      repository: "org/app",
+      number: 7,
+      workspace: { threadId: "thread" },
+    };
+    expect(decode(reference)).toStrictEqual(reference);
+    const selected = {
+      ...reference,
+      workspace: { threadId: "thread", repositoryPath: "projects/app" },
+    };
+    expect(decode(selected)).toStrictEqual(selected);
+    expect(() =>
+      decode({ ...reference, workspace: { threadId: "thread", repositoryPath: "" } }),
+    ).toThrow();
+  });
 });

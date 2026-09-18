@@ -635,7 +635,8 @@ export type PullRequestListResult = typeof PullRequestListResult.Type;
 
 export const PullRequestWorkspace = Schema.Struct({
   threadId: ThreadId,
-  repositoryPath: TrimmedNonEmptyString,
+  /** Omit to find the linked repository by host and identity in the thread's checkout. */
+  repositoryPath: Schema.optional(TrimmedNonEmptyString),
 });
 
 /**
@@ -752,6 +753,7 @@ export type PullRequestStack = typeof PullRequestStack.Type;
  */
 export const PullRequestDiffStat = Schema.Struct({
   workspace: Schema.optional(PullRequestWorkspace),
+  host: Schema.optional(TrimmedNonEmptyString),
   projectId: ProjectId,
   repository: TrimmedNonEmptyString,
   number: PositiveInt,

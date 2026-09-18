@@ -9422,6 +9422,11 @@ function ChatViewContent(props: ChatViewProps) {
         threadRef={activeThreadRef}
         reference={{
           projectId: renderedRightPanelSurface.projectId as ProjectId,
+          ...(serverConfig?.environment.capabilities.workspacePullRequestLinks &&
+          renderedRightPanelSurface.host &&
+          renderedRightPanelSurface.projectId === activeThread.projectId
+            ? { workspace: { threadId: activeThread.id } }
+            : {}),
           ...(renderedRightPanelSurface.host ? { host: renderedRightPanelSurface.host } : {}),
           repository: renderedRightPanelSurface.repository,
           number: renderedRightPanelSurface.number,
@@ -9443,6 +9448,7 @@ function ChatViewContent(props: ChatViewProps) {
             : "page"
         }
         composerDraftTarget={composerDraftTarget}
+        {...(renderedRightPanelSurface.url ? { browserUrl: renderedRightPanelSurface.url } : {})}
         onBack={
           activeThreadRef !== null && pullRequestsSurfaceAvailable && visiblePullRequestCount > 1
             ? addPullRequestsSurface

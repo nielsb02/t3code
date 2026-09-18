@@ -242,17 +242,37 @@ export const make = Effect.gen(function* () {
       key: string,
       entries: ReadonlyArray<LinkEntry>,
     ) {
-      const first = entries[0]!;
-      const ref = {
-        projectId: first.thread.projectId,
-        host: normalizeThreadPullRequestKey(first.link).host,
-        repository: first.link.repository,
-        number: first.link.number,
-      };
       const generation = requested.get(key);
-      if (generation !== undefined) yield* pullRequests.invalidate({ reference: ref });
-      const summary = yield* pullRequests.summary(ref, { recoverTransientFailure: false });
-      const fields = snapshotFieldsOf(summary);
+      const { ref, result } = yield* Effect.firstSuccessOf(
+        entries.map(
+          Effect.fn(function* ({ thread, link }: LinkEntry) {
+            const ref = {
+              projectId: thread.projectId,
+              workspace: { threadId: thread.id },
+              host: normalizeThreadPullRequestKey(link).host,
+              repository: link.repository,
+              number: link.number,
+            };
+            if (generation !== undefined) yield* pullRequests.invalidate({ reference: ref });
+            const result = yield* Effect.result(
+              pullRequests.summary(ref, { recoverTransientFailure: false }),
+            );
+            if (result._tag === "Failure") {
+              const error = result.failure;
+              if (
+                (error._tag === "PullRequestOperationError" &&
+                  error.operation === "resolveRepository") ||
+                (error._tag === "PullRequestUnavailableError" &&
+                  error.reason === "provider-unsupported")
+              )
+                return yield* error;
+            }
+            return { ref, result };
+          }),
+        ),
+      );
+      if (result._tag === "Failure") return yield* result.failure;
+      const fields = snapshotFieldsOf(result.success);
       const needsStack =
         generation !== undefined ||
         retryStacks.has(key) ||

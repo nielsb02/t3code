@@ -98,6 +98,7 @@ import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolve
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
+import * as WorkspaceSearchIndex from "./workspace/WorkspaceSearchIndex.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
 import * as VcsProjectConfig from "./vcs/VcsProjectConfig.ts";
@@ -330,8 +331,13 @@ const RepositoryIdentityResolverLayerLive = Layer.effect(
   }),
 ).pipe(Layer.provide(SourceControlProviderRegistryLayerLive), Layer.provide(ProcessRunner.layer));
 
+const WorkspaceRepositoriesLayerLive = Layer.effect(
+  WorkspaceRepositories.WorkspaceRepositories,
+  WorkspaceRepositories.make,
+).pipe(Layer.provide(RepositoryIdentityResolverLayerLive), Layer.provide(VcsProcess.layer));
+
 const PullRequestServiceLive = PullRequestService.layer.pipe(
-  Layer.provide(WorkspaceRepositories.layer),
+  Layer.provide(WorkspaceRepositoriesLayerLive),
   Layer.provide(PullRequestProviderRegistry.layer),
   Layer.provide(PullRequestReadCache.layer),
   Layer.provide(SourceControlProviderRegistryLayerLive),
@@ -368,7 +374,7 @@ const ProjectCloneTrackerLayerLive = ProjectCloneTracker.layer.pipe(
 );
 
 const ReviewLayerLive = ReviewService.layer.pipe(
-  Layer.provide(WorkspaceRepositories.layer),
+  Layer.provide(WorkspaceRepositoriesLayerLive),
   Layer.provide(OrchestrationInfrastructureLayerLive),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(VcsDriverRegistryLayerLive),
@@ -416,7 +422,15 @@ const DeviceLayerLive = DeviceService.layer.pipe(
   Layer.provide(NetService.layer),
 );
 
-const WorkspaceEntriesLayerLive = WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer));
+const WorkspaceEntriesLayerLive = Layer.effect(
+  WorkspaceEntries.WorkspaceEntries,
+  WorkspaceEntries.make,
+).pipe(
+  Layer.provide(WorkspaceSearchIndex.WorkspaceSearchIndexMap.layer),
+  Layer.provide(WorkspaceRepositoriesLayerLive),
+  Layer.provide(VcsProcess.layer),
+  Layer.provide(WorkspacePaths.layer),
+);
 
 const WorkspaceFileSystemLayerLive = WorkspaceFileSystem.layer.pipe(
   Layer.provide(WorkspacePaths.layer),

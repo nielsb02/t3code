@@ -274,6 +274,74 @@ function applySync(
 }
 
 describe("PullRequestSyncReactor", () => {
+  it.effect(
+    "syncs shared links through another thread when the first checkout is unavailable",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fixture = yield* makeHarness({
+            snapshot: makeSnapshot([
+              makeThread("unavailable", { pullRequests: [makeLink(7)] }),
+              makeThread("available", { pullRequests: [makeLink(7)] }),
+            ]),
+            summary: (input) =>
+              input.workspace?.threadId === "available"
+                ? Effect.succeed(makeSummary(input, { state: "merged", mergedAt: NOW }))
+                : Effect.fail(
+                    new PullRequestOperationError({
+                      operation: "resolveRepository",
+                      detail: "Checkout unavailable",
+                    }),
+                  ),
+          });
+          yield* Effect.gen(function* () {
+            yield* startAndSweep(fixture);
+            const commands = yield* Ref.get(fixture.syncCommands);
+            assert.deepStrictEqual(
+              commands.map((command) => [command.threadId, command.snapshot.state]),
+              [
+                ["unavailable", "merged"],
+                ["available", "merged"],
+              ],
+            );
+            assert.deepStrictEqual(
+              (yield* Ref.get(fixture.summaryCalls)).map((ref) => ref.workspace?.threadId),
+              [ThreadId.make("unavailable"), ThreadId.make("available")],
+            );
+            assert.strictEqual((yield* Ref.get(fixture.stackCalls)).length, 1);
+            assert.strictEqual(
+              (yield* Ref.get(fixture.stackCalls))[0]?.workspace?.threadId,
+              "available",
+            );
+          }).pipe(Effect.provide(fixture.layer));
+        }),
+      ),
+  );
+
+  it.effect("does not repeat host failures for every thread sharing a link", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([
+            makeThread("one", { pullRequests: [makeLink(7)] }),
+            makeThread("two", { pullRequests: [makeLink(7)] }),
+          ]),
+          summary: () =>
+            Effect.fail(
+              new PullRequestOperationError({
+                operation: "summary",
+                detail: "The host is unavailable.",
+              }),
+            ),
+        });
+        yield* Effect.gen(function* () {
+          yield* startAndSweep(fixture);
+          assert.strictEqual((yield* Ref.get(fixture.summaryCalls)).length, 1);
+          assert.deepStrictEqual(yield* Ref.get(fixture.syncCommands), []);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
   it.effect("retries a failed stack read after the summary becomes terminal", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -353,6 +421,7 @@ describe("PullRequestSyncReactor", () => {
           assert.deepStrictEqual(yield* Ref.get(fixture.summaryCalls), [
             {
               projectId: PROJECT_ID,
+              workspace: { threadId: ThreadId.make("one") },
               host: "github.com",
               repository: "owner/repository",
               number: 42,

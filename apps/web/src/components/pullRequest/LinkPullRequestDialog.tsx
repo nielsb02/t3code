@@ -52,7 +52,7 @@ interface LinkPullRequestDialogProps {
 export function LinkPullRequestDialogHost() {
   const threadRef = useAtomValue(linkPullRequestDialogThreadAtom);
   const thread = useThreadShell(threadRef);
-  const linking = usePullRequestLinking(threadRef?.environmentId);
+  const linking = usePullRequestLinking(threadRef?.environmentId, threadRef);
   if (threadRef === null || linking.mode === "unsupported") return null;
   return (
     <LinkPullRequestDialog
@@ -150,7 +150,7 @@ function LinkPullRequestDialog({
           : changeRequestWebUrl(kind, host, repository, number, identity.locator.remoteUrl),
     };
   }, [environmentProjects, projectId]);
-  const linking = usePullRequestLinking(threadRef.environmentId);
+  const linking = usePullRequestLinking(threadRef.environmentId, threadRef);
   const [pending, setPending] = useState(false);
 
   useEffect(() => {

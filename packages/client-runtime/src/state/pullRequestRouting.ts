@@ -8,6 +8,7 @@ import * as Effect from "effect/Effect";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Struct from "effect/Struct";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import { EnvironmentRegistry, EnvironmentNotRegisteredError } from "../connection/registry.ts";
@@ -128,6 +129,17 @@ function matchesReference(reference: PullRequestRef, filter: PullRequestRef): bo
   );
 }
 
+function referenceKey(reference: PullRequestRef): string {
+  return encodeKey([
+    reference.projectId,
+    reference.host?.toLowerCase() ?? null,
+    reference.repository.toLowerCase(),
+    String(reference.number),
+    reference.workspace?.threadId ?? null,
+    reference.workspace?.repositoryPath ?? null,
+  ]);
+}
+
 const invalidateTarget = Effect.fn("PullRequestRouting.invalidateTarget")(function* (
   registry: EnvironmentRegistry["Service"],
   origin: EnvironmentId,
@@ -138,11 +150,21 @@ const invalidateTarget = Effect.fn("PullRequestRouting.invalidateTarget")(functi
   yield* Effect.forEach(
     inputs,
     (input) =>
-      registry.run(target, request(WS_METHODS.pullRequestsInvalidate, input)).pipe(
-        // GitHub already accepted the write. A stalled reader must not delay its confirmation.
-        Effect.timeoutOption("1 second"),
-        Effect.orElseSucceed(() => undefined),
-      ),
+      registry
+        .run(
+          target,
+          request(
+            WS_METHODS.pullRequestsInvalidate,
+            target === origin || input.reference === undefined
+              ? input
+              : { ...input, reference: Struct.omit(input.reference, ["workspace"]) },
+          ),
+        )
+        .pipe(
+          // GitHub already accepted the write. A stalled reader must not delay its confirmation.
+          Effect.timeoutOption("1 second"),
+          Effect.orElseSucceed(() => undefined),
+        ),
     { concurrency: 3, discard: true },
   );
 });
@@ -158,18 +180,27 @@ export function createPullRequestRouter() {
       const origin = yield* EnvironmentSupervisor;
       const registry = yield* EnvironmentRegistry;
       const used = routedReads.get(registry);
-      const targets = new Map<EnvironmentId, PullRequestRef>();
+      const targets = new Map<string, { target: EnvironmentId; reference: PullRequestRef }>();
       for (const entry of used?.values() ?? []) {
         if (entry.origin !== origin.target.environmentId) continue;
         const ref = input.reference;
         if (ref !== undefined && !matchesReference(entry.reference, ref)) continue;
-        for (const target of entry.targets) targets.set(target, entry.reference);
-        if (input.reference !== undefined)
-          targets.set(origin.target.environmentId, entry.reference);
+        for (const target of [
+          ...entry.targets,
+          ...(input.reference === undefined ? [] : [origin.target.environmentId]),
+        ]) {
+          targets.set(
+            encodeKey([
+              target,
+              input.reference === undefined ? null : referenceKey(entry.reference),
+            ]),
+            { target, reference: entry.reference },
+          );
+        }
       }
       yield* Effect.forEach(
-        targets,
-        ([target, reference]) =>
+        targets.values(),
+        ({ target, reference }) =>
           invalidateTarget(registry, origin.target.environmentId, target, [
             input.reference === undefined ? {} : { reference },
           ]),
@@ -187,13 +218,7 @@ export function createPullRequestRouter() {
     const sourceEntry = entries.get(origin.target.environmentId);
     const used = routedReads.get(registry) ?? new Map<string, RoutedRead>();
     routedReads.set(registry, used);
-    const refKey = encodeKey([
-      origin.target.environmentId,
-      ref.projectId,
-      ref.host?.toLowerCase() ?? null,
-      ref.repository.toLowerCase(),
-      String(ref.number),
-    ]);
+    const refKey = encodeKey([origin.target.environmentId, referenceKey(ref)]);
     const finish = (operation: ReturnType<typeof request<T>>) =>
       operation.pipe(
         Effect.tap(() => {
@@ -209,7 +234,9 @@ export function createPullRequestRouter() {
               continue;
             for (const target of [...entry.targets, origin.target.environmentId]) {
               const refs = targets.get(target) ?? [];
-              if (!refs.some((existing) => existing.host === entry.reference.host))
+              if (
+                !refs.some((existing) => referenceKey(existing) === referenceKey(entry.reference))
+              )
                 refs.push(entry.reference);
               targets.set(target, refs);
             }
@@ -265,7 +292,7 @@ export function createPullRequestRouter() {
     const run = (id: EnvironmentId): ReturnType<typeof request<T>> =>
       (id === origin.target.environmentId
         ? guardedSource
-        : registry.run(id, request(tag, routedInput))
+        : registry.run(id, request(tag, Struct.omit(routedInput, ["workspace"])))
       ).pipe(
         Effect.tap(() =>
           Effect.sync(() => {
