@@ -6,7 +6,7 @@ import { Tool, Toolkit } from "effect/unstable/ai";
 import { OrchestrationEngineService } from "../../../orchestration/Services/OrchestrationEngine.ts";
 import { McpInvocationContext } from "../../McpInvocationContext.ts";
 
-export class SideChatReportError extends Schema.TaggedErrorClass<SideChatReportError>()(
+export class SideChatReportError extends Schema.TaggedError<SideChatReportError>()(
   "SideChatReportError",
   { message: Schema.String },
 ) {}

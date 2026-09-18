@@ -66,6 +66,7 @@ const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.make(val
 function makeOrchestrationLayer(
   databasePath?: string,
   settleScripts: Layer.Layer<ProjectSettleScriptRunner> = noProjectSettleScripts,
+  repositoryIdentityResolver?: RepositoryIdentityResolver.RepositoryIdentityResolver["Service"],
 ) {
   const persistence = databasePath
     ? makeSqlitePersistenceLive(databasePath)
@@ -86,7 +87,14 @@ function makeOrchestrationLayer(
     Layer.provide(ThreadPlanProgress.layer),
     Layer.provide(OrchestrationEventStoreLive),
     Layer.provideMerge(OrchestrationCommandReceiptRepositoryLive),
-    Layer.provide(RepositoryIdentityResolver.layer),
+    Layer.provide(
+      repositoryIdentityResolver
+        ? Layer.succeed(
+            RepositoryIdentityResolver.RepositoryIdentityResolver,
+            repositoryIdentityResolver,
+          )
+        : RepositoryIdentityResolver.layer,
+    ),
     Layer.provide(persistence),
     Layer.provideMerge(ServerConfigLayer),
     Layer.provideMerge(WorktreeOperationGuard.layer),
@@ -97,8 +105,11 @@ function makeOrchestrationLayer(
 async function createOrchestrationSystem(
   databasePath?: string,
   settleScripts?: Layer.Layer<ProjectSettleScriptRunner>,
+  repositoryIdentityResolver?: RepositoryIdentityResolver.RepositoryIdentityResolver["Service"],
 ) {
-  const runtime = ManagedRuntime.make(makeOrchestrationLayer(databasePath, settleScripts));
+  const runtime = ManagedRuntime.make(
+    makeOrchestrationLayer(databasePath, settleScripts, repositoryIdentityResolver),
+  );
   const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
   const snapshotQuery = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
   const worktreeOperations = await runtime.runPromise(
@@ -598,6 +609,17 @@ describe("OrchestrationEngine", () => {
           threadId,
           requestId,
           answers: { "0": "pnpm", "1": "Example" },
+          attachmentsByQuestionId: {
+            "1": [
+              {
+                type: "file" as const,
+                id: "thread-1-00000000-0000-4000-8000-0000000000aa-txt",
+                name: "spec.txt",
+                mimeType: "text/plain",
+                sizeBytes: 4,
+              },
+            ],
+          },
           createdAt: "2026-01-01T00:00:02.000Z",
         };
         await expect(
@@ -615,8 +637,9 @@ describe("OrchestrationEngine", () => {
           (message) => message.role === "user",
         );
         expect(userMessages).toHaveLength(1);
+        expect(userMessages?.[0]?.attachments).toEqual(response.attachmentsByQuestionId["1"]);
         expect(userMessages?.[0]?.text).toBe(
-          "Which package manager?\npnpm\n\nWhat should it be named?\nExample",
+          "Which package manager?\npnpm\n\nWhat should it be named?\nExample\nAttached file: spec.txt (thread-1-00000000-0000-4000-8000-0000000000aa-txt)",
         );
         expect(
           after.threads[0]?.activities.find((activity) => activity.kind === "user-input.resolved")
@@ -720,6 +743,7 @@ describe("OrchestrationEngine", () => {
           runtimeMode: "full-access" as const,
           branch: null,
           worktreePath: null,
+          pullRequests: [],
           latestTurn: null,
           createdAt: "2026-03-03T00:00:02.000Z",
           updatedAt: "2026-03-03T00:00:03.000Z",
@@ -755,6 +779,7 @@ describe("OrchestrationEngine", () => {
           getSideChatWorktrees: () => Effect.succeed([]),
           getThreadContextTransfers: () => Effect.succeed([]),
           getUserInputActivity: () => Effect.die("unused"),
+          listActivitiesByKind: () => Effect.die("unused"),
           getCommandReadModel: () => Effect.succeed(commandReadModel),
           getSnapshot: () =>
             Effect.sync(() => {
@@ -781,6 +806,7 @@ describe("OrchestrationEngine", () => {
           getEventReplayStats: () => Effect.die("unused"),
           getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getProjectShellById: () => Effect.succeed(Option.none()),
+          getProjectShells: () => Effect.succeed([]),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
           getImportedAgentSessionSources: () => Effect.die("unused"),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
@@ -1360,7 +1386,22 @@ describe("OrchestrationEngine", () => {
   it.each(["unlink", "relink", "branch", "worktree", "project", "delete"] as const)(
     "rejects PR discovery completed after a newer %s command",
     async (change) => {
-      const system = await createOrchestrationSystem();
+      const system = await createOrchestrationSystem(undefined, undefined, {
+        resolve: (workspaceRoot) =>
+          Effect.succeed({
+            canonicalKey: "example.test/owner/repository",
+            provider: "github",
+            displayName: "owner/repository",
+            rootPath: workspaceRoot,
+            locator: {
+              source: "git-remote",
+              remoteName: "origin",
+              remoteUrl: "https://example.test/owner/repository.git",
+            },
+          }),
+      });
+      // Same-tick links must replace the old PR, not rely on timestamp ordering.
+      const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(now()));
       try {
         const projectId = ProjectId.make("pr-race-project");
         const threadId = ThreadId.make("pr-race-thread");
@@ -1409,6 +1450,7 @@ describe("OrchestrationEngine", () => {
             linkedPullRequest: previous,
           }),
         );
+        expect((await system.readModel()).threads[0]?.linkedPullRequest).toEqual(previous);
         const metadataChanges = {
           unlink: { linkedPullRequest: null },
           relink: {
@@ -1462,6 +1504,9 @@ describe("OrchestrationEngine", () => {
         if (change === "delete") return;
         const current = (await system.readModel()).threads[0];
         expect(current?.branchPullRequest ?? null).toBeNull();
+        expect(current?.pullRequests.map((link) => link.number)).toEqual(
+          change === "unlink" ? [] : change === "relink" ? [3] : [1],
+        );
         expect(current?.linkedPullRequest ?? null).toEqual(
           change === "unlink"
             ? null
@@ -1470,6 +1515,7 @@ describe("OrchestrationEngine", () => {
               : previous,
         );
       } finally {
+        clock.mockRestore();
         await system.dispose();
       }
     },

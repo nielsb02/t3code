@@ -4,7 +4,7 @@ import type {
   VcsStatusResult,
   WorkspaceRepository,
 } from "@t3tools/contracts";
-import { useState, type ReactNode } from "react";
+import { useState, type ReactNode, type ComponentProps } from "react";
 import { GitPullRequestIcon } from "lucide-react";
 import { Tabs } from "@base-ui/react/tabs";
 import { PullRequestDetailPanel } from "./PullRequestDetailPanel";
@@ -13,6 +13,8 @@ import { Button } from "../ui/button";
 import type { DraftId } from "../../composerDraftStore";
 
 export function WorkspacePullRequestsPanel({
+  shortcutsEnabled,
+  getShortcutContext,
   threadRef,
   projectId,
   repositories,
@@ -23,6 +25,8 @@ export function WorkspacePullRequestsPanel({
   isPending,
   onRefresh,
 }: {
+  shortcutsEnabled: boolean;
+  getShortcutContext: ComponentProps<typeof PullRequestDetailPanel>["getShortcutContext"];
   threadRef: ScopedThreadRef;
   projectId: ProjectId;
   repositories: readonly WorkspaceRepository[];
@@ -79,6 +83,8 @@ export function WorkspacePullRequestsPanel({
     content = (
       <PullRequestDetailPanel
         key={`${threadRef.environmentId}:${threadRef.threadId}:${repository.path}:${pr.number}`}
+        shortcutsEnabled={shortcutsEnabled}
+        getShortcutContext={getShortcutContext}
         environmentId={threadRef.environmentId}
         threadRef={threadRef}
         reference={{

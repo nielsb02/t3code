@@ -62,6 +62,7 @@ const fixture = (): OrchestrationReadModel => ({
       messages: [],
       proposedPlans: [],
       activities: [],
+      pullRequests: [],
       checkpoints: [],
       session: null,
     },

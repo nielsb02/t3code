@@ -10,7 +10,7 @@ import * as Schema from "effect/Schema";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 
-export class WorkspaceRepositoryDiscoveryError extends Schema.TaggedErrorClass<WorkspaceRepositoryDiscoveryError>()(
+export class WorkspaceRepositoryDiscoveryError extends Schema.TaggedError<WorkspaceRepositoryDiscoveryError>()(
   "WorkspaceRepositoryDiscoveryError",
   { cwd: Schema.String, message: Schema.String, cause: Schema.optional(Schema.Defect()) },
 ) {}

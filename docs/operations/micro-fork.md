@@ -72,6 +72,9 @@ expandable canvas, drag navigation, zoom controls, and keyboard navigation. It i
 based on [upstream PR #11189](https://github.com/pingdotgg/t3code/pull/11189).
 Native mobile continues to show source.
 
+For the v0.0.42 merge, retain this renderer alongside upstream's shared code-block
+highlighting changes. That release has no native Mermaid renderer.
+
 This is a fork override that may be replaced by a future native upstream feature.
 When an upstream merge creates a conflict or introduces overlapping Mermaid
 support, ask the maintainer to choose whether to retain this implementation as

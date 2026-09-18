@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-export class WorktreeCleanupBusyError extends Schema.TaggedErrorClass<WorktreeCleanupBusyError>()(
+export class WorktreeCleanupBusyError extends Schema.TaggedError<WorktreeCleanupBusyError>()(
   "WorktreeCleanupBusyError",
   { cwd: Schema.String },
 ) {

@@ -12,12 +12,12 @@ import * as ProjectSettleScriptRunner from "../project/ProjectSettleScriptRunner
 import * as ServerSettings from "../serverSettings.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 
-export const OrchestrationEventInfrastructureLayerLive = Layer.mergeAll(
+const OrchestrationEventInfrastructureLayerLive = Layer.mergeAll(
   OrchestrationEventStoreLive,
   OrchestrationCommandReceiptRepositoryLive,
 );
 
-export const OrchestrationProjectionPipelineLayerLive = OrchestrationProjectionPipelineLive.pipe(
+const OrchestrationProjectionPipelineLayerLive = OrchestrationProjectionPipelineLive.pipe(
   Layer.provide(OrchestrationEventStoreLive),
 );
 

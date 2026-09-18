@@ -114,6 +114,7 @@ export default function ProjectScriptsControl({
       icon: fileScript.icon ?? "play",
       runOnWorktreeCreate: fileScript.runOnWorktreeCreate ?? false,
       ...(fileScript.runOnThreadSettle ? { runOnThreadSettle: true } : {}),
+      waitForSetup: fileScript.runOnWorktreeCreate === true && fileScript.async === false,
       keybinding: null,
       previewUrl: fileScript.previewUrl ?? null,
       autoOpenPreview: fileScript.previewUrl ? (fileScript.autoOpenPreview ?? false) : false,

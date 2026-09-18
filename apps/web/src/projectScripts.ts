@@ -13,6 +13,7 @@ export interface ProjectScriptInput {
   readonly icon: ProjectScript["icon"];
   readonly runOnWorktreeCreate: ProjectScript["runOnWorktreeCreate"];
   readonly runOnThreadSettle?: boolean;
+  readonly waitForSetup: boolean;
   readonly previewUrl: Exclude<ProjectScript["previewUrl"], undefined> | null;
   readonly autoOpenPreview: boolean;
 }
@@ -25,6 +26,7 @@ export function buildProjectScript(id: string, input: ProjectScriptInput): Proje
     icon: input.icon,
     runOnWorktreeCreate: input.runOnWorktreeCreate,
     ...(input.runOnThreadSettle ? { runOnThreadSettle: true } : {}),
+    ...(input.runOnWorktreeCreate && input.waitForSetup ? { async: false } : {}),
     ...(input.previewUrl === null
       ? {}
       : {

@@ -256,6 +256,7 @@ describe("ReviewService", () => {
           id: ThreadId.make(name),
           projectId: ProjectId.make(name === "orphan" ? "missing" : "project-1"),
           title: name,
+          pullRequests: [],
           worktreePath,
           branch: "task",
           modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },

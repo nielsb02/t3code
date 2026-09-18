@@ -48,6 +48,12 @@ export const T3ProjectFileScript = Schema.Struct({
         "Run after a new manual settlement of a worktree thread. Never runs for automatic settlement, local checkouts, or shared active worktrees. The command may delete runtime resources and data; worktree files are preserved by T3 Code.",
     }),
   ),
+  async: Schema.optionalKey(
+    Schema.Boolean.annotate({
+      description:
+        "Only for runOnWorktreeCreate scripts. When true (the default), the agent starts while the script is still running. Set false to hold the agent until the script exits.",
+    }),
+  ),
   previewUrl: Schema.optionalKey(
     trimmedNonEmpty({
       description:

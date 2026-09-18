@@ -24,10 +24,8 @@ jobs:
         with:
           fetch-depth: 0
           ref: main
-          sparse-checkout: |
-            /*
-            !/.repos/
-          sparse-checkout-cone-mode: false
+          # Sparse checkout enables a partial clone. Git 2.55 can fail while
+          # fetching missing objects during the upstream merge, so fetch fully.
 
       - name: Verify the sync policy
         run: python3 .github/scripts/micro_sync_test.py
