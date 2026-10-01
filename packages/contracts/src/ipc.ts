@@ -27,6 +27,7 @@ import type { EditorId } from "./editor.ts";
 import type {
   DesktopAppActivationRequest,
   DesktopAppActivationResponse,
+  DesktopAppRendererReadiness,
 } from "./desktopAppActivation.ts";
 
 export interface ContextMenuItem<T extends string = string> {
@@ -1247,7 +1248,7 @@ export interface DesktopBridge {
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
   /** Present when the desktop shell accepts `t3 app` activation requests. */
   appActivation?: {
-    setReady: (ready: boolean) => Promise<void>;
+    setReady: (ready: DesktopAppRendererReadiness) => Promise<void>;
     complete: (response: DesktopAppActivationResponse) => Promise<void>;
     onRequest: (listener: (request: DesktopAppActivationRequest) => void) => () => void;
   };

@@ -1,7 +1,8 @@
+import { useAtomValue } from "@effect/atom-react";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { DesktopAppActivationRequest } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useEffectEvent, useRef } from "react";
+import { useEffect, useEffectEvent } from "react";
 
 import { handleDesktopAppActivationRequest } from "../../desktopAppActivation";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
@@ -11,8 +12,10 @@ import { executeMicroControl } from "../../microControls";
 import { readProjects, readThreadShell, waitForProject } from "../../state/entities";
 import { useEnvironments, usePrimaryEnvironment } from "../../state/environments";
 import { projectEnvironment } from "../../state/projects";
-import { useEnvironmentQuery } from "../../state/query";
-import { environmentShell } from "../../state/shell";
+import {
+  desktopAppRendererReadinessAtom,
+  readDesktopSessionSnapshot,
+} from "../../state/desktopSessions";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
 
@@ -22,21 +25,12 @@ export function DesktopAppActivationCoordinator() {
   const primaryEnvironment = usePrimaryEnvironment();
   const createProject = useAtomCommand(projectEnvironment.create, { reportFailure: false });
   const openThread = useNewThreadHandler();
-  const queueRef = useRef(Promise.resolve());
+  const readiness = useAtomValue(desktopAppRendererReadinessAtom);
   const activation = window.desktopBridge?.appActivation;
-  const shell = useEnvironmentQuery(
-    primaryEnvironment === null
-      ? null
-      : environmentShell.stateAtom(primaryEnvironment.environmentId),
-  );
-  const ready =
-    activation !== undefined &&
-    primaryEnvironment?.connection.phase === "connected" &&
-    primaryEnvironment.serverConfig !== null &&
-    shell.data?.snapshot._tag === "Some";
 
   const processRequest = useEffectEvent(async (request: DesktopAppActivationRequest) =>
     handleDesktopAppActivationRequest(request, {
+      readSessions: readDesktopSessionSnapshot,
       executeMicroControl: (action) => document.hasFocus() && executeMicroControl(action),
       isEnvironmentConnected: (environmentId) =>
         environments.some(
@@ -94,26 +88,31 @@ export function DesktopAppActivationCoordinator() {
   );
 
   useEffect(() => {
-    if (!ready || activation === undefined) return;
+    if (activation === undefined) return;
 
-    let subscribed = true;
     const unsubscribe = activation.onRequest((request) => {
-      queueRef.current = queueRef.current.then(async () => {
-        const response = await processRequest(request);
-        await activation.complete(response);
-      });
-      queueRef.current = queueRef.current.catch(() => undefined);
-    });
-    // Skip readiness if React runs cleanup before this subscription can receive requests.
-    queueMicrotask(() => {
-      if (subscribed) void activation.setReady(true).catch(() => undefined);
+      // The broker serializes mutations. Reads must also complete during a slow open request.
+      void processRequest(request)
+        .then((response) => activation.complete(response))
+        .catch(() => undefined);
     });
     return () => {
-      subscribed = false;
-      void activation.setReady(false).catch(() => undefined);
+      void activation.setReady({ ready: false }).catch(() => undefined);
       unsubscribe();
     };
-  }, [activation, ready]);
+  }, [activation]);
+
+  useEffect(() => {
+    if (activation === undefined) return;
+    let current = true;
+    // Skip readiness if React cleans up before this subscription can receive requests.
+    queueMicrotask(() => {
+      if (current) void activation.setReady(readiness).catch(() => undefined);
+    });
+    return () => {
+      current = false;
+    };
+  }, [activation, readiness]);
 
   return null;
 }

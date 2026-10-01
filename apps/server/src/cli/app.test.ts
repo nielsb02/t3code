@@ -261,28 +261,37 @@ describe("t3 app", () => {
     ),
   );
 
-  it.effect("rejects a Micro acknowledgement for an open-workspace request", () =>
-    withTempDirectory("t3-app-wrong-action-", (root) =>
-      Effect.gen(function* () {
-        const baseDir = NodePath.join(root, "t3-home");
-        yield* fakeDesktop({
-          baseDir,
-          reply: (request) => ({
-            version: 1,
-            requestId: request.requestId,
-            ok: true,
-            action: "dial-press",
-          }),
-        });
+  for (const kind of ["micro-control", "session-list"] as const) {
+    it.effect(`rejects a ${kind} acknowledgement for an open-workspace request`, () =>
+      withTempDirectory("t3-app-wrong-action-", (root) =>
+        Effect.gen(function* () {
+          const baseDir = NodePath.join(root, "t3-home");
+          yield* fakeDesktop({
+            baseDir,
+            reply: (request) => ({
+              version: 1,
+              requestId: request.requestId,
+              ok: true,
+              ...(kind === "micro-control"
+                ? { action: "dial-press" }
+                : {
+                    type: "session-list",
+                    environments: [],
+                    sidebarOrder: [],
+                    sidebarOrderReady: false,
+                  }),
+            }),
+          });
 
-        const error = yield* runCli(["app", "--base-dir", baseDir]).pipe(Effect.flip);
-        expect(error).toMatchObject({
-          _tag: "DesktopAppUnreachableError",
-          cause: { message: "The desktop app response did not match this request." },
-        });
-      }).pipe(Effect.scoped),
-    ),
-  );
+          const error = yield* runCli(["app", "--base-dir", baseDir]).pipe(Effect.flip);
+          expect(error).toMatchObject({
+            _tag: "DesktopAppUnreachableError",
+            cause: { message: "The desktop app response did not match this request." },
+          });
+        }).pipe(Effect.scoped),
+      ),
+    );
+  }
 
   for (const responseKind of ["failure", "invalid"] as const) {
     it.effect(`never falls back after the default desktop sends a ${responseKind} response`, () =>

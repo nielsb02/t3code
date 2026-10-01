@@ -137,6 +137,15 @@ function RootRouteNotFoundView() {
 }
 
 function RootRouteView() {
+  return (
+    <>
+      {window.desktopBridge?.appActivation ? <DesktopAppActivationCoordinator /> : null}
+      <RootRouteContent />
+    </>
+  );
+}
+
+function RootRouteContent() {
   useEffect(() => installDesktopPasteAsText(window.desktopBridge, window), []);
   const pathname = useLocation({ select: (location) => location.pathname });
   const { authGateState } = Route.useRouteContext();
@@ -226,7 +235,6 @@ function RootRouteView() {
           hostedStatic={authGateState.status === "hosted-static"}
         >
           {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
-          {primaryEnvironmentAuthenticated ? <DesktopAppActivationCoordinator /> : null}
           {isElectron ? <RunningThreadKeepAlive /> : null}
           <RelayClientInstallDialog />
           <ConnectOnboardingDialog />

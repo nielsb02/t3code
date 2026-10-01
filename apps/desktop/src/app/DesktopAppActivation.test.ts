@@ -9,6 +9,7 @@ import {
   ProjectId,
   ThreadId,
   DesktopAppActivationResponse,
+  DESKTOP_SESSION_LIST_MAX_BYTES,
   type DesktopAppActivationRequest,
   type MicroControlAction,
 } from "@t3tools/contracts";
@@ -93,6 +94,71 @@ function exchangeLine(address: string, line: string) {
 }
 
 describe("desktop app control server", () => {
+  it.effect("returns large session lists and rejects oversized replies without truncation", () =>
+    Effect.gen(function* () {
+      const platform = yield* HostProcessPlatform;
+      const userId = yield* HostProcessUserId;
+      yield* Effect.promise(async () => {
+        const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-app-snapshot-"));
+        const target = makeTarget(NodePath.join(root, "userdata"), platform, userId);
+        const server = await startDesktopAppControlServer({
+          ...target,
+          userId,
+          cancel: () => undefined,
+          onReclaimError: () => undefined,
+          handle: async (input) => ({
+            version: 1,
+            requestId: input.requestId,
+            ok: true,
+            type: "session-list",
+            environments: [
+              {
+                environmentId: EnvironmentId.make("remote"),
+                label: "VPS",
+                connected: true,
+                freshness: "live",
+                sessions: [
+                  {
+                    threadId: ThreadId.make("thread"),
+                    title: "x".repeat(
+                      input.requestId === "too-large" ? DESKTOP_SESSION_LIST_MAX_BYTES : 70_000,
+                    ),
+                    status: "idle",
+                    updatedAt: "",
+                    isPinned: false,
+                    completionId: null,
+                    directory: null,
+                  },
+                ],
+              },
+            ],
+            sidebarOrder: [],
+            sidebarOrderReady: true,
+          }),
+        });
+        openServers.push(server);
+        const response = await exchange(target.address, {
+          version: 1,
+          requestId: "large",
+          type: "list-sessions",
+        });
+        expect(response).toMatchObject({ ok: true, type: "session-list" });
+        if (!response.ok || !("environments" in response)) throw new Error("Missing snapshot");
+        expect(response.environments[0]?.sessions[0]?.title).toHaveLength(70_000);
+        expect(
+          await exchange(target.address, {
+            version: 1,
+            requestId: "too-large",
+            type: "list-sessions",
+          }),
+        ).toMatchObject({ ok: false, requestId: "too-large", code: "snapshot-too-large" });
+        await server.close();
+        openServers.splice(openServers.indexOf(server), 1);
+        await NodeFSP.rm(root, { recursive: true, force: true });
+      });
+    }),
+  );
+
   it.effect("roundtrips every Micro action and rejects malformed requests before dispatch", () =>
     Effect.gen(function* () {
       const platform = yield* HostProcessPlatform;

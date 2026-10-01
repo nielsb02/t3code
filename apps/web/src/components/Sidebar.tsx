@@ -1,3 +1,4 @@
+import { publishDesktopSidebarOrder } from "../state/desktopSessions";
 import { orderThreadsForDeletion, sideChatsByParent } from "@t3tools/shared/threadHierarchy";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
@@ -138,6 +139,7 @@ import {
   useAllEnvironmentProjectSnapshotsReady,
   useProjects,
   useThreadShells,
+  useAllEnvironmentShellsBootstrapped,
 } from "../state/entities";
 import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
@@ -2187,6 +2189,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
 });
 
 export default function Sidebar() {
+  const shellsBootstrapped = useAllEnvironmentShellsBootstrapped();
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
@@ -2682,6 +2685,16 @@ export default function Sidebar() {
       snoozeNow: preciseNow,
     };
   }, [nowMinute, optimisticDrop, scopedProjectKeys, serverConfigs, snoozeWakeTick, threads]);
+
+  useEffect(() => {
+    if (!shellsBootstrapped) return;
+    publishDesktopSidebarOrder(
+      [...pinnedThreads, ...activeThreads].map((thread) => ({
+        environmentId: thread.environmentId,
+        threadId: thread.id,
+      })),
+    );
+  }, [pinnedThreads, activeThreads, shellsBootstrapped]);
 
   const sideChats = useMemo(() => sideChatsByParent(threads), [threads]);
 

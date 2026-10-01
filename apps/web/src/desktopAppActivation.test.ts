@@ -22,6 +22,7 @@ function dependencies(
   overrides: Partial<DesktopAppActivationDependencies> = {},
 ): DesktopAppActivationDependencies {
   return {
+    readSessions: () => ({ environments: [], sidebarOrder: [], sidebarOrderReady: false }),
     executeMicroControl: vi.fn(() => true),
     isEnvironmentConnected: (id) => id === environmentId,
     findThread: () => ({ projectId: existingProjectId }),
@@ -40,6 +41,34 @@ function dependencies(
 }
 
 describe("desktop app activation", () => {
+  it("reports an unavailable catalog instead of an authoritative empty list", async () => {
+    const response = await handleDesktopAppActivationRequest(
+      { version: 1, requestId: "list", type: "list-sessions" },
+      dependencies({ readSessions: () => null }),
+    );
+    expect(response).toMatchObject({ ok: false, code: "renderer-unavailable" });
+  });
+
+  it("reads session snapshots without a primary target or navigation", async () => {
+    const deps = dependencies({ getTarget: () => null });
+    const response = await handleDesktopAppActivationRequest(
+      { version: 1, requestId: "list", type: "list-sessions" },
+      deps,
+    );
+    expect(response).toEqual({
+      version: 1,
+      requestId: "list",
+      ok: true,
+      type: "session-list",
+      environments: [],
+      sidebarOrder: [],
+      sidebarOrderReady: false,
+    });
+    expect(deps.navigateThread).not.toHaveBeenCalled();
+    expect(deps.createProject).not.toHaveBeenCalled();
+    expect(deps.openThread).not.toHaveBeenCalled();
+  });
+
   it.each<MicroControlAction>([
     "dial-clockwise",
     "dial-counterclockwise",
@@ -154,6 +183,7 @@ describe("desktop app activation", () => {
   it("uses the requested connected environment even when it is not the primary", async () => {
     const otherId = EnvironmentId.make("other");
     const deps = dependencies({
+      getTarget: () => null,
       isEnvironmentConnected: () => true,
       findThread: vi.fn(() => ({ projectId: existingProjectId })),
     });

@@ -89,13 +89,15 @@ jobs:
         if: steps.plan.outputs.build == 'true'
         run: vp install --filter=@t3tools/desktop... --filter=@t3tools/web... --filter=t3... --filter=@t3tools/scripts...
 
-      - name: Verify Micro controls, settlement actions, and affected types
+      - name: Verify Micro sessions, controls, settlement actions, and affected types
         if: steps.plan.outputs.build == 'true'
         run: |
           vp test run \
             apps/desktop/src/app/DesktopAppActivation.test.ts \
             apps/desktop/src/app/DesktopAppActivationBroker.test.ts \
             apps/web/src/desktopAppActivation.test.ts \
+            apps/web/src/desktopSessions.test.ts \
+            packages/contracts/src/desktopSessions.test.ts \
             apps/web/src/microControls.test.ts \
             apps/web/src/projectScripts.test.ts \
             apps/web/src/session-logic.test.ts \

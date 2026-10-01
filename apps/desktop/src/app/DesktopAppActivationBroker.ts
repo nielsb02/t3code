@@ -1,9 +1,12 @@
 // @effect-diagnostics globalTimers:off -- This protocol broker owns cancellable request deadlines outside the Effect runtime.
 import {
   DESKTOP_APP_ACTIVATION_PROTOCOL_VERSION,
+  matchesDesktopAppActivationResponse,
   type DesktopAppActivationFailure,
   type DesktopAppActivationRequest,
   type DesktopAppActivationResponse,
+  type DesktopAppRendererReady,
+  type EnvironmentId,
 } from "@t3tools/contracts";
 
 interface PendingActivation {
@@ -36,6 +39,8 @@ export class DesktopAppActivationBroker {
   readonly #activate: () => void;
   #renderer: RendererSender | null = null;
   #closed = false;
+  #primaryEnvironmentReady = false;
+  #readyEnvironmentIds = new Set<EnvironmentId>();
 
   constructor(input: { readonly requestTimeoutMs: number; readonly activate: () => void }) {
     this.#requestTimeoutMs = input.requestTimeoutMs;
@@ -53,7 +58,10 @@ export class DesktopAppActivationBroker {
         failure(request.requestId, "invalid-request", "The request id is already in use."),
       );
     }
-    if (request.type === "micro-control" && this.#renderer === null) {
+    if (
+      (request.type === "micro-control" || request.type === "list-sessions") &&
+      this.#renderer === null
+    ) {
       return Promise.resolve(
         failure(request.requestId, "renderer-unavailable", "The T3 Code window is not ready."),
       );
@@ -77,20 +85,28 @@ export class DesktopAppActivationBroker {
       });
     });
 
-    if (request.type !== "micro-control") this.#activate();
+    if (request.type === "open-workspace" || request.type === "open-thread") this.#activate();
     this.#flush();
     return response;
   }
 
-  registerRenderer(send: RendererSender): void {
+  registerRenderer(send: RendererSender, readiness: DesktopAppRendererReady): void {
     this.#renderer = send;
+    this.#primaryEnvironmentReady = readiness.primaryEnvironmentReady;
+    this.#readyEnvironmentIds = new Set(readiness.readyEnvironmentIds);
     this.#flush();
   }
 
   clearRenderer(): void {
     this.#renderer = null;
+    this.#primaryEnvironmentReady = false;
+    this.#readyEnvironmentIds.clear();
     for (const pending of this.#pending.values()) {
-      if (pending.dispatched || pending.request.type === "micro-control") {
+      if (
+        pending.dispatched ||
+        pending.request.type === "micro-control" ||
+        pending.request.type === "list-sessions"
+      ) {
         this.#settle(
           failure(
             pending.request.requestId,
@@ -105,12 +121,7 @@ export class DesktopAppActivationBroker {
   complete(response: DesktopAppActivationResponse): void {
     const pending = this.#pending.get(response.requestId);
     if (!pending?.dispatched) return;
-    if (
-      response.ok &&
-      (pending.request.type === "micro-control"
-        ? !("action" in response) || response.action !== pending.request.action
-        : "action" in response)
-    ) {
+    if (!matchesDesktopAppActivationResponse(pending.request, response)) {
       this.#settle(
         failure(
           response.requestId,
@@ -142,18 +153,28 @@ export class DesktopAppActivationBroker {
   #flush(): void {
     const renderer = this.#renderer;
     if (renderer === null) return;
-    if ([...this.#pending.values()].some((pending) => pending.dispatched)) return;
+    let mutationInFlight = [...this.#pending.values()].some(
+      (pending) => pending.dispatched && pending.request.type !== "list-sessions",
+    );
 
     for (const pending of this.#pending.values()) {
       if (pending.dispatched) continue;
+      const request = pending.request;
+      if (request.type !== "list-sessions") {
+        if (mutationInFlight) continue;
+        if (request.type === "open-workspace" && !this.#primaryEnvironmentReady) continue;
+        if (request.type === "open-thread" && !this.#readyEnvironmentIds.has(request.environmentId))
+          continue;
+        mutationInFlight = true;
+      }
       try {
         pending.dispatched = true;
-        renderer(pending.request);
+        renderer(request);
       } catch {
         pending.dispatched = false;
         this.clearRenderer();
+        return;
       }
-      return;
     }
   }
 

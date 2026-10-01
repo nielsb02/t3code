@@ -2,6 +2,7 @@ import type {
   DesktopAppActivationFailure,
   DesktopAppActivationRequest,
   DesktopAppActivationResponse,
+  DesktopAppSessionListSuccess,
   EnvironmentId,
   ExecutionEnvironmentPlatformOs,
   MicroControlAction,
@@ -23,6 +24,10 @@ export interface DesktopAppActivationTarget {
 }
 
 export interface DesktopAppActivationDependencies {
+  readonly readSessions: () => Pick<
+    DesktopAppSessionListSuccess,
+    "environments" | "sidebarOrder" | "sidebarOrderReady"
+  > | null;
   readonly executeMicroControl: (action: MicroControlAction) => boolean;
   readonly isEnvironmentConnected: (environmentId: EnvironmentId) => boolean;
   readonly findThread: (ref: ScopedThreadRef) => { readonly projectId: ProjectId } | null;
@@ -64,6 +69,23 @@ export async function handleDesktopAppActivationRequest(
   request: DesktopAppActivationRequest,
   dependencies: DesktopAppActivationDependencies,
 ): Promise<DesktopAppActivationResponse> {
+  if (request.type === "list-sessions") {
+    const snapshot = dependencies.readSessions();
+    if (snapshot === null) {
+      return failure(
+        request.requestId,
+        "renderer-unavailable",
+        "The desktop environment catalog is still loading.",
+      );
+    }
+    return {
+      version: 1,
+      requestId: request.requestId,
+      ok: true,
+      type: "session-list",
+      ...snapshot,
+    };
+  }
   if (request.type === "micro-control") {
     try {
       if (!dependencies.executeMicroControl(request.action)) {

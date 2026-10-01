@@ -5,6 +5,7 @@ import * as NodeOS from "node:os";
 
 import {
   DESKTOP_APP_ACTIVATION_PROTOCOL_VERSION,
+  matchesDesktopAppActivationResponse,
   DesktopAppActivationErrorCode,
   DesktopAppActivationResponse,
   type DesktopAppActivationPlatform,
@@ -141,13 +142,7 @@ function sendDesktopAppActivationRequest(input: {
         finish({ type: "failure", error: new Error("The desktop app response is invalid.") });
         return;
       }
-      if (
-        parsed.requestId !== input.request.requestId ||
-        (parsed.ok &&
-          (input.request.type === "micro-control"
-            ? !("action" in parsed) || parsed.action !== input.request.action
-            : "action" in parsed))
-      ) {
+      if (!matchesDesktopAppActivationResponse(input.request, parsed)) {
         finish({
           type: "failure",
           error: new Error("The desktop app response did not match this request."),

@@ -65,6 +65,15 @@ workflow and retained releases provide the source commit and build version for
 each download. Changes to this fork's own workflow are maintained directly;
 they are not replaced by upstream sync.
 
+## Creator Micro session feed
+
+Micro Manager’s **T3 desktop sessions** source requires the fork’s local
+`list-sessions` desktop protocol, including environment readiness and sidebar
+order publication. Keep it in released source: the previously installed app had
+this as a local patch, so replacing it with a release without the patch left
+Creator Micro connected but showing no sessions. The release workflow covers
+the protocol, broker, session snapshot, and navigation behavior.
+
 ## Mermaid rendering
 
 The fork renders completed Mermaid code blocks in web and desktop chat, with an

@@ -1,3 +1,6 @@
+import { useNowMinute } from "../hooks/useNowMinute";
+import { publishDesktopSidebarOrder } from "../state/desktopSessions";
+import { isDesktopSidebarThread } from "../desktopSessions";
 import { sideChatsByParent } from "@t3tools/shared/threadHierarchy";
 import { SidebarSideTasks } from "./SidebarSideTasks";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
@@ -89,7 +92,9 @@ import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import {
   readThreadShell,
   useProjects,
+  useServerConfigs,
   useThreadShells,
+  useAllEnvironmentShellsBootstrapped,
   useThreadShellsForProjectRefs,
 } from "../state/entities";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
@@ -3135,6 +3140,9 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
 });
 
 export default function LegacySidebar() {
+  const shellsBootstrapped = useAllEnvironmentShellsBootstrapped();
+  const nowMinute = useNowMinute();
+  const serverConfigs = useServerConfigs();
   const projects = useProjects();
   const sidebarThreads = useThreadShells();
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
@@ -3501,6 +3509,30 @@ export default function LegacySidebar() {
       threadsByProjectKey,
     ],
   );
+  useEffect(() => {
+    if (!shellsBootstrapped) return;
+    const byKey = new Map(
+      sidebarThreads.map((thread) => [
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        thread,
+      ]),
+    );
+    const now = new Date().toISOString();
+    publishDesktopSidebarOrder(
+      visibleSidebarThreadKeys.flatMap((key) => {
+        const thread = byKey.get(key);
+        return thread &&
+          isDesktopSidebarThread(
+            thread,
+            serverConfigs.get(thread.environmentId)?.environment.capabilities,
+            now,
+          )
+          ? [scopeThreadRef(thread.environmentId, thread.id)]
+          : [];
+      }),
+    );
+  }, [visibleSidebarThreadKeys, sidebarThreads, serverConfigs, shellsBootstrapped, nowMinute]);
+
   const threadJumpCommandByKey = useMemo(() => {
     const mapping = new Map<string, NonNullable<ReturnType<typeof threadJumpCommandForIndex>>>();
     for (const [visibleThreadIndex, threadKey] of visibleSidebarThreadKeys.entries()) {
