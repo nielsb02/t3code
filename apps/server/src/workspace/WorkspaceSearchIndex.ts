@@ -107,12 +107,6 @@ export class WorkspaceSearchIndexDestroyFailed extends Schema.TaggedError<Worksp
   }
 }
 
-export type WorkspaceSearchIndexError =
-  | WorkspaceSearchIndexCreateFailed
-  | WorkspaceSearchIndexScanTimedOut
-  | WorkspaceSearchIndexSearchFailed
-  | WorkspaceSearchIndexRefreshFailed;
-
 export type RankedSearchEntriesResult = ProjectSearchEntriesResult & {
   readonly scores: ReadonlyArray<number>;
 };

@@ -112,7 +112,16 @@ jobs:
             apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts \
             apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.test.ts \
             apps/server/src/cli/app.test.ts \
-            apps/server/src/server.test.ts
+            apps/server/src/server.test.ts \
+            apps/server/src/persistence/Migrations/053_ReconcileForkThreadSchema.test.ts \
+            apps/server/src/pullRequest/PullRequestService.test.ts \
+            apps/server/src/orchestration/PullRequestSyncReactor.test.ts \
+            apps/server/src/provider/Layers/CodexSideChat.test.ts \
+            apps/web/src/components/MermaidCanvas.test.tsx \
+            apps/web/src/components/MermaidDiagram.test.tsx \
+            apps/web/src/lib/workspaceDiff.test.ts \
+            apps/web/src/lib/diffRendering.test.ts \
+            packages/client-runtime/src/state/pullRequests.test.ts
           vp run --filter @t3tools/contracts --filter @t3tools/shared --filter @t3tools/web --filter @t3tools/desktop --filter t3 typecheck
 
       - name: Setup Rust

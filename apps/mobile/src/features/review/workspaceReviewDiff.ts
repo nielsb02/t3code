@@ -3,6 +3,7 @@ import { buildReviewParsedDiff, type ReviewParsedDiff } from "./reviewModel";
 export interface WorkspaceReviewDiff {
   readonly path: string;
   readonly diff: string;
+  readonly truncated?: boolean;
 }
 
 export function buildWorkspaceReviewDiff(
@@ -13,6 +14,10 @@ export function buildWorkspaceReviewDiff(
   const notices: string[] = [];
   let hasRawPatch = false;
   for (const entry of entries) {
+    if (entry.truncated)
+      notices.push(
+        `${entry.path}: preview is incomplete. Select this repository to load its full diff.`,
+      );
     const parsed = buildReviewParsedDiff(entry.diff, `${cacheScope}:${entry.path}`);
     if (parsed.kind === "raw") {
       hasRawPatch = true;

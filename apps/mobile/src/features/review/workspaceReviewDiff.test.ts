@@ -51,3 +51,13 @@ describe("workspace review diffs", () => {
     expect(parsed.reason).toContain("projects/broken:");
   });
 });
+
+it("does not report a truncated workspace preview as empty", () => {
+  const parsed = buildWorkspaceReviewDiff(
+    [{ path: "projects/large", diff: "", truncated: true }],
+    "thread",
+  );
+  expect(parsed.kind).toBe("files");
+  if (parsed.kind !== "files") throw new Error("Expected incomplete file preview");
+  expect(parsed.notice).toContain("Select this repository");
+});

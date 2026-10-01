@@ -67,6 +67,9 @@ export function useReviewSections(input: {
           ? [
               {
                 ...first.source,
+                ...(entries.length > 1
+                  ? { files: undefined, truncated: entries.some(({ source }) => source.truncated) }
+                  : {}),
                 id: `git:${kind}`,
                 title: kind === "working-tree" ? "Working tree" : "Branch changes",
                 diff: entries.map(({ source }) => source.diff).join("\n"),
@@ -111,17 +114,20 @@ export function useReviewSections(input: {
           ? section
           : {
               ...section,
+              sourceCwd: selectedEntries.find(({ source }) => source.kind === section.kind)
+                ?.repository.cwd,
               subtitle:
                 repositoryFilter === null && repositories.length > 1
                   ? "All workspace repositories"
                   : section.subtitle,
-              ...(repositories.length > 1
+              ...(selectedEntries.filter(({ source }) => source.kind === section.kind).length > 1
                 ? {
                     repositoryDiffs: selectedEntries
                       .filter(({ source }) => source.kind === section.kind)
                       .map(({ repository, source }) => ({
                         path: repository.path,
                         diff: source.diff,
+                        truncated: source.truncated,
                       })),
                   }
                 : {}),
@@ -240,7 +246,12 @@ export function useReviewSections(input: {
       diffPreview.error ??
       activeTurnDiff.error ??
       reviewCache.asyncState.error,
+    isSelectedSectionPending:
+      selectedSection?.kind === "turn" ? activeTurnDiff.isPending : diffPreview.isPending,
     loadingGitDiffs: diffPreview.isPending,
+    diffPreviewRevision: JSON.stringify(
+      selectedEntries.map(({ repository, source }) => [repository.path, source.diffHash]),
+    ),
     loadingTurnIds,
     reviewSections,
     selectedSection,

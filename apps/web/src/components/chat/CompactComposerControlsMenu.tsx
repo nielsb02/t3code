@@ -40,8 +40,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
         render={
           <ComposerControl
             size={size}
-            variant="ghost"
-            className={size === "xs" ? "shrink-0" : "shrink-0 px-2"}
+            className="shrink-0"
             aria-label="More composer controls"
             data-micro-dial-control={props.hidden ? undefined : "options"}
             data-composer-shortcut={

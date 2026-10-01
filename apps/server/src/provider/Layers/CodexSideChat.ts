@@ -86,6 +86,7 @@ export const assertHandoffGuard = Effect.fn("assertHandoffGuard")(function* (
   const hooks = response.data.flatMap((entry) => entry.hooks).filter((hook) => hook.enabled);
   const isGuard = (hook: (typeof hooks)[number]) =>
     hook.eventName === "preToolUse" &&
+    "command" in hook &&
     hook.command === HANDOFF_DENY_COMMAND &&
     hook.matcher === ".*" &&
     (hook.trustStatus === "trusted" || hook.trustStatus === "managed");
