@@ -49,6 +49,38 @@ the same live T3 home. Choose the installed app in **Micro Manager → Configure
 Connection → Desktop app**; a Finder alias or symlink can keep that selection
 stable across downloads.
 
+## Android app
+
+Each desktop release also builds an Android APK from the same source, named
+`T3-Code-Micro-<version>.apk`, and attaches it to the release when the build
+passes. An Android failure does not withdraw the desktop release; rerun it from
+**Actions → Micro Android build** with the release tag. Use this app to see the
+fork's mobile features, such as side chats grouped under their parent thread.
+
+The `micro` app variant installs as **T3 Code Micro** (`io.github.nielsb02.t3code`)
+beside the store app. It connects to the fork's desktop server through a pairing
+link, on the local network or over Tailscale. T3 Connect sign-in, relay push
+notifications, and Expo over-the-air updates are not configured for it: they
+belong to upstream's app identity and would reach the wrong app. Install a newer
+APK over the old one to update; Android keeps the pairings.
+
+Release APKs are signed with the fork's own key. The workflow reads it from the
+`MICRO_ANDROID_KEYSTORE_BASE64` and `MICRO_ANDROID_KEYSTORE_PASSWORD` secrets and
+rejects an APK whose certificate does not match the `MICRO_ANDROID_CERT_SHA256`
+variable. The key alias is `t3code-micro`. Keep a backup of the keystore outside
+GitHub. Android only installs updates signed by the same key, so a lost or
+replaced key means uninstalling the app and pairing it again.
+
+Builds pin fbjni to React Native's version through
+`apps/mobile/plugins/withAndroidFbjniVersion.cjs`, copied from upstream PR
+[#13967](https://github.com/pingdotgg/t3code/pull/13967). Without it, a fresh
+release build crashes on launch. Keep upstream's file when that PR merges.
+
+The store app checks the server protocol version, so it stops connecting when the
+fork adopts a server protocol it does not know, for example upstream's
+orchestrator v2. The Micro APK is built from the same source as the desktop and
+stays compatible with it.
+
 ## Recovering from a failed update
 
 Read the failed workflow step. Reproduce a merge on a branch or isolated worktree,

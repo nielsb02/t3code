@@ -181,3 +181,10 @@ maintainer whether to keep our implementation as an override or adopt upstream.
 Do not silently pick either side or combine both renderers. Explain differences
 in expansion, pan/zoom, streaming, source fallback, and security before asking.
 See [the fork maintenance guide](docs/operations/micro-fork.md#mermaid-rendering).
+
+## Fork Android app
+
+The `micro` mobile variant is this fork's sideloaded Android app. Do not change its
+package ID (`io.github.nielsb02.t3code`) or its signing key: Android refuses to
+update an app whose identity or signature changed. Keep Expo updates disabled for
+this variant. See [the fork maintenance guide](docs/operations/micro-fork.md#android-app).

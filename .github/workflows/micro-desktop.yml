@@ -19,6 +19,9 @@ jobs:
     if: github.repository == 'nielsb02/t3code'
     runs-on: macos-15
     timeout-minutes: 60
+    outputs:
+      version: ${{ steps.build.outputs.version }}
+      commit: ${{ steps.publish.outputs.commit }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -171,6 +174,7 @@ jobs:
         run: git push origin HEAD:main
 
       - name: Publish desktop downloads
+        id: publish
         if: steps.plan.outputs.build == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -182,6 +186,7 @@ jobs:
           assets=(release/*.dmg release/*.zip release/latest-mac.yml release/*.blockmap)
           (( ${#assets[@]} >= 2 )) || { echo 'Desktop artifacts are missing' >&2; exit 1; }
           commit="$(git rev-parse HEAD)"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
           {
             echo "T3 Code with desktop session opening, dial and joystick navigation, and assignable actions for Micro Manager."
             echo
@@ -191,6 +196,8 @@ jobs:
             echo "Version: $BUILD_VERSION. Includes upstream release $UPSTREAM_TAG and the fork's retained changes."
             echo
             echo "Apple Silicon macOS build. Ad-hoc signed, not notarized; manual installation may be required."
+            echo
+            echo "Android: T3-Code-Micro-$BUILD_VERSION.apk is attached once its build finishes. It installs beside the store app and connects by pairing link."
             echo "Close T3 before replacing your app. Select this installation in Micro Manager's desktop app setting."
             echo
             echo "Source: https://github.com/$GITHUB_REPOSITORY/commit/$commit"
@@ -203,3 +210,14 @@ jobs:
         run: |
           echo '### Micro update needs attention' >> "$GITHUB_STEP_SUMMARY"
           echo 'No new desktop release was published. Review the failed step; the previous download remains available.' >> "$GITHUB_STEP_SUMMARY"
+
+  android:
+    needs: release
+    if: needs.release.outputs.version != ''
+    uses: ./.github/workflows/micro-android.yml
+    secrets: inherit
+    with:
+      version: ${{ needs.release.outputs.version }}
+      version-code: ${{ github.run_number }}
+      ref: ${{ needs.release.outputs.commit }}
+      release-tag: v${{ needs.release.outputs.version }}
