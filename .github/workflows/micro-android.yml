@@ -134,9 +134,10 @@ jobs:
           rm -f "$keystore"
           certs="$("$build_tools/apksigner" verify --print-certs "$apk")"
           echo "$certs"
-          [[ "$(grep -c '^Signer #' <<<"$certs")" == 1 ]] || { echo "Expected exactly one signer" >&2; exit 1; }
-          actual="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<<"$certs")"
-          [[ "${actual,,}" == "${EXPECTED_CERT_SHA256,,}" ]] || { echo "APK is not signed with the Micro release key" >&2; exit 1; }
+          # Labels vary by apksigner version ("Signer #1", "V3.0 Signer"); every listed
+          # certificate must be the Micro key, so no debug signature survives.
+          digests="$(sed -nE 's/.*certificate SHA-256 digest: ([0-9a-f]+)$/\1/p' <<<"$certs" | sort -u)"
+          [[ "$digests" == "${EXPECTED_CERT_SHA256,,}" ]] || { echo "APK is not signed only with the Micro release key" >&2; exit 1; }
           badging="$("$build_tools/aapt2" dump badging "$apk" | head -1)"
           echo "$badging"
           grep -q "name='io.github.nielsb02.t3code' versionCode='$VERSION_CODE' versionName='$VERSION'" <<<"$badging" \
