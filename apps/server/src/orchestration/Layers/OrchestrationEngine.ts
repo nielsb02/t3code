@@ -447,13 +447,20 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           }
         }
         if (manualSettlementThreadId !== null) {
+          // Activities sharing a millisecond are ordered by random ID, so keep this run's
+          // timestamps strictly increasing to show a fast failure after its start.
+          let lastSettleActivityMs = Number.NEGATIVE_INFINITY;
           const appendSettleActivity = Effect.fn("OrchestrationEngine.appendSettleActivity")(
             function* (
               status: "started" | "completed" | "failed" | "skipped",
               detail: string,
               scriptId?: string,
             ) {
-              const createdAt = yield* nowIso;
+              lastSettleActivityMs = Math.max(
+                yield* Clock.currentTimeMillis,
+                lastSettleActivityMs + 1,
+              );
+              const createdAt = DateTime.formatIso(DateTime.makeUnsafe(lastSettleActivityMs));
               const id = EventId.make(yield* crypto.randomUUIDv4);
               yield* dispatch({
                 type: "thread.activity.append",
