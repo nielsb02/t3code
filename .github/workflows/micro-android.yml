@@ -1,0 +1,158 @@
+name: Micro Android build
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+      version-code:
+        type: string
+        required: true
+      ref:
+        type: string
+        required: true
+      release-tag:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        description: Existing fork release to build the APK for, for example v0.0.45-micro.50
+        type: string
+        required: true
+  push:
+    branches: [micro-android-apk]
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    if: github.repository == 'nielsb02/t3code'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Resolve the build
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CALL_VERSION: ${{ inputs.version }}
+          CALL_VERSION_CODE: ${{ inputs.version-code }}
+          CALL_REF: ${{ inputs.ref }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == push ]]; then
+            # Branch builds are for checking the pipeline; they are never attached to a release.
+            version="0.0.0-micro.dev.$GITHUB_RUN_NUMBER"
+            version_code=1
+            ref="$GITHUB_SHA"
+            tag=""
+          elif [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            [[ "$RELEASE_TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+-micro\.([0-9]+))$ ]] || { echo "Unexpected release tag" >&2; exit 1; }
+            version="${BASH_REMATCH[1]}"
+            version_code="${BASH_REMATCH[2]}"
+            ref="$RELEASE_TAG"
+            tag="$RELEASE_TAG"
+          else
+            version="$CALL_VERSION"
+            version_code="$CALL_VERSION_CODE"
+            ref="$CALL_REF"
+            tag="$RELEASE_TAG"
+          fi
+          {
+            echo "version=$version"
+            echo "version-code=$version_code"
+            echo "ref=$ref"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.plan.outputs.ref }}
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+
+      - name: Install mobile dependencies
+        run: vp install --filter=@t3tools/mobile... --filter=@t3tools/scripts...
+
+      - name: Verify the Android build configuration
+        run: vp test run apps/mobile/plugins/withAndroidFbjniVersion.test.mjs
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Generate the Android project
+        working-directory: apps/mobile
+        env:
+          APP_VARIANT: micro
+          EXPO_NO_GIT_STATUS: "1"
+          T3CODE_MICRO_VERSION: ${{ steps.plan.outputs.version }}
+          T3CODE_MICRO_ANDROID_VERSION_CODE: ${{ steps.plan.outputs.version-code }}
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Build the release APK
+        working-directory: apps/mobile/android
+        env:
+          APP_VARIANT: micro
+          NODE_ENV: production
+          T3CODE_MICRO_VERSION: ${{ steps.plan.outputs.version }}
+          T3CODE_MICRO_ANDROID_VERSION_CODE: ${{ steps.plan.outputs.version-code }}
+        # Phones that run this build are arm64; skipping other ABIs halves the native build.
+        run: ./gradlew :app:assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon
+
+      - name: Sign and verify the APK
+        id: sign
+        env:
+          KEYSTORE_BASE64: ${{ secrets.MICRO_ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.MICRO_ANDROID_KEYSTORE_PASSWORD }}
+          EXPECTED_CERT_SHA256: ${{ vars.MICRO_ANDROID_CERT_SHA256 }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          VERSION_CODE: ${{ steps.plan.outputs.version-code }}
+        run: |
+          set -euo pipefail
+          [[ -n "$KEYSTORE_BASE64" && -n "$KEYSTORE_PASSWORD" && -n "$EXPECTED_CERT_SHA256" ]] || { echo "Android signing is not configured" >&2; exit 1; }
+          build_tools="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          keystore="$RUNNER_TEMP/micro-release.jks"
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          apk="$RUNNER_TEMP/T3-Code-Micro-$VERSION.apk"
+          "$build_tools/apksigner" sign --ks "$keystore" --ks-key-alias t3code-micro \
+            --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEYSTORE_PASSWORD \
+            --out "$apk" apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+          rm -f "$keystore"
+          certs="$("$build_tools/apksigner" verify --print-certs "$apk")"
+          echo "$certs"
+          [[ "$(grep -c '^Signer #' <<<"$certs")" == 1 ]] || { echo "Expected exactly one signer" >&2; exit 1; }
+          actual="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<<"$certs")"
+          [[ "${actual,,}" == "${EXPECTED_CERT_SHA256,,}" ]] || { echo "APK is not signed with the Micro release key" >&2; exit 1; }
+          badging="$("$build_tools/aapt2" dump badging "$apk" | head -1)"
+          echo "$badging"
+          grep -q "name='io.github.nielsb02.t3code' versionCode='$VERSION_CODE' versionName='$VERSION'" <<<"$badging" \
+            || { echo "Unexpected package identity" >&2; exit 1; }
+          echo "apk=$apk" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: T3-Code-Micro-${{ steps.plan.outputs.version }}-android
+          path: ${{ steps.sign.outputs.apk }}
+          if-no-files-found: error
+
+      - name: Attach the APK to the release
+        if: steps.plan.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.plan.outputs.tag }}
+          APK: ${{ steps.sign.outputs.apk }}
+        run: gh release upload "$TAG" "$APK" --repo "$GITHUB_REPOSITORY" --clobber

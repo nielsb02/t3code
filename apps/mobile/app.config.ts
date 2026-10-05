@@ -3,7 +3,8 @@ import type { ExpoConfig } from "expo/config";
 import { BRAND_ASSET_PATHS } from "../../scripts/lib/brand-assets.ts";
 import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
 
-type AppVariant = "development" | "preview" | "production";
+// `micro` is the Micro fork's sideloaded Android build; it installs beside the store app.
+type AppVariant = "development" | "preview" | "production" | "micro";
 
 const repoEnv = loadRepoEnv();
 Object.assign(process.env, repoEnv);
@@ -96,6 +97,14 @@ const VARIANT_CONFIG = {
     relyingParty: "clerk.t3.codes",
     assets: RELEASE_ASSETS,
   },
+  micro: {
+    appName: "T3 Code Micro",
+    scheme: "t3code-micro",
+    iosBundleIdentifier: "io.github.nielsb02.t3code",
+    androidPackage: "io.github.nielsb02.t3code",
+    relyingParty: "clerk.t3.codes",
+    assets: PREVIEW_ASSETS,
+  },
 } as const;
 
 function resolveAppVariant(value: string | undefined): AppVariant {
@@ -103,6 +112,7 @@ function resolveAppVariant(value: string | undefined): AppVariant {
     case "development":
     case "preview":
     case "production":
+    case "micro":
       return value;
     default:
       return "production";
@@ -110,6 +120,18 @@ function resolveAppVariant(value: string | undefined): AppVariant {
 }
 
 const variant = VARIANT_CONFIG[APP_VARIANT];
+const microBuild = APP_VARIANT === "micro" ? resolveMicroBuild(repoEnv) : null;
+
+// Release builds must carry the fork version and an increasing Android version code,
+// or a newer APK cannot install over an older one.
+function resolveMicroBuild(env: Record<string, string | undefined>) {
+  const version = env.T3CODE_MICRO_VERSION?.trim() || "0.0.0-micro.local";
+  const versionCode = Number(env.T3CODE_MICRO_ANDROID_VERSION_CODE ?? "1");
+  if (!Number.isInteger(versionCode) || versionCode < 1) {
+    throw new Error("T3CODE_MICRO_ANDROID_VERSION_CODE must be a positive integer.");
+  }
+  return { version, versionCode };
+}
 const iosBundleIdentifier = isIosPersonalTeamBuild
   ? personalTeamBundleIdentifier!
   : variant.iosBundleIdentifier;
@@ -229,7 +251,7 @@ const config: ExpoConfig = {
   slug: "t3-code",
   platforms: ["ios", "android"],
   scheme: variant.scheme,
-  version: "1.4.0",
+  version: microBuild?.version ?? "1.4.0",
   runtimeVersion: {
     // Development manifests resolve on every launch, so avoid fingerprint's
     // expensive native-project calculation there. Preview and production stay
@@ -240,7 +262,8 @@ const config: ExpoConfig = {
   icon: variant.assets.appIcon,
   userInterfaceStyle: "automatic",
   updates: {
-    enabled: repoEnv.T3CODE_MOBILE_UPDATES_ENABLED !== "0",
+    // Upstream's update channel would replace the fork's JavaScript with the store app's.
+    enabled: microBuild === null && repoEnv.T3CODE_MOBILE_UPDATES_ENABLED !== "0",
     url: "https://u.expo.dev/d763fcb8-d37c-41ea-a773-b54a0ab4a454",
     checkAutomatically: "ON_LOAD",
     fallbackToCacheTimeout: 0,
@@ -291,6 +314,7 @@ const config: ExpoConfig = {
   android: {
     icon: variant.assets.appIcon,
     package: variant.androidPackage,
+    ...(microBuild ? { versionCode: microBuild.versionCode } : {}),
     ...(repoEnv.T3CODE_ANDROID_GOOGLE_SERVICES_FILE
       ? { googleServicesFile: repoEnv.T3CODE_ANDROID_GOOGLE_SERVICES_FILE }
       : {}),
@@ -439,6 +463,7 @@ const config: ExpoConfig = {
     ...(!isIosPersonalTeamBuild ? ["./plugins/withWidgetLogoAsset.cjs", widgetsPlugin] : []),
     "./plugins/withAndroidCleartextTraffic.cjs",
     "./plugins/withAndroidGradleHeap.cjs",
+    "./plugins/withAndroidFbjniVersion.cjs",
     "./plugins/withAndroidInputBackground.cjs",
     "./plugins/withAndroidModernPopupMenu.cjs",
     "./plugins/withAndroidModernAlertDialog.cjs",
