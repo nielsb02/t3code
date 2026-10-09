@@ -13,7 +13,7 @@ import { parsePullRequestReference } from "~/pullRequestReference";
 import { useProjects, useThreadShell } from "~/state/entities";
 import { usePullRequestLinking } from "~/hooks/usePullRequestLinking";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { Button } from "../ui/button";
 import {
   Dialog,
@@ -52,7 +52,7 @@ interface LinkPullRequestDialogProps {
 export function LinkPullRequestDialogHost() {
   const threadRef = useAtomValue(linkPullRequestDialogThreadAtom);
   const thread = useThreadShell(threadRef);
-  const linking = usePullRequestLinking(threadRef?.environmentId, threadRef);
+  const linking = usePullRequestLinking(threadRef?.environmentId);
   if (threadRef === null || linking.mode === "unsupported") return null;
   return (
     <LinkPullRequestDialog
@@ -75,8 +75,7 @@ interface ResolvedLink {
 
 /**
  * Which pull request an input names, or why it cannot. A URL carries its own host and
- * repository and may point at any repository on a host this environment has a project for; a
- * bare `#123` can only mean the thread's own repository.
+ * repository; a bare `#123` can only mean the thread's own repository.
  */
 export function resolveLinkPullRequestInput(input: {
   readonly reference: string;
@@ -150,7 +149,7 @@ function LinkPullRequestDialog({
           : changeRequestWebUrl(kind, host, repository, number, identity.locator.remoteUrl),
     };
   }, [environmentProjects, projectId]);
-  const linking = usePullRequestLinking(threadRef.environmentId, threadRef);
+  const linking = usePullRequestLinking(threadRef.environmentId);
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
@@ -204,8 +203,8 @@ function LinkPullRequestDialog({
         <DialogHeader>
           <DialogTitle>Link pull request</DialogTitle>
           <DialogDescription>
-            Attach a pull request to this thread. A full URL can point at any repository on a host
-            this environment has a project for.
+            Attach a pull request to this thread by its URL, or by its number for this thread's
+            repository.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>

@@ -8,10 +8,8 @@ import * as NodePath from "node:path";
 
 import {
   DESKTOP_APP_ACTIVATION_PROTOCOL_VERSION,
-  DESKTOP_SESSION_LIST_MAX_BYTES,
   DesktopAppActivationRequest,
   type DesktopAppActivationResponse,
-  type DesktopAppRendererReadiness,
 } from "@t3tools/contracts";
 import { resolveDesktopAppControlAddress } from "@t3tools/shared/desktopAppControl";
 import { HostProcessUserId } from "@t3tools/shared/hostProcess";
@@ -139,19 +137,7 @@ export async function startDesktopAppControlServer(input: {
 
     const finish = (response: DesktopAppActivationResponse) => {
       responseSent = true;
-      const encoded = JSON.stringify(response);
-      if (Buffer.byteLength(encoded, "utf8") + 1 > DESKTOP_SESSION_LIST_MAX_BYTES) {
-        if (!socket.destroyed)
-          socket.end(
-            `${JSON.stringify({
-              version: DESKTOP_APP_ACTIVATION_PROTOCOL_VERSION,
-              requestId: response.requestId,
-              ok: false,
-              code: "snapshot-too-large",
-              message: "The desktop session list exceeds the supported response size.",
-            })}\n`,
-          );
-      } else if (!socket.destroyed) socket.end(`${encoded}\n`);
+      if (!socket.destroyed) socket.end(`${JSON.stringify(response)}\n`);
     };
 
     socket.on("data", (chunk) => {
@@ -316,7 +302,7 @@ export class DesktopAppActivation extends Context.Service<
   DesktopAppActivation,
   {
     readonly start: Effect.Effect<void, DesktopAppActivationStartError, Scope.Scope>;
-    readonly setRendererReady: (ready: DesktopAppRendererReadiness) => Effect.Effect<void>;
+    readonly setRendererReady: (ready: boolean) => Effect.Effect<void>;
     readonly complete: (response: DesktopAppActivationResponse) => Effect.Effect<void>;
   }
 >()("@t3tools/desktop/app/DesktopAppActivation") {}
@@ -384,7 +370,7 @@ export const make = Effect.gen(function* () {
         ),
     ).pipe(Effect.asVoid),
     setRendererReady: Effect.fn("DesktopAppActivation.setRendererReady")(function* (ready) {
-      if (!ready.ready) {
+      if (!ready) {
         clearRegisteredRenderer();
         return;
       }
@@ -412,7 +398,7 @@ export const make = Effect.gen(function* () {
 
       broker.registerRenderer((request) => {
         webContents.send(DESKTOP_APP_ACTIVATION_REQUEST_CHANNEL, request);
-      }, ready);
+      });
     }),
     complete: (response) => Effect.sync(() => broker.complete(response)),
   });

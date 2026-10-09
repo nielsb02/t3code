@@ -1,9 +1,11 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import { T3ProjectFile } from "./t3ProjectFile.ts";
+import { T3ProjectFile, type T3ProjectFile as T3ProjectFileType } from "./t3ProjectFile.ts";
 
-const decode = Schema.decodeUnknownSync(T3ProjectFile);
+const decode = Schema.decodeUnknownSync(T3ProjectFile as never) as (
+  input: unknown,
+) => T3ProjectFileType;
 
 describe("T3ProjectFile", () => {
   it("decodes a full project file", () => {
@@ -30,23 +32,6 @@ describe("T3ProjectFile", () => {
     expect(decoded.scripts?.[2]?.async).toBe(false);
   });
 
-  it("preserves explicit manual settle opt-in without opting in existing scripts", () => {
-    expect(
-      decode({
-        scripts: [
-          { name: "Cleanup", command: "cleanup", runOnThreadSettle: true },
-          { name: "Test", command: "test" },
-        ],
-      }).scripts,
-    ).toEqual([
-      { name: "Cleanup", command: "cleanup", runOnThreadSettle: true },
-      { name: "Test", command: "test" },
-    ]);
-    expect(() =>
-      decode({ scripts: [{ name: "Cleanup", command: "cleanup", runOnThreadSettle: "yes" }] }),
-    ).toThrow();
-  });
-
   it("decodes an empty object and ignores unknown fields", () => {
     expect(decode({})).toEqual({});
     expect(decode({ futureField: true })).toEqual({});
@@ -60,14 +45,6 @@ describe("T3ProjectFile", () => {
 
     expect(decoded.iconPath).toBe("assets/logo.svg");
     expect(decoded.scripts?.[0]).toEqual({ name: "Dev", command: "pnpm dev" });
-  });
-
-  it("trims repository paths and rejects blank or overlong entries", () => {
-    expect(decode({ repositories: { paths: ["  projects/app  "] } }).repositories?.paths).toEqual([
-      "projects/app",
-    ]);
-    expect(() => decode({ repositories: { paths: ["   "] } })).toThrow();
-    expect(() => decode({ repositories: { paths: ["x".repeat(513)] } })).toThrow();
   });
 
   it("rejects scripts without a command", () => {

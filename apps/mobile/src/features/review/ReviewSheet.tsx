@@ -29,6 +29,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useNativeColumnLayoutMetrics } from "../../native/native-layout-metrics";
 
 import { AppText as Text } from "../../components/AppText";
 import { SymbolView } from "../../components/AppSymbol";
@@ -48,7 +49,7 @@ import {
   useAdaptiveWorkspacePaneRole,
   useRegisterWorkspaceInspector,
 } from "../layout/AdaptiveWorkspaceLayout";
-import { useWorkspaceRepositories } from "../../state/use-workspace-repositories";
+import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
 import { useReviewCacheForThread } from "./reviewState";
 import {
   isNativeReviewDiffDrawEvent,
@@ -126,8 +127,8 @@ function ReviewHeader(
                     id: "sections",
                     inline: true,
                     items: [
-                      sectionAction(props.sectionMenu.workingTree, "Working tree"),
-                      sectionAction(props.sectionMenu.branchChanges, "Branch changes"),
+                      sectionAction(props.sectionMenu.branchChanges, "Changes"),
+                      sectionAction(props.sectionMenu.workingTree, "Uncommitted"),
                       sectionAction(props.sectionMenu.latestTurn, "Latest turn"),
                     ],
                   },
@@ -156,7 +157,6 @@ function ReviewHeader(
   );
 }
 
-const REVIEW_HEADER_SPACING = 0;
 const SHOWCASE_ENABLED = process.env.EXPO_PUBLIC_SHOWCASE === "1";
 
 const ReviewNotice = memo(function ReviewNotice(props: { readonly notice: string }) {
@@ -460,11 +460,12 @@ export function ReviewSheet(props: ReviewSheetProps) {
   const isEnvironmentReady = environment.presentation?.connection.phase === "connected";
   const { draftMessage } = useThreadDraftForThread({ environmentId, threadId });
   const reviewCache = useReviewCacheForThread({ environmentId, threadId });
-  const { selectedThreadCwd } = useWorkspaceRepositories();
-  // With a solid (non-overlay) header the content lays out below the header
-  // natively, so no manual top inset is needed. (Android renders its own
-  // in-flow AndroidScreenHeader, so it needs no inset either.)
-  const topContentInset = 0;
+  const { selectedThreadCwd } = useSelectedThreadWorktree();
+  const columnMetrics = useNativeColumnLayoutMetrics();
+  const safeArea = columnMetrics?.safeArea ?? insets;
+  const topContentInset = Platform.OS === "ios" ? safeArea.top : 0;
+  const bottomContentInset =
+    Platform.OS === "ios" ? safeArea.bottom + 8 : Math.max(insets.bottom, 18) + 18;
 
   useEffect(() => {
     showAuxiliaryPane("inspector");
@@ -475,9 +476,6 @@ export function ReviewSheet(props: ReviewSheetProps) {
     selectedSection,
     refreshSelectedSection,
     selectSection,
-    repositories,
-    repositoryFilter,
-    selectRepositoryFilter,
     isSelectedSectionPending,
     diffPreviewRevision,
   } = useReviewSections({
@@ -739,38 +737,6 @@ export function ReviewSheet(props: ReviewSheetProps) {
 
       <MaterialScreenContent>
         <View className="flex-1 bg-sheet android:bg-sheet-solid">
-          {repositories.length > 1 && selectedSection?.kind !== "turn" ? (
-            <View className="border-b border-border py-2">
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {[
-                  { path: null, label: "All repositories", available: true },
-                  ...repositories.map((repository) => ({
-                    path: repository.path,
-                    label: repository.path === "." ? "Workspace" : repository.path,
-                    available: repository.available,
-                  })),
-                ].map((repository) => (
-                  <Pressable
-                    key={repository.path ?? "all"}
-                    accessibilityRole="button"
-                    accessibilityState={{
-                      selected: repositoryFilter === repository.path,
-                      disabled: !repository.available,
-                    }}
-                    disabled={!repository.available}
-                    onPress={() => selectRepositoryFilter(repository.path)}
-                    className="mx-1 rounded-xl border border-border px-3 py-2"
-                  >
-                    <Text>
-                      {repositoryFilter === repository.path ? "✓ " : ""}
-                      {repository.label}
-                      {repository.available ? "" : " (unavailable)"}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </View>
-          ) : null}
           {showConnectionNotice ? (
             <View className="flex-1" style={{ paddingTop: topContentInset }}>
               <EnvironmentConnectionNotice
@@ -795,7 +761,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
             >
               <View
                 className="min-w-0 flex-1"
-                style={{ paddingTop: topContentInset + REVIEW_HEADER_SPACING }}
+                style={listHeader ? { paddingTop: topContentInset } : undefined}
               >
                 {listHeader}
                 <View className="min-w-0 flex-1" collapsable={false}>
@@ -812,6 +778,8 @@ export function ReviewSheet(props: ReviewSheetProps) {
                     collapsedCommentIdsJson={nativeBridge.collapsedCommentIdsJson}
                     contentResetKey={`${reviewCache.threadKey}:${selectedSection.id}`}
                     contentWidth={NATIVE_REVIEW_DIFF_CONTENT_WIDTH}
+                    contentInsetTop={listHeader ? 0 : topContentInset}
+                    contentInsetBottom={bottomContentInset}
                     nativeViewRef={nativeReviewDiffViewRef}
                     rowHeight={nativeReviewDiffStyle.rowHeight}
                     rowsJson={nativeBridge.rowsJson}
@@ -839,12 +807,10 @@ export function ReviewSheet(props: ReviewSheetProps) {
                   : undefined
               }
               contentInsetAdjustmentBehavior="never"
-              contentInset={{ top: topContentInset, bottom: Math.max(insets.bottom, 18) + 18 }}
+              contentInset={{ top: topContentInset, bottom: bottomContentInset }}
               contentOffset={{ x: 0, y: -topContentInset }}
-              scrollIndicatorInsets={{
-                top: topContentInset,
-                bottom: Math.max(insets.bottom, 18) + 18,
-              }}
+              automaticallyAdjustsScrollIndicatorInsets={false}
+              scrollIndicatorInsets={{ top: topContentInset, bottom: bottomContentInset }}
               showsVerticalScrollIndicator={false}
               className="flex-1"
               refreshControl={
@@ -860,23 +826,25 @@ export function ReviewSheet(props: ReviewSheetProps) {
             >
               {listHeader}
               {!selectedSection ? (
-                <View
-                  className={
-                    Platform.OS === "android"
-                      ? "items-center px-6 py-5"
-                      : "border-b border-border bg-card px-4 py-5"
-                  }
-                >
-                  <Text className="text-sm font-t3-bold text-foreground">No review diffs</Text>
-                  <Text
-                    className={cn(
-                      "text-xs leading-normal text-foreground-muted",
-                      Platform.OS === "android" && "mt-2 text-center",
-                    )}
+                error ? null : (
+                  <View
+                    className={
+                      Platform.OS === "android"
+                        ? "items-center px-6 py-5"
+                        : "border-b border-border bg-card px-4 py-5"
+                    }
                   >
-                    This thread has no ready turn diffs and the worktree diff is empty.
-                  </Text>
-                </View>
+                    <Text className="text-sm font-t3-bold text-foreground">No review diffs</Text>
+                    <Text
+                      className={cn(
+                        "text-xs leading-normal text-foreground-muted",
+                        Platform.OS === "android" && "mt-2 text-center",
+                      )}
+                    >
+                      This thread has no ready turn diffs and the worktree diff is empty.
+                    </Text>
+                  </View>
+                )
               ) : selectedSection.isLoading && selectedSection.diff === null ? (
                 <View
                   className={cn(

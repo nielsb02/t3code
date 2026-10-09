@@ -1,11 +1,12 @@
-import { MAX_SCRIPT_ID_LENGTH, ProjectId } from "@t3tools/contracts";
+import { MAX_SCRIPT_ID_LENGTH } from "@t3tools/contracts";
 import { shortcutLabelForCommand } from "./keybindings";
 import { describe, expect, it } from "vite-plus/test";
 import {
   projectScriptCwd,
   projectScriptRuntimeEnv,
+  projectScriptMenuLabel,
+  settleProjectScript,
   setupProjectScript,
-  settleProjectScripts,
 } from "@t3tools/shared/projectScripts";
 
 import {
@@ -14,59 +15,10 @@ import {
   nextProjectScriptId,
   primaryProjectScript,
   projectScriptIdFromCommand,
+  releaseClaimedRoles,
 } from "./projectScripts";
 
 describe("projectScripts helpers", () => {
-  it("keeps settle actions explicitly opted in and out of the default run action", () => {
-    const cleanup = buildProjectScript("cleanup", {
-      name: "Cleanup",
-      command: "cleanup",
-      icon: "configure",
-      runOnWorktreeCreate: false,
-      waitForSetup: false,
-      runOnThreadSettle: true,
-      previewUrl: null,
-      autoOpenPreview: false,
-    });
-    const ordinary = buildProjectScript("test", {
-      name: "Test",
-      command: "test",
-      icon: "test",
-      runOnWorktreeCreate: false,
-      waitForSetup: false,
-      runOnThreadSettle: false,
-      previewUrl: null,
-      autoOpenPreview: false,
-    });
-    expect(cleanup.runOnThreadSettle).toBe(true);
-    expect(ordinary.runOnThreadSettle).toBeUndefined();
-    expect(primaryProjectScript([cleanup, ordinary])).toBe(ordinary);
-    expect(primaryProjectScript([cleanup])).toBeNull();
-    const project = { id: ProjectId.make("project"), scripts: [cleanup] };
-    const settings = { projectSettingsOverrides: {}, projectSettingsFolded: false };
-    expect(settleProjectScripts({ ...settings, projectScriptOverrides: {} }, project)).toEqual([
-      cleanup,
-    ]);
-    expect(
-      settleProjectScripts(
-        { ...settings, projectScriptOverrides: { [project.id]: null } },
-        project,
-      ),
-    ).toEqual([]);
-    expect(
-      settleProjectScripts(
-        { ...settings, projectScriptOverrides: { [project.id]: [ordinary] } },
-        project,
-      ),
-    ).toEqual([]);
-    expect(
-      settleProjectScripts(
-        { ...settings, projectScriptOverrides: { [project.id]: [cleanup] } },
-        { ...project, scripts: [] },
-      ),
-    ).toEqual([cleanup]);
-  });
-
   it("builds scripts with preview settings", () => {
     expect(
       buildProjectScript("dev", {
@@ -75,6 +27,7 @@ describe("projectScripts helpers", () => {
         icon: "debug",
         runOnWorktreeCreate: false,
         waitForSetup: false,
+        runOnSettle: false,
         previewUrl: "http://localhost:5733",
         autoOpenPreview: true,
       }),
@@ -97,6 +50,7 @@ describe("projectScripts helpers", () => {
         icon: "test",
         runOnWorktreeCreate: false,
         waitForSetup: false,
+        runOnSettle: false,
         previewUrl: null,
         autoOpenPreview: false,
       }),
@@ -116,6 +70,7 @@ describe("projectScripts helpers", () => {
       icon: "configure",
       previewUrl: null,
       autoOpenPreview: false,
+      runOnSettle: false,
     } as const;
     expect(
       buildProjectScript("setup", { ...input, runOnWorktreeCreate: true, waitForSetup: true }),
@@ -159,7 +114,7 @@ describe("projectScripts helpers", () => {
     expect(nextProjectScriptId("!!!", [])).toBe("script");
   });
 
-  it("resolves primary and setup scripts", () => {
+  it("resolves primary, setup, and settle scripts", () => {
     const scripts = [
       {
         id: "setup",
@@ -167,6 +122,14 @@ describe("projectScripts helpers", () => {
         command: "bun install",
         icon: "configure" as const,
         runOnWorktreeCreate: true,
+      },
+      {
+        id: "clean",
+        name: "Clean",
+        command: "cargo clean",
+        icon: "build" as const,
+        runOnWorktreeCreate: false,
+        runOnSettle: true,
       },
       {
         id: "test",
@@ -179,6 +142,53 @@ describe("projectScripts helpers", () => {
 
     expect(primaryProjectScript(scripts)?.id).toBe("test");
     expect(setupProjectScript(scripts)?.id).toBe("setup");
+    expect(settleProjectScript(scripts)?.id).toBe("clean");
+    // Cleanup is never the one-click run button, even when it is all there is.
+    expect(primaryProjectScript(scripts.filter((script) => script.id === "clean"))).toBeNull();
+  });
+
+  it("labels every lifecycle role a script runs in", () => {
+    const script = {
+      id: "both",
+      name: "Both",
+      command: "true",
+      icon: "play" as const,
+      runOnWorktreeCreate: true,
+    };
+    expect(projectScriptMenuLabel(script)).toBe("Both (setup)");
+    expect(projectScriptMenuLabel({ ...script, runOnSettle: true })).toBe(
+      "Both (setup, on settle)",
+    );
+    expect(projectScriptMenuLabel({ ...script, runOnWorktreeCreate: false })).toBe("Both");
+  });
+
+  it("moves the setup and settle roles to the script that claims them", () => {
+    const input = {
+      name: "Next",
+      command: "true",
+      icon: "play",
+      waitForSetup: false,
+      previewUrl: null,
+      autoOpenPreview: false,
+    } as const;
+    const holder = {
+      id: "holder",
+      name: "Holder",
+      command: "true",
+      icon: "play" as const,
+      runOnWorktreeCreate: true,
+      runOnSettle: true,
+    };
+
+    expect(
+      releaseClaimedRoles(holder, { ...input, runOnWorktreeCreate: false, runOnSettle: true }),
+    ).toMatchObject({ runOnWorktreeCreate: true, runOnSettle: false });
+    expect(
+      releaseClaimedRoles(holder, { ...input, runOnWorktreeCreate: true, runOnSettle: false }),
+    ).toMatchObject({ runOnWorktreeCreate: false, runOnSettle: true });
+    expect(
+      releaseClaimedRoles(holder, { ...input, runOnWorktreeCreate: false, runOnSettle: false }),
+    ).toBe(holder);
   });
 
   it("builds default runtime env for scripts", () => {

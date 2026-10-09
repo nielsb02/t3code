@@ -38,14 +38,14 @@ export function ProjectActionsList({
                 setup
               </span>
             ) : null}
+            {script.runOnSettle ? (
+              <span className="shrink-0 rounded-sm border border-border/60 px-1.5 py-px text-2xs font-normal text-muted-foreground">
+                on settle
+              </span>
+            ) : null}
             {script.previewUrl ? (
               <span className="shrink-0 rounded-sm border border-border/60 px-1.5 py-px text-2xs font-normal text-muted-foreground max-sm:hidden">
                 preview · desktop only
-              </span>
-            ) : null}
-            {script.runOnThreadSettle ? (
-              <span className="shrink-0 rounded-sm border border-border/60 px-1.5 py-px text-[11px] font-normal text-muted-foreground">
-                manual settle
               </span>
             ) : null}
           </span>

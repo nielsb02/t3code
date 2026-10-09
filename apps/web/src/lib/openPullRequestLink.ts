@@ -1,9 +1,4 @@
-import type {
-  EnvironmentId,
-  PullRequestRef,
-  WorkspaceRepository,
-  ScopedThreadRef,
-} from "@t3tools/contracts";
+import type { EnvironmentId, PullRequestRef, ScopedThreadRef } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import { type MouseEvent, useCallback, useMemo } from "react";
@@ -14,20 +9,15 @@ import {
   canonicalRepositoryKey,
   sourceControlRepositorySelector,
 } from "@t3tools/shared/sourceControl";
-import {
-  threadPullRequestKeysEqual,
-  visibleThreadPullRequests,
-} from "@t3tools/shared/threadPullRequests";
 
 import { useOpenLink } from "../browser/useOpenLink";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { useRightPanelStore } from "../rightPanelStore";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 
-import { readThreadShell, useProjects, useServerConfigs } from "../state/entities";
+import { useProjects, useServerConfigs } from "../state/entities";
 import { serverEnvironment } from "../state/server";
 import { usePrimaryEnvironmentId } from "../state/environments";
-import { usePullRequestWorkspace } from "../hooks/usePullRequestWorkspace";
 
 export {
   parseChangeRequestUrl,
@@ -194,25 +184,6 @@ export function findProjectOnChangeRequestHost(
   });
 }
 
-/** Keeps the wrapper project as the thread context while matching a declared child remote. */
-export function findWorkspaceProjectForChangeRequest(
-  project: EnvironmentProject | undefined,
-  repositories: readonly WorkspaceRepository[],
-  link: ChangeRequestLink,
-): EnvironmentProject | undefined {
-  if (!project) return undefined;
-  return repositories.some(
-    (repository) =>
-      repository.available &&
-      findProjectForChangeRequest(
-        [{ ...project, repositoryIdentity: repository.repositoryIdentity }],
-        link,
-      ) !== undefined,
-  )
-    ? project
-    : undefined;
-}
-
 /**
  * Opens a change request link on the page, and says whether it did. Anything else — another
  * organisation's repository, a host nothing here is checked out from, a link that merely looks
@@ -249,7 +220,6 @@ export function useOpenChangeRequestLink(
   const allProjects = useProjects();
   const serverConfigs = useServerConfigs();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const workspace = usePullRequestWorkspace(threadRef);
   return useCallback(
     (event, targetUrl, targetThreadRef, targetEnvironmentId) => {
       if (shouldOpenPullRequestExternally(event)) return false;
@@ -278,27 +248,7 @@ export function useOpenChangeRequestLink(
                   Number(left.environmentId === primaryEnvironmentId),
               );
       const exactProject = findProjectForChangeRequest(projects, parsed);
-      const workspaceProject =
-        resolvedThreadRef?.environmentId === threadRef?.environmentId &&
-        resolvedThreadRef?.threadId === threadRef?.threadId
-          ? findWorkspaceProjectForChangeRequest(workspace.project, workspace.repositories, parsed)
-          : undefined;
-      const linkedThread =
-        resolvedThreadRef &&
-        serverConfigs.get(resolvedThreadRef.environmentId)?.environment.capabilities
-          .workspacePullRequestLinks
-          ? readThreadShell(resolvedThreadRef)
-          : null;
-      const linkedWorkspaceProject =
-        linkedThread &&
-        visibleThreadPullRequests(linkedThread.pullRequests).some((link) =>
-          threadPullRequestKeysEqual(link, parsed),
-        )
-          ? projects.find((candidate) => candidate.id === linkedThread.projectId)
-          : undefined;
       const project =
-        workspaceProject ??
-        linkedWorkspaceProject ??
         exactProject ??
         (resolvedPanelRef
           ? findProjectOnChangeRequestHost(
@@ -368,16 +318,7 @@ export function useOpenChangeRequestLink(
       });
       return true;
     },
-    [
-      allProjects,
-      navigate,
-      panelRef,
-      primaryEnvironmentId,
-      serverConfigs,
-      threadRef,
-      workspace.project,
-      workspace.repositories,
-    ],
+    [allProjects, navigate, panelRef, primaryEnvironmentId, serverConfigs, threadRef],
   );
 }
 

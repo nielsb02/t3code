@@ -1,4 +1,3 @@
-import { buildWorkspaceReviewDiff } from "./workspaceReviewDiff";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { countReviewCommentContexts, parseReviewInlineComments } from "./reviewCommentSelection";
@@ -19,8 +18,8 @@ import type {
   ReviewDiffPreviewSource,
 } from "@t3tools/contracts";
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import * as Atom from "effect/unstable/reactivity/Atom";
+import * as AsyncResult from "effect/reactivity/AsyncResult";
+import * as Atom from "effect/reactivity/Atom";
 import { reviewEnvironment } from "../../state/review";
 
 const EMPTY_INLINE_REVIEW_COMMENTS = Object.freeze([]);
@@ -129,29 +128,22 @@ export function useReviewDiffData(input: {
   const { draftMessage, selectedSection, threadKey } = input;
   const selectedSectionId = selectedSection?.id ?? null;
   const source = selectedSection?.source;
-  const lazySource =
-    !selectedSection?.repositoryDiffs && source?.truncated && source.files ? source : null;
+  const lazySource = source?.truncated && source.files ? source : null;
   const previewDiff = useMemo<ReviewParsedDiff>(
     () =>
       lazySource
         ? { kind: "empty" }
         : measureReviewWork("parse-diff", () =>
-            selectedSection?.repositoryDiffs
-              ? buildWorkspaceReviewDiff(
-                  selectedSection.repositoryDiffs,
-                  `${threadKey}:${selectedSection.id}`,
-                )
-              : getCachedReviewParsedDiff({
-                  threadKey,
-                  sectionId: selectedSection?.id ?? null,
-                  diff: selectedSection?.diff,
-                }),
+            getCachedReviewParsedDiff({
+              threadKey,
+              sectionId: selectedSection?.id ?? null,
+              diff: selectedSection?.diff,
+            }),
           ),
-    [lazySource, selectedSection, threadKey],
+    [lazySource, selectedSection?.diff, selectedSection?.id, threadKey],
   );
   const registry = useContext(RegistryContext);
-  const { environmentId } = input;
-  const cwd = selectedSection?.sourceCwd ?? input.cwd;
+  const { environmentId, cwd } = input;
   const scope = JSON.stringify([
     environmentId,
     cwd,

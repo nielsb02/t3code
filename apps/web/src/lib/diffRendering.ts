@@ -1,7 +1,6 @@
 import { parsePatchFiles } from "@pierre/diffs/utils/parsePatchFiles";
 import { parseDiffFromFile } from "@pierre/diffs";
 import type { FileDiffMetadata } from "@pierre/diffs/types";
-import { unquoteGitPatchPath } from "@t3tools/shared/gitPatchPath";
 
 const DIFF_THEME_NAMES = {
   light: "pierre-light",
@@ -201,21 +200,11 @@ export function getRenderablePatch(
 }
 
 /**
- * What the patch called the file, as the file's own name. Git writes a name holding a tab, a
- * newline, a quote or a backslash quoted and escaped, and the parser hands one of those back still
- * escaped. A viewed mark, a review comment and a file's contents are all asked for by this path,
- * and the host knows the file only under the name it really has.
+ * The file's own name. Git quotes and escapes a name holding a tab, a newline, a quote or a
+ * backslash, and the parser decodes it, so this is the name the host knows the file by.
  */
-function fileDiffPath(raw: string): string {
-  return unquoteGitPatchPath(raw);
-}
-
 export function resolveFileDiffPath(fileDiff: FileDiffMetadata): string {
-  const raw = fileDiff.name ?? fileDiff.prevName ?? "";
-  if ("workspaceRelativePaths" in fileDiff && fileDiff.workspaceRelativePaths === true) {
-    return raw;
-  }
-  return fileDiffPath(raw);
+  return fileDiff.name ?? fileDiff.prevName ?? "";
 }
 
 /**
@@ -223,11 +212,7 @@ export function resolveFileDiffPath(fileDiff: FileDiffMetadata): string {
  * path, and the hosts that resolve a diff position against both sides need both names.
  */
 export function resolveFileDiffPreviousPath(fileDiff: FileDiffMetadata): string {
-  const raw = fileDiff.prevName ?? fileDiff.name ?? "";
-  if ("workspaceRelativePaths" in fileDiff && fileDiff.workspaceRelativePaths === true) {
-    return raw;
-  }
-  return fileDiffPath(raw);
+  return fileDiff.prevName ?? fileDiff.name ?? "";
 }
 
 /**

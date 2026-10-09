@@ -2,13 +2,10 @@ import type {
   DesktopAppActivationFailure,
   DesktopAppActivationRequest,
   DesktopAppActivationResponse,
-  DesktopAppSessionListSuccess,
   EnvironmentId,
   ExecutionEnvironmentPlatformOs,
-  MicroControlAction,
   ProjectId,
   ScopedProjectRef,
-  ScopedThreadRef,
   ThreadId,
 } from "@t3tools/contracts";
 
@@ -24,14 +21,6 @@ export interface DesktopAppActivationTarget {
 }
 
 export interface DesktopAppActivationDependencies {
-  readonly readSessions: () => Pick<
-    DesktopAppSessionListSuccess,
-    "environments" | "sidebarOrder" | "sidebarOrderReady"
-  > | null;
-  readonly executeMicroControl: (action: MicroControlAction) => boolean;
-  readonly isEnvironmentConnected: (environmentId: EnvironmentId) => boolean;
-  readonly findThread: (ref: ScopedThreadRef) => { readonly projectId: ProjectId } | null;
-  readonly navigateThread: (ref: ScopedThreadRef) => Promise<void>;
   readonly getTarget: () => DesktopAppActivationTarget | null;
   readonly findProject: (
     environmentId: EnvironmentId,
@@ -56,7 +45,7 @@ function failure(
 }
 
 function desktopPlatformToEnvironmentOs(
-  platform: Extract<DesktopAppActivationRequest, { type: "open-workspace" }>["platform"],
+  platform: DesktopAppActivationRequest["platform"],
 ): ExecutionEnvironmentPlatformOs {
   return platform === "win32" ? "windows" : platform;
 }
@@ -69,76 +58,6 @@ export async function handleDesktopAppActivationRequest(
   request: DesktopAppActivationRequest,
   dependencies: DesktopAppActivationDependencies,
 ): Promise<DesktopAppActivationResponse> {
-  if (request.type === "list-sessions") {
-    const snapshot = dependencies.readSessions();
-    if (snapshot === null) {
-      return failure(
-        request.requestId,
-        "renderer-unavailable",
-        "The desktop environment catalog is still loading.",
-      );
-    }
-    return {
-      version: 1,
-      requestId: request.requestId,
-      ok: true,
-      type: "session-list",
-      ...snapshot,
-    };
-  }
-  if (request.type === "micro-control") {
-    try {
-      if (!dependencies.executeMicroControl(request.action)) {
-        return failure(
-          request.requestId,
-          "micro-control-unavailable",
-          "Focus an active chat in T3 Code before using Micro controls.",
-        );
-      }
-      return { version: 1, requestId: request.requestId, ok: true, action: request.action };
-    } catch (error) {
-      return failure(
-        request.requestId,
-        "internal-error",
-        errorMessage(error, "T3 Code could not execute the Micro control."),
-      );
-    }
-  }
-  if (request.type === "open-thread") {
-    const ref = { environmentId: request.environmentId, threadId: request.threadId };
-    if (!dependencies.isEnvironmentConnected(ref.environmentId)) {
-      return failure(
-        request.requestId,
-        "environment-unavailable",
-        "Connect this environment in the T3 desktop app first.",
-      );
-    }
-    const thread = dependencies.findThread(ref);
-    if (thread === null) {
-      return failure(
-        request.requestId,
-        "thread-open-failed",
-        "This session is not available in the T3 desktop app.",
-      );
-    }
-    try {
-      await dependencies.navigateThread(ref);
-      return {
-        version: 1,
-        requestId: request.requestId,
-        ok: true,
-        projectId: thread.projectId,
-        environmentId: ref.environmentId,
-        threadId: ref.threadId,
-      };
-    } catch (error) {
-      return failure(
-        request.requestId,
-        "thread-open-failed",
-        errorMessage(error, "T3 Code could not open the session."),
-      );
-    }
-  }
   const target = dependencies.getTarget();
   if (target === null) {
     return failure(

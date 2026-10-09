@@ -1,6 +1,7 @@
+import { AuthPreviewOperateScope } from "@t3tools/contracts";
 import { Outlet, createFileRoute, redirect, useParams } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
-import { useCallback, useEffect, useEffectEvent, useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { ThreadRouteView } from "../components/ThreadRouteView";
@@ -8,14 +9,15 @@ import { resolveThreadRouteTarget } from "../threadRoutes";
 import { useClientSettings, useLegacySidebarEnabled } from "../hooks/useSettings";
 import { openCommandPalette } from "../commandPaletteBus";
 import { useProjects } from "../state/entities";
+import { isPreviewAvailableFor } from "../browser/previewRuntime";
 import { usePrimaryEnvironmentId } from "../state/environments";
+import { useEnvironmentScope } from "../state/session";
 import { selectProjectGroupingSettings } from "../logicalProject";
 import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { dispatchPreviewAction } from "../components/preview/previewActionBus";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useScratchProject } from "../hooks/useScratchProject";
-import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
-import { registerGlobalMicroControlHandler, type MicroGlobalAction } from "../microControls";
+import { startNewThreadFromContext } from "../lib/chatThreadActions";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isEditableFocused } from "../lib/editableFocus";
@@ -23,7 +25,6 @@ import { isModelPickerOpen } from "../modelPickerVisibility";
 import { undoLatestThreadAction } from "../hooks/showThreadUndoNotice";
 import { resolveShortcutCommand } from "../keybindings";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../terminalUiStateStore";
-import { isPreviewSupportedInRuntime } from "../previewStateStore";
 import { selectActiveRightPanel, useRightPanelStore } from "../rightPanelStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
@@ -34,6 +35,10 @@ function ChatRouteGlobalShortcuts() {
   const selectedThreadKeysSize = useThreadSelectionStore((state) => state.selectedThreadKeys.size);
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef } =
     useHandleNewThread();
+  const canOperatePreview = useEnvironmentScope(
+    routeThreadRef?.environmentId ?? null,
+    AuthPreviewOperateScope,
+  );
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const legacySidebarEnabled = useLegacySidebarEnabled();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
@@ -63,60 +68,6 @@ function ChatRouteGlobalShortcuts() {
       ? selectActiveRightPanel(state.byThreadKey, routeThreadRef) === "preview"
       : false,
   );
-  const startNewThread = useCallback(() => {
-    if (!legacySidebarEnabled && projectGroupCount > 1) {
-      openCommandPalette({ open: "new-thread-in" });
-      return true;
-    }
-    const context = {
-      activeDraftThread,
-      activeThread: activeThread ?? undefined,
-      defaultProjectRef,
-      handleNewThread,
-    };
-    if (resolveThreadActionProjectRef(context) === null) return false;
-    void startNewThreadFromContext(context);
-    return true;
-  }, [
-    activeDraftThread,
-    activeThread,
-    defaultProjectRef,
-    handleNewThread,
-    legacySidebarEnabled,
-    projectGroupCount,
-  ]);
-  const handleGlobalMicroAction = useEffectEvent((action: MicroGlobalAction) => {
-    if (!document.hasFocus()) return false;
-    if (
-      Array.from(
-        document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]'),
-      ).some(
-        (dialog) =>
-          dialog.getClientRects().length > 0 &&
-          !dialog.closest('[hidden], [inert], [aria-hidden="true"]'),
-      )
-    )
-      return false;
-    switch (action) {
-      case "new-thread":
-        return startNewThread();
-      case "new-project":
-        openCommandPalette({ open: "add-project" });
-        return true;
-      case "command-palette":
-        openCommandPalette();
-        return true;
-      default: {
-        const unhandled: never = action;
-        return unhandled;
-      }
-    }
-  });
-  useEffect(
-    () => registerGlobalMicroControlHandler((action) => handleGlobalMicroAction(action)),
-    [],
-  );
-
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
@@ -179,15 +130,24 @@ function ChatRouteGlobalShortcuts() {
         // The default sidebar routes creation through the command palette
         // whenever there is a real choice to make; the legacy sidebar (and
         // single-project setups) keep the immediate contextual create.
-        startNewThread();
+        if (!legacySidebarEnabled && projectGroupCount > 1) {
+          openCommandPalette({ open: "new-thread-in" });
+          return;
+        }
+        void startNewThreadFromContext({
+          activeDraftThread,
+          activeThread: activeThread ?? undefined,
+          defaultProjectRef,
+          handleNewThread,
+        });
         return;
       }
 
       if (command === "preview.toggle") {
         event.preventDefault();
         event.stopPropagation();
-        if (!routeThreadRef) return;
-        if (!isPreviewSupportedInRuntime()) {
+        if (!routeThreadRef || (!canOperatePreview && !previewOpen)) return;
+        if (!isPreviewAvailableFor(routeThreadRef.environmentId)) {
           toastManager.add(
             stackedThreadToast({
               type: "info",
@@ -213,6 +173,7 @@ function ChatRouteGlobalShortcuts() {
       ) {
         event.preventDefault();
         event.stopPropagation();
+        if (!canOperatePreview) return;
         const action =
           command === "preview.refresh"
             ? "refresh"
@@ -235,17 +196,19 @@ function ChatRouteGlobalShortcuts() {
     activeDraftThread,
     activeThread,
     clearSelection,
+    canOperatePreview,
     handleNewThread,
     keybindings,
     defaultProjectRef,
     previewOpen,
     primaryEnvironmentId,
+    projectGroupCount,
     routeThreadRef,
     scratchEnvironmentId,
     selectedThreadKeysSize,
     startScratchThread,
+    legacySidebarEnabled,
     terminalOpen,
-    startNewThread,
   ]);
 
   return null;

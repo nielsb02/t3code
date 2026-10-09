@@ -107,10 +107,6 @@ export class WorkspaceSearchIndexDestroyFailed extends Schema.TaggedError<Worksp
   }
 }
 
-export type RankedSearchEntriesResult = ProjectSearchEntriesResult & {
-  readonly scores: ReadonlyArray<number>;
-};
-
 export class WorkspaceSearchIndex extends Context.Service<
   WorkspaceSearchIndex,
   {
@@ -120,7 +116,7 @@ export class WorkspaceSearchIndex extends Context.Service<
       limit: number,
       kind?: ProjectEntryKind,
       imageOnly?: boolean,
-    ) => Effect.Effect<RankedSearchEntriesResult, WorkspaceSearchIndexSearchFailed>;
+    ) => Effect.Effect<ProjectSearchEntriesResult, WorkspaceSearchIndexSearchFailed>;
     readonly searchContents: (
       input: Omit<ProjectSearchContentsInput, "cwd">,
     ) => Effect.Effect<ProjectSearchContentsResult, WorkspaceSearchIndexSearchFailed>;
@@ -170,17 +166,13 @@ function mapFileSearchResult(
   result: SearchResult,
   limit: number,
   imageOnly = false,
-): RankedSearchEntriesResult {
-  const scores: number[] = [];
-  const entries = result.items.flatMap((item, index) => {
+): ProjectSearchEntriesResult {
+  const entries = result.items.flatMap((item) => {
     const entry = toFileEntry(item);
-    if (!entry || (imageOnly && !isWorkspaceImagePreviewPath(entry.path))) return [];
-    scores.push(result.scores[index]?.total ?? 0);
-    return [entry];
+    return entry && (!imageOnly || isWorkspaceImagePreviewPath(entry.path)) ? [entry] : [];
   });
   return {
     entries: entries.slice(0, limit),
-    scores: scores.slice(0, limit),
     truncated: entries.length > limit || result.totalMatched > result.items.length,
   };
 }
@@ -188,30 +180,27 @@ function mapFileSearchResult(
 function mapDirectorySearchResult(
   result: DirSearchResult,
   limit: number,
-): RankedSearchEntriesResult {
-  const scores: number[] = [];
-  const entries = result.items.flatMap((item, index) => {
+): ProjectSearchEntriesResult {
+  const entries = result.items.flatMap((item) => {
     const entry = toDirectoryEntry(item);
-    if (!entry) return [];
-    scores.push(result.scores[index]?.total ?? 0);
-    return [entry];
+    return entry ? [entry] : [];
   });
   const rootDirectoryCount = result.items.some((item) => item.relativePath.length === 0) ? 1 : 0;
   return {
     entries: entries.slice(0, limit),
-    scores: scores.slice(0, limit),
     truncated: result.totalMatched - rootDirectoryCount > limit,
   };
 }
 
-function mapMixedSearchResult(result: MixedSearchResult, limit: number): RankedSearchEntriesResult {
+function mapMixedSearchResult(
+  result: MixedSearchResult,
+  limit: number,
+): { readonly entries: ProjectEntry[]; readonly truncated: boolean } {
   const entries: ProjectEntry[] = [];
-  const scores: number[] = [];
-  for (const [index, item] of result.items.entries()) {
+  for (const item of result.items) {
     const entry = toProjectEntry(item);
     if (entry) {
       entries.push(entry);
-      scores.push(result.scores[index]?.total ?? 0);
     }
     if (entries.length >= limit) {
       break;
@@ -225,7 +214,6 @@ function mapMixedSearchResult(result: MixedSearchResult, limit: number): RankedS
     : 0;
   return {
     entries,
-    scores,
     truncated: result.totalMatched - rootDirectoryCount > limit,
   };
 }
@@ -377,6 +365,7 @@ export const make = Effect.fn("WorkspaceSearchIndex.make")(function* (
       catch: (cause) => new WorkspaceSearchIndexDestroyFailed({ cwd, cause }),
     }).pipe(Effect.orDie),
   );
+  let initialScanTimedOut = false;
   yield* waitForIndexReady(
     cwd,
     finder,
@@ -386,7 +375,18 @@ export const make = Effect.fn("WorkspaceSearchIndex.make")(function* (
         reason,
         cause,
       }),
+  ).pipe(
+    Effect.catchTags({
+      WorkspaceSearchIndexScanTimedOut: (error) =>
+        variant === "paths"
+          ? Effect.sync(() => {
+              initialScanTimedOut = true;
+            })
+          : Effect.fail(error),
+    }),
   );
+
+  const hasIncompleteInitialScan = () => initialScanTimedOut && finder.isScanning();
 
   const runSearch = Effect.fn("WorkspaceSearchIndex.runSearch")(function* <A>(
     query: string,
@@ -448,6 +448,7 @@ export const make = Effect.fn("WorkspaceSearchIndex.make")(function* (
 
   const list: WorkspaceSearchIndex["Service"]["list"] = Effect.fn("WorkspaceSearchIndex.list")(
     function* () {
+      const incompleteBeforeQuery = hasIncompleteInitialScan();
       const result = yield* runSearch("", WORKSPACE_INDEX_PAGE_SIZE, "mixedSearch", () =>
         finder.mixedSearch("", { pageSize: WORKSPACE_INDEX_PAGE_SIZE }),
       );
@@ -458,7 +459,8 @@ export const make = Effect.fn("WorkspaceSearchIndex.make")(function* (
       const entries = sortedEntries.slice(0, WORKSPACE_INDEX_MAX_ENTRIES);
       return {
         entries,
-        truncated: mapped.truncated || entries.length < sortedEntries.length,
+        truncated:
+          incompleteBeforeQuery || mapped.truncated || entries.length < sortedEntries.length,
       };
     },
   );
@@ -467,22 +469,26 @@ export const make = Effect.fn("WorkspaceSearchIndex.make")(function* (
     "WorkspaceSearchIndex.search",
   )(function* (query, limit, kind, imageOnly) {
     const pageSize = imageOnly ? WORKSPACE_INDEX_PAGE_SIZE : Math.max(1, limit + 1);
+    const incompleteBeforeQuery = hasIncompleteInitialScan();
     if (kind === "file" || imageOnly) {
       const result = yield* runSearch(query, pageSize, "fileSearch", () =>
         finder.fileSearch(query, { pageSize }),
       );
-      return mapFileSearchResult(result, limit, imageOnly);
+      const mapped = mapFileSearchResult(result, limit, imageOnly);
+      return { ...mapped, truncated: incompleteBeforeQuery || mapped.truncated };
     }
     if (kind === "directory") {
       const result = yield* runSearch(query, pageSize, "directorySearch", () =>
         finder.directorySearch(query, { pageSize }),
       );
-      return mapDirectorySearchResult(result, limit);
+      const mapped = mapDirectorySearchResult(result, limit);
+      return { ...mapped, truncated: incompleteBeforeQuery || mapped.truncated };
     }
     const result = yield* runSearch(query, pageSize, "mixedSearch", () =>
       finder.mixedSearch(query, { pageSize }),
     );
-    return mapMixedSearchResult(result, limit);
+    const mapped = mapMixedSearchResult(result, limit);
+    return { ...mapped, truncated: incompleteBeforeQuery || mapped.truncated };
   });
 
   const searchContents: WorkspaceSearchIndex["Service"]["searchContents"] = Effect.fn(

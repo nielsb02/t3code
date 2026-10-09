@@ -17,13 +17,13 @@ import * as WorkspacePaths from "./WorkspacePaths.ts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
 
-const ProjectLayer = WorkspaceFileSystem.layer.pipe(
+const layerProject = WorkspaceFileSystem.layer.pipe(
   Layer.provide(WorkspacePaths.layer),
   Layer.provide(WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer))),
 );
 
-const TestLayer = Layer.empty.pipe(
-  Layer.provideMerge(ProjectLayer),
+const layerTest = Layer.empty.pipe(
+  Layer.provideMerge(layerProject),
   Layer.provideMerge(WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer))),
   Layer.provideMerge(WorkspacePaths.layer),
   Layer.provideMerge(VcsDriverRegistry.layer.pipe(Layer.provide(VcsProcess.layer))),
@@ -56,7 +56,7 @@ const writeTextFile = Effect.fn("writeTextFile")(function* (
   yield* fileSystem.writeFileString(absolutePath, contents).pipe(Effect.orDie);
 });
 
-it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (it) => {
+it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (it) => {
   describe("readFile", () => {
     it.effect("reads UTF-8 files relative to the workspace root", () =>
       Effect.gen(function* () {
@@ -249,111 +249,6 @@ it.layer(TestLayer, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
   });
 
   describe("writeFile", () => {
-    it.effect("rejects stale and concurrently competing conditional writes", () =>
-      Effect.gen(function* () {
-        const files = yield* WorkspaceFileSystem.WorkspaceFileSystem;
-        const cwd = yield* makeTempDir;
-        yield* writeTextFile(cwd, "t3.json", "original");
-        const outcomes = yield* Effect.all(
-          ["first", "second"].map((contents) =>
-            files
-              .writeFile({
-                cwd,
-                relativePath: "t3.json",
-                contents,
-                expectedContents: "original",
-              })
-              .pipe(Effect.result),
-          ),
-          { concurrency: 2 },
-        );
-        expect(outcomes.filter((result) => result._tag === "Success")).toHaveLength(1);
-        expect(outcomes.filter((result) => result._tag === "Failure")).toHaveLength(1);
-        const error = yield* files
-          .writeFile({
-            cwd,
-            relativePath: "t3.json",
-            contents: "stale",
-            expectedContents: "original",
-          })
-          .pipe(Effect.flip);
-        expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceFileChangedError);
-        expect((yield* files.readFile({ cwd, relativePath: "t3.json" })).contents).not.toBe(
-          "stale",
-        );
-      }),
-    );
-
-    it.effect("rejects a truncated matching prefix without changing the oversized file", () =>
-      Effect.gen(function* () {
-        const files = yield* WorkspaceFileSystem.WorkspaceFileSystem;
-        const fileSystem = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const cwd = yield* makeTempDir;
-        const prefix = "a".repeat(1024 * 1024);
-        const original = `${prefix}extra bytes`;
-        yield* writeTextFile(cwd, "large.txt", original);
-        const error = yield* files
-          .writeFile({
-            cwd,
-            relativePath: "large.txt",
-            contents: "replacement",
-            expectedContents: prefix,
-          })
-          .pipe(Effect.flip);
-        expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceFileChangedError);
-        expect(yield* fileSystem.readFileString(path.join(cwd, "large.txt"))).toBe(original);
-      }),
-    );
-    it.effect.skipIf(HostProcessPlatform.defaultValue() === "win32")(
-      "rejects conditional writes to a FIFO without blocking",
-      () =>
-        Effect.gen(function* () {
-          const files = yield* WorkspaceFileSystem.WorkspaceFileSystem;
-          const path = yield* Path.Path;
-          const cwd = yield* makeTempDir;
-          yield* Effect.promise(
-            () =>
-              new Promise<void>((resolve, reject) =>
-                NodeChildProcess.execFile("mkfifo", [path.join(cwd, "pipe")], (error) =>
-                  error ? reject(error) : resolve(),
-                ),
-              ),
-          );
-          const error = yield* files
-            .writeFile({
-              cwd,
-              relativePath: "pipe",
-              contents: "replacement",
-              expectedContents: null,
-            })
-            .pipe(Effect.flip);
-          expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspacePathNotFileError);
-        }),
-    );
-    it.effect("conditionally creates missing files without overwriting a newly created file", () =>
-      Effect.gen(function* () {
-        const files = yield* WorkspaceFileSystem.WorkspaceFileSystem;
-        const cwd = yield* makeTempDir;
-        yield* files.writeFile({
-          cwd,
-          relativePath: "t3.json",
-          contents: "{}",
-          expectedContents: null,
-        });
-        const error = yield* files
-          .writeFile({
-            cwd,
-            relativePath: "t3.json",
-            contents: "overwrite",
-            expectedContents: null,
-          })
-          .pipe(Effect.flip);
-        expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceFileChangedError);
-        expect((yield* files.readFile({ cwd, relativePath: "t3.json" })).contents).toBe("{}");
-      }),
-    );
-
     it.effect("writes files relative to the workspace root", () =>
       Effect.gen(function* () {
         const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;

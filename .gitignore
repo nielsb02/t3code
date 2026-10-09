@@ -27,6 +27,7 @@ squashfs-root/
 .vercel
 .gstack/
 .plans/
+/audits/
 dist-electron/
 .electron-runtime/
 .showcase/
@@ -42,7 +43,5 @@ node_modules/
 .env*
 !.env.example
 
-# Local Python checks for fork synchronization.
-__pycache__/
 # pnpm content-addressable store; never belongs in the repo.
 .pnpm-store/

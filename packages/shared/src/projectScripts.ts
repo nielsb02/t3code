@@ -74,18 +74,15 @@ export function setupProjectScript(scripts: readonly ProjectScript[]): ProjectSc
   return scripts.find((script) => script.runOnWorktreeCreate) ?? null;
 }
 
-/** Destructive lifecycle actions require project opt-in; machine defaults never opt projects in. */
-export function settleProjectScripts(
-  settings: Pick<
-    ServerSettings,
-    "projectScriptOverrides" | "projectSettingsOverrides" | "projectSettingsFolded"
-  >,
-  project: { id: ProjectId; scripts: readonly ProjectScript[] },
-): readonly ProjectScript[] {
-  const override = settings.projectSettingsOverrides[project.id]?.defaultProjectScripts;
-  const legacy = settings.projectScriptOverrides[project.id];
-  const scripts =
-    override ??
-    (settings.projectSettingsFolded || legacy === null ? [] : (legacy ?? project.scripts));
-  return scripts.filter((script) => script.runOnThreadSettle === true);
+/** Menu label naming the lifecycle roles a script runs in, e.g. "Clean (on settle)". */
+export function projectScriptMenuLabel(script: ProjectScript): string {
+  const roles = [
+    ...(script.runOnWorktreeCreate ? ["setup"] : []),
+    ...(script.runOnSettle ? ["on settle"] : []),
+  ];
+  return roles.length === 0 ? script.name : `${script.name} (${roles.join(", ")})`;
+}
+
+export function settleProjectScript(scripts: readonly ProjectScript[]): ProjectScript | null {
+  return scripts.find((script) => script.runOnSettle === true) ?? null;
 }

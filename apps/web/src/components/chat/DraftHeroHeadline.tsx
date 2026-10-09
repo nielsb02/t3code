@@ -1,4 +1,3 @@
-import { useChatPaneKey } from "~/chatPaneScope";
 import type { DraftId } from "~/composerDraftStore";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { resolveEnvironmentMachineKind, type ScopedProjectRef } from "@t3tools/contracts";
@@ -56,7 +55,6 @@ export function DraftHeroHeadline({
   activeProjectRef,
   activeProjectTitle,
 }: DraftHeroHeadlineProps) {
-  const paneKey = useChatPaneKey();
   const projects = useProjects();
   const threads = useThreadShells();
   const { environments } = useEnvironments();
@@ -240,7 +238,6 @@ export function DraftHeroHeadline({
               render={<InlineButton tone="picker" />}
               data-draft-project-trigger=""
               className="pointer-events-auto max-w-64 align-baseline"
-              data-micro-dial-control={draftId ? "project" : undefined}
             />
           }
         >
@@ -252,12 +249,7 @@ export function DraftHeroHeadline({
           <TooltipPopup side="top">{activeProjectDisplayName}</TooltipPopup>
         ) : null}
       </Tooltip>
-      <MenuPopup
-        align="center"
-        className="max-h-80 overflow-y-auto"
-        data-chat-pane-id={paneKey ?? undefined}
-        data-micro-dial-popup={draftId ? "project" : undefined}
-      >
+      <MenuPopup align="center" className="max-h-80 overflow-y-auto">
         <MenuRadioGroup
           value={isScratchDraft ? NO_PROJECT_VALUE : activeProjectKey}
           onValueChange={(value) => {

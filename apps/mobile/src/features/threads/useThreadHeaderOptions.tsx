@@ -17,7 +17,6 @@ export function useThreadHeaderOptions(props: {
   readonly headerColor: string;
   readonly usesNativeHeaderGlass: boolean;
   readonly gitControls: Parameters<typeof ThreadGitControls>[0];
-  readonly onOpenSideChats?: (() => void) | undefined;
   readonly onReturnToThread?: () => void;
 }) {
   const navigation = useNavigation();
@@ -104,25 +103,26 @@ export function useThreadHeaderOptions(props: {
     // Search lives in the persistent sidebar, so the split header keeps
     // the git controls on the RIGHT (no center items — center space is
     // reserved for future breadcrumbs/status).
-    unstable_headerRightItems: () => [
-      ...(props.onOpenSideChats
-        ? [
-            withNativeGlassHeaderItem({
-              accessibilityLabel: "Side chats",
-              icon: { name: "bubble.left.and.bubble.right", type: "sfSymbol" as const },
-              identifier: "thread-side-chats",
-              onPress: props.onOpenSideChats,
-              type: "button" as const,
-            }),
-          ]
-        : []),
-      ...(layout.usesSplitView ? threadCenterHeaderItems : compactRightHeaderItems),
-    ],
+    unstable_headerRightItems: () =>
+      layout.usesSplitView ? threadCenterHeaderItems : compactRightHeaderItems,
     unstable_headerSubtitle: props.usesNativeHeaderGlass ? props.subtitle : undefined,
     contentStyle: undefined,
   };
+  const { environmentId, threadId, gitStatus } = props.gitControls;
   return {
     options,
+    // Header item factories are stabilized, so the native header only re-reads them when
+    // this version changes. Keying on the items keeps the Git menu status live; the menu
+    // callbacks also read state the items do not display (a "Push" item runs `push` or
+    // `commit_push` depending on the default ref), so that state is keyed too.
+    optionsVersion: [
+      layout.usesSplitView ? threadCenterHeaderItems : compactRightHeaderItems,
+      environmentId,
+      threadId,
+      gitStatus?.isDefaultRef,
+      gitStatus?.refName,
+      gitStatus?.pr?.url,
+    ],
     sidebar: false,
     fallback:
       !layout.usesSplitView && !props.usesNativeHeaderGlass ? (

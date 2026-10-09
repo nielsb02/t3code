@@ -368,19 +368,6 @@ describe("getDiffLineStat", () => {
   });
 });
 
-describe("diff path normalization", () => {
-  it("preserves directory names in normalized diff metadata", () => {
-    const parsed = getRenderablePatch(
-      "diff --git a/old.ts b/new.ts\nsimilarity index 100%\nrename from old.ts\nrename to new.ts\n",
-    );
-    if (parsed?.kind !== "files" || !parsed.files[0]) throw new Error("Expected renamed file");
-    const file = { ...parsed.files[0], name: "b/new.ts", prevName: "a/old.ts" };
-    expect(resolveFileDiffPath(file)).toBe("b/new.ts");
-    expect(resolveFileDiffPreviousPath(file)).toBe("a/old.ts");
-    expect(buildFileDiffIdentityKey(file)).toBe("a/old.ts\u0000b/new.ts\u0000rename-pure");
-  });
-});
-
 describe("a file whose name a patch header cannot carry plainly", () => {
   /** How git writes such a name, and so how every provider's patch arrives here. */
   const quotedPatch = (written: string) =>
@@ -413,6 +400,10 @@ describe("a file whose name a patch header cannot carry plainly", () => {
 
   it("is the name the host knows, not the part of it before the newline", () => {
     expect(pathOf(quotedPatch("line\\nfile.txt"))).toBe("line\nfile.txt");
+  });
+
+  it("keeps a backslash the name really has", () => {
+    expect(pathOf(quotedPatch("back\\\\slash.txt"))).toBe("back\\slash.txt");
   });
 
   it("reads the octal a host with core.quotePath on writes for a name outside ASCII", () => {

@@ -2,7 +2,7 @@ import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 
 import { ThreadEnvMode, WorktreeSubmodules } from "./environment.ts";
-import { ProjectScriptIcon } from "./orchestration.ts";
+import { ProjectScriptIcon } from "./project.ts";
 import type { ProjectScopedServerSettingKey, ServerSettings } from "./settings.ts";
 
 /** File name of the checked-in T3 project file, resolved at the workspace root. */
@@ -43,10 +43,10 @@ export const T3ProjectFileScript = Schema.Struct({
         "When true, the script runs automatically after a worktree is created for a new thread.",
     }),
   ),
-  runOnThreadSettle: Schema.optionalKey(
+  runOnSettle: Schema.optionalKey(
     Schema.Boolean.annotate({
       description:
-        "Run after a new manual settlement of a worktree thread. Never runs for automatic settlement, local checkouts, or shared active worktrees. The command may delete runtime resources and data; worktree files are preserved by T3 Code.",
+        "When true, the script runs in the thread's worktree each time the thread settles, for example to delete build output. Threads without their own worktree skip it.",
     }),
   ),
   async: Schema.optionalKey(
@@ -91,22 +91,6 @@ export const T3ProjectFile = Schema.Struct({
     ThreadEnvMode.annotate({
       description:
         'Where new threads start for this repository: "worktree" for a fresh git worktree, "local" for the current checkout. A per-project setting in T3 Code overrides this; when neither is set, the global default applies.',
-    }),
-  ),
-  repositories: Schema.optionalKey(
-    Schema.Struct({
-      paths: Schema.optionalKey(
-        Schema.Array(
-          trimmedNonEmpty(
-            { description: "Workspace-relative repository path or trailing /* pattern." },
-            T3_PROJECT_FILE_PATH_MAX_LENGTH,
-          ),
-        ).check(Schema.isMaxLength(100)),
-      ),
-      includeSubmodules: Schema.optionalKey(Schema.Boolean),
-    }).annotate({
-      description:
-        "Workspace-relative repository paths. A trailing /* includes immediate child repositories; declared Git submodules are optional. Paths must remain inside the workspace.",
     }),
   ),
   worktreeSubmodules: Schema.optionalKey(

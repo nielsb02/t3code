@@ -1,4 +1,4 @@
-import { EnvironmentId, ProjectId, ThreadId, type MicroControlAction } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
@@ -22,11 +22,6 @@ function dependencies(
   overrides: Partial<DesktopAppActivationDependencies> = {},
 ): DesktopAppActivationDependencies {
   return {
-    readSessions: () => ({ environments: [], sidebarOrder: [], sidebarOrderReady: false }),
-    executeMicroControl: vi.fn(() => true),
-    isEnvironmentConnected: (id) => id === environmentId,
-    findThread: () => ({ projectId: existingProjectId }),
-    navigateThread: vi.fn(async () => undefined),
     getTarget: () => ({ environmentId, platform: "linux" }),
     findProject: () => ({
       id: existingProjectId,
@@ -41,160 +36,6 @@ function dependencies(
 }
 
 describe("desktop app activation", () => {
-  it("reports an unavailable catalog instead of an authoritative empty list", async () => {
-    const response = await handleDesktopAppActivationRequest(
-      { version: 1, requestId: "list", type: "list-sessions" },
-      dependencies({ readSessions: () => null }),
-    );
-    expect(response).toMatchObject({ ok: false, code: "renderer-unavailable" });
-  });
-
-  it("reads session snapshots without a primary target or navigation", async () => {
-    const deps = dependencies({ getTarget: () => null });
-    const response = await handleDesktopAppActivationRequest(
-      { version: 1, requestId: "list", type: "list-sessions" },
-      deps,
-    );
-    expect(response).toEqual({
-      version: 1,
-      requestId: "list",
-      ok: true,
-      type: "session-list",
-      environments: [],
-      sidebarOrder: [],
-      sidebarOrderReady: false,
-    });
-    expect(deps.navigateThread).not.toHaveBeenCalled();
-    expect(deps.createProject).not.toHaveBeenCalled();
-    expect(deps.openThread).not.toHaveBeenCalled();
-  });
-
-  it.each<MicroControlAction>([
-    "dial-clockwise",
-    "dial-counterclockwise",
-    "dial-press",
-    "composer-toggle",
-    "new-thread",
-    "new-project",
-    "latest-message",
-    "settle-thread",
-    "terminal-toggle",
-    "command-palette",
-  ])("dispatches %s and acknowledges the same accepted action", async (action) => {
-    const deps = dependencies({ getTarget: () => null });
-    const response = await handleDesktopAppActivationRequest(
-      { version: 1, requestId: "micro-1", type: "micro-control", action },
-      deps,
-    );
-
-    expect(response).toEqual({ version: 1, requestId: "micro-1", ok: true, action });
-    expect(deps.executeMicroControl).toHaveBeenCalledWith(action);
-    expect(deps.navigateThread).not.toHaveBeenCalled();
-    expect(deps.createProject).not.toHaveBeenCalled();
-    expect(deps.openThread).not.toHaveBeenCalled();
-  });
-
-  it("rejects Micro controls when the renderer has no focused active chat", async () => {
-    const response = await handleDesktopAppActivationRequest(
-      { version: 1, requestId: "micro-1", type: "micro-control", action: "dial-press" },
-      dependencies({ executeMicroControl: () => false }),
-    );
-
-    expect(response).toMatchObject({
-      requestId: "micro-1",
-      ok: false,
-      code: "micro-control-unavailable",
-    });
-  });
-
-  it("reports a failed Micro handler without acknowledging the action", async () => {
-    const response = await handleDesktopAppActivationRequest(
-      { version: 1, requestId: "micro-1", type: "micro-control", action: "dial-press" },
-      dependencies({
-        executeMicroControl: () => {
-          throw new Error("Control failed.");
-        },
-      }),
-    );
-
-    expect(response).toMatchObject({
-      ok: false,
-      code: "internal-error",
-      message: "Control failed.",
-    });
-  });
-
-  const openExisting = {
-    version: 1,
-    requestId: "open-existing",
-    type: "open-thread",
-    environmentId,
-    threadId,
-  } as const;
-
-  it("navigates to the exact existing session without creating a project or thread", async () => {
-    const deps = dependencies();
-    const response = await handleDesktopAppActivationRequest(openExisting, deps);
-    expect(response).toEqual({
-      version: 1,
-      requestId: "open-existing",
-      ok: true,
-      environmentId,
-      threadId,
-      projectId: existingProjectId,
-    });
-    expect(deps.navigateThread).toHaveBeenCalledWith({ environmentId, threadId });
-    expect(deps.createProject).not.toHaveBeenCalled();
-    expect(deps.openThread).not.toHaveBeenCalled();
-  });
-
-  it("does not substitute the primary environment for an unavailable target", async () => {
-    const deps = dependencies();
-    const response = await handleDesktopAppActivationRequest(
-      { ...openExisting, environmentId: EnvironmentId.make("other") },
-      deps,
-    );
-    expect(response).toMatchObject({ ok: false, code: "environment-unavailable" });
-    expect(deps.navigateThread).not.toHaveBeenCalled();
-  });
-
-  it("reports a missing session without creating a replacement", async () => {
-    const deps = dependencies({ findThread: () => null });
-    const response = await handleDesktopAppActivationRequest(openExisting, deps);
-    expect(response).toMatchObject({ ok: false, code: "thread-open-failed" });
-    expect(deps.navigateThread).not.toHaveBeenCalled();
-    expect(deps.openThread).not.toHaveBeenCalled();
-  });
-
-  it("reports a navigation failure instead of acknowledging an unopened session", async () => {
-    const deps = dependencies({
-      navigateThread: vi.fn(async () => {
-        throw new Error("Navigation failed.");
-      }),
-    });
-    const response = await handleDesktopAppActivationRequest(openExisting, deps);
-    expect(response).toMatchObject({
-      ok: false,
-      code: "thread-open-failed",
-      message: "Navigation failed.",
-    });
-  });
-
-  it("uses the requested connected environment even when it is not the primary", async () => {
-    const otherId = EnvironmentId.make("other");
-    const deps = dependencies({
-      getTarget: () => null,
-      isEnvironmentConnected: () => true,
-      findThread: vi.fn(() => ({ projectId: existingProjectId })),
-    });
-    const response = await handleDesktopAppActivationRequest(
-      { ...openExisting, environmentId: otherId },
-      deps,
-    );
-    expect(response).toMatchObject({ ok: true, environmentId: otherId, threadId });
-    expect(deps.findThread).toHaveBeenCalledWith({ environmentId: otherId, threadId });
-    expect(deps.navigateThread).toHaveBeenCalledWith({ environmentId: otherId, threadId });
-  });
   it("reuses an existing project and opens a new thread", async () => {
     const deps = dependencies();
 

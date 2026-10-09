@@ -1,16 +1,11 @@
-import {
-  ThreadId,
-  EnvironmentId,
-  type ThreadPullRequestLink,
-  type DesktopPreviewFavicon,
-  type PreviewSessionSnapshot,
-} from "@t3tools/contracts";
+import { EnvironmentId, type ThreadPullRequestLink } from "@t3tools/contracts";
+import type { DesktopPreviewFavicon, PreviewSessionSnapshot } from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   RightPanelTabs,
-  surfaceTitle,
   resolvePullRequestTabLink,
   shouldOpenDefaultBrowserProfileFromMenuClick,
   surfaceShortcutActionForKey,
@@ -104,6 +99,15 @@ function renderTabs(
   return renderToStaticMarkup(
     <RightPanelTabs
       mode="inline"
+      keybindings={DEFAULT_RESOLVED_KEYBINDINGS}
+      getShortcutContext={() => ({
+        terminalFocus: false,
+        terminalOpen: false,
+        previewFocus: false,
+        previewOpen: false,
+        isWeb: true,
+        isDesktop: false,
+      })}
       surfaces={second ? [previewSurface, secondSurface] : [previewSurface]}
       environmentId={null}
       activeSurfaceId={previewSurface.id}
@@ -128,16 +132,13 @@ function renderTabs(
       onAddPullRequests={() => undefined}
       onAddDiff={() => undefined}
       onAddFiles={() => undefined}
-      onAddAgents={() => undefined}
       onAddDevice={() => undefined}
-      liveAgentCount={0}
       browserAvailable
       terminalAvailable={false}
       diffAvailable={false}
       filesAvailable={false}
       pullRequestAvailable={false}
       pullRequestsAvailable={false}
-      agentsAvailable={false}
       deviceAvailable={false}
     >
       <div>content</div>
@@ -288,20 +289,6 @@ describe("tabMuteMenuItem", () => {
       label: "Unmute tab",
       disabled: false,
     });
-  });
-});
-
-describe("side chat tab titles", () => {
-  it("uses the latest supplied thread title and keeps a fallback while the child is unavailable", () => {
-    const threadId = ThreadId.make("ui-child");
-    const surface = { id: "side-chat:ui-child", kind: "side-chat", threadId } as const;
-    expect(surfaceTitle(surface, {}, new Map())).toBe("Side chat");
-    expect(surfaceTitle(surface, {}, new Map(), new Map([[threadId, "Settings UI"]]))).toBe(
-      "Settings UI",
-    );
-    expect(surfaceTitle(surface, {}, new Map(), new Map([[threadId, "Accessible settings"]]))).toBe(
-      "Accessible settings",
-    );
   });
 });
 
