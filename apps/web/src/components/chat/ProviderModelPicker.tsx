@@ -208,6 +208,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             aria-label={props.triggerAriaLabel ?? allModelNames}
             size={size}
             data-chat-provider-model-picker="true"
+            data-micro-dial-control={props.isComposerOwned && !props.disabled ? "model" : undefined}
             className={cn(
               "min-w-0 shrink justify-between whitespace-nowrap",
               props.compact
@@ -286,6 +287,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       </PopoverTrigger>
       <PopoverPopup
         {...(props.isComposerOwned ? composerFloatingLayerProps : {})}
+        data-micro-dial-popup={props.isComposerOwned ? "model" : undefined}
         align="start"
         className="before:hidden"
         padding="none"

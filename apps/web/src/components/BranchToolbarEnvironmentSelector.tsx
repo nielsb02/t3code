@@ -94,6 +94,7 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
               size="xs"
               className="min-w-0 max-w-full"
               aria-label="Run on"
+              data-micro-dial-control="environment"
               data-composer-shortcut="composer.host"
               data-composer-context-control
             />
@@ -113,7 +114,11 @@ export const BranchToolbarEnvironmentSelector = memo(function BranchToolbarEnvir
         </TooltipTrigger>
         <TooltipPopup>{autoEnvironmentLabel ?? activeEnvironment?.label ?? "Run on"}</TooltipPopup>
       </Tooltip>
-      <SelectPopup alignItemWithTrigger={false} {...composerFloatingLayerProps}>
+      <SelectPopup
+        alignItemWithTrigger={false}
+        {...composerFloatingLayerProps}
+        data-micro-dial-popup="environment"
+      >
         <SelectGroup>
           <SelectGroupLabel>Run on</SelectGroupLabel>
           {onAutoEnvironment && (

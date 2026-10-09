@@ -23,6 +23,7 @@ import {
   rememberCheckoutIsRepo,
 } from "./ChatView.logic";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
+import { useMicroControls } from "../hooks/useMicroControls";
 import { useScratchProject } from "../hooks/useScratchProject";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
@@ -1840,6 +1841,7 @@ export default function ChatView(props: ChatViewProps) {
   const composerFilesRef = useRef<ComposerFileAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
+  const [microChatRoot, setMicroChatRoot] = useState<HTMLDivElement | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
   const branchToolbarRef = useRef<BranchToolbarHandle>(null);
   const pasteAsTextShortcutUntilRef = useRef(0);
@@ -6511,6 +6513,22 @@ export default function ChatView(props: ChatViewProps) {
       void legendListRef.current?.scrollToEnd?.({ animated });
     });
   }, []);
+  const microDialHint = useMicroControls({
+    scope: draftId ?? activeThreadKey,
+    root: microChatRoot,
+    focusComposer: () => composerRef.current?.focusAtEnd(),
+    scroll: (direction) => {
+      cancelTimelineLiveFollowForUserNavigation();
+      getTimelineScrollableNode()?.scrollBy({ top: direction * 80, behavior: "instant" });
+    },
+    latest: () => scrollToEnd(),
+    settleThread: () => handleSettleActiveThread(),
+    toggleTerminal: () => {
+      if (!activeThreadRef || !activeProject) return false;
+      toggleTerminalVisibility();
+      return true;
+    },
+  });
   useEffect(() => {
     let removeListeners: (() => void) | null = null;
     let frame: number | null = null;
@@ -7187,6 +7205,32 @@ export default function ChatView(props: ChatViewProps) {
   ]);
   const activeThreadSettled =
     supportsSettlement && activeThreadShell?.settledOverride === "settled";
+  // Shared by the settle shortcut and the Micro settle button. Returns whether
+  // a settle was started, so a control press on an unsettleable thread reports
+  // that nothing happened.
+  const handleSettleActiveThread = useCallback(() => {
+    if (
+      !isServerThread ||
+      !activeThreadRef ||
+      !supportsSettlement ||
+      activeThreadSettled ||
+      !readEnvironmentScope(activeThreadRef.environmentId, AuthOrchestrationOperateScope)
+    ) {
+      return false;
+    }
+    void settleThread(activeThreadRef).then((result) => {
+      if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+      const error = squashAtomCommandFailure(result);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Failed to settle thread",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+    });
+    return true;
+  }, [activeThreadRef, activeThreadSettled, isServerThread, settleThread, supportsSettlement]);
   const unsettleThreadMutation = useOrchestrationCommand(threadEnvironment.unsettle, {
     reportFailure: false,
   });
@@ -8017,17 +8061,7 @@ export default function ChatView(props: ChatViewProps) {
           return;
         }
 
-        void settleThread(activeThreadRef).then((result) => {
-          if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
-          const error = squashAtomCommandFailure(result);
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Failed to settle thread",
-              description: error instanceof Error ? error.message : "An error occurred.",
-            }),
-          );
-        });
+        handleSettleActiveThread();
         return;
       }
 
@@ -8310,7 +8344,7 @@ export default function ChatView(props: ChatViewProps) {
     onInterrupt,
     onToggleDiff,
     pinThread,
-    settleThread,
+    handleSettleActiveThread,
     supportsPinning,
     supportsSettlement,
     confirmAndUnpinThread,
@@ -11275,6 +11309,8 @@ export default function ChatView(props: ChatViewProps) {
           rightPanelMaximized ? "w-0 flex-none" : "flex-1",
         )}
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
+        ref={setMicroChatRoot}
+        tabIndex={-1}
       >
         {/* Top bar */}
         <header
@@ -11826,10 +11862,16 @@ export default function ChatView(props: ChatViewProps) {
                         </div>
                       </div>
                     </ComposerSurface.Shell>
-                    <div
-                      aria-hidden
-                      className="h-[calc(env(safe-area-inset-bottom)+1rem)] sm:h-[calc(env(safe-area-inset-bottom)+1.25rem)]"
-                    />
+                    <div className="min-h-[calc(env(safe-area-inset-bottom)+1rem)] pb-safe sm:min-h-[calc(env(safe-area-inset-bottom)+1.25rem)]">
+                      {microDialHint ? (
+                        <div
+                          role="status"
+                          className="pointer-events-none px-2 py-0.5 text-center text-2xs leading-4 text-muted-foreground"
+                        >
+                          {microDialHint}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               </div>

@@ -119,6 +119,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
               size="xs"
               className="min-w-0 shrink"
               aria-label="Workspace"
+              data-micro-dial-control="workspace"
               data-composer-shortcut="composer.workspace"
               data-composer-context-control
               onMouseDownCapture={stopContextMenuMouseDown}
@@ -145,6 +146,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
       <SelectPopup
         alignItemWithTrigger={false}
         {...composerFloatingLayerProps}
+        data-micro-dial-popup="workspace"
         className={showPreviousWorktree ? "w-[min(21rem,calc(100vw-2rem))]" : undefined}
       >
         <SelectGroup>

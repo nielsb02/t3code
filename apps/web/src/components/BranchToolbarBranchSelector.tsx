@@ -728,7 +728,9 @@ export function BranchToolbarBranchSelector({
         align: displayMode === "panel" ? "start" : "end",
         side: displayMode === "panel" ? "bottom" : "top",
         className: cn("flex flex-col", displayMode === "panel" ? "w-(--anchor-width)" : "w-80"),
-        ...(displayMode === "toolbar" ? composerFloatingLayerProps : {}),
+        ...(displayMode === "toolbar"
+          ? { ...composerFloatingLayerProps, "data-micro-dial-popup": "branch" }
+          : {}),
       }}
     >
       <div
@@ -771,6 +773,9 @@ export function BranchToolbarBranchSelector({
             }
             className="min-w-0 max-w-full active:scale-100"
             disabled={isInitialBranchesLoadPending || isBranchActionPending}
+            data-micro-dial-control={
+              isInitialBranchesLoadPending || isBranchActionPending ? undefined : "branch"
+            }
           >
             <GitBranchIcon
               className={cn(

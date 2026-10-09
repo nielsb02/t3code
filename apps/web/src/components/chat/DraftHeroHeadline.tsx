@@ -237,6 +237,7 @@ export function DraftHeroHeadline({
             <MenuTrigger
               render={<InlineButton tone="picker" />}
               data-draft-project-trigger=""
+              data-micro-dial-control={draftId ? "project" : undefined}
               className="pointer-events-auto max-w-64 align-baseline"
             />
           }
@@ -249,7 +250,11 @@ export function DraftHeroHeadline({
           <TooltipPopup side="top">{activeProjectDisplayName}</TooltipPopup>
         ) : null}
       </Tooltip>
-      <MenuPopup align="center" className="max-h-80 overflow-y-auto">
+      <MenuPopup
+        align="center"
+        className="max-h-80 overflow-y-auto"
+        data-micro-dial-popup={draftId ? "project" : undefined}
+      >
         <MenuRadioGroup
           value={isScratchDraft ? NO_PROJECT_VALUE : activeProjectKey}
           onValueChange={(value) => {

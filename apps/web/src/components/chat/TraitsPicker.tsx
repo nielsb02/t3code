@@ -591,7 +591,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   }) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const [isMenuOpen, setIsMenuOpen] = useComposerMenuState(hidden || disabled);
-  const { descriptors, primarySelectDescriptor, ultrathinkPromptControlled } =
+  const { descriptors, primarySelectDescriptor, ultrathinkPromptControlled, modelIsUnavailable } =
     getTraitsSectionVisibility({
       provider,
       models,
@@ -640,6 +640,11 @@ export const TraitsPicker = memo(function TraitsPicker({
                 <ComposerControl
                   disabled={disabled}
                   aria-label={triggerLabel}
+                  data-micro-dial-control={
+                    isComposerOwned && !hidden && !disabled && !modelIsUnavailable
+                      ? "reasoning"
+                      : undefined
+                  }
                   data-composer-shortcut={isComposerOwned ? "composer.effort" : undefined}
                   size={size}
                   className={cn(
@@ -678,7 +683,11 @@ export const TraitsPicker = memo(function TraitsPicker({
         </TooltipTrigger>
         <TooltipPopup side="top">{triggerLabel}</TooltipPopup>
       </Tooltip>
-      <MenuPopup align="start" {...(isComposerOwned ? composerFloatingLayerProps : {})}>
+      <MenuPopup
+        align="start"
+        {...(isComposerOwned ? composerFloatingLayerProps : {})}
+        data-micro-dial-popup={isComposerOwned && !modelIsUnavailable ? "reasoning" : undefined}
+      >
         <TraitsMenuContent
           provider={provider}
           {...(instanceId ? { instanceId } : {})}
