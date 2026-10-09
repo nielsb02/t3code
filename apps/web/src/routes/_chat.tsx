@@ -1,7 +1,7 @@
 import { AuthPreviewOperateScope } from "@t3tools/contracts";
 import { Outlet, createFileRoute, redirect, useParams } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo } from "react";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { ThreadRouteView } from "../components/ThreadRouteView";
@@ -17,7 +17,8 @@ import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { dispatchPreviewAction } from "../components/preview/previewActionBus";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useScratchProject } from "../hooks/useScratchProject";
-import { startNewThreadFromContext } from "../lib/chatThreadActions";
+import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
+import { registerGlobalMicroControlHandler, type MicroGlobalAction } from "../microControls";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isEditableFocused } from "../lib/editableFocus";
@@ -68,6 +69,60 @@ function ChatRouteGlobalShortcuts() {
       ? selectActiveRightPanel(state.byThreadKey, routeThreadRef) === "preview"
       : false,
   );
+  const startNewThread = useCallback(() => {
+    if (!legacySidebarEnabled && projectGroupCount > 1) {
+      openCommandPalette({ open: "new-thread-in" });
+      return true;
+    }
+    const context = {
+      activeDraftThread,
+      activeThread: activeThread ?? undefined,
+      defaultProjectRef,
+      handleNewThread,
+    };
+    if (resolveThreadActionProjectRef(context) === null) return false;
+    void startNewThreadFromContext(context);
+    return true;
+  }, [
+    activeDraftThread,
+    activeThread,
+    defaultProjectRef,
+    handleNewThread,
+    legacySidebarEnabled,
+    projectGroupCount,
+  ]);
+  const handleGlobalMicroAction = useEffectEvent((action: MicroGlobalAction) => {
+    if (!document.hasFocus()) return false;
+    if (
+      Array.from(
+        document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"]'),
+      ).some(
+        (dialog) =>
+          dialog.getClientRects().length > 0 &&
+          !dialog.closest('[hidden], [inert], [aria-hidden="true"]'),
+      )
+    )
+      return false;
+    switch (action) {
+      case "new-thread":
+        return startNewThread();
+      case "new-project":
+        openCommandPalette({ open: "add-project" });
+        return true;
+      case "command-palette":
+        openCommandPalette();
+        return true;
+      default: {
+        const unhandled: never = action;
+        return unhandled;
+      }
+    }
+  });
+  useEffect(
+    () => registerGlobalMicroControlHandler((action) => handleGlobalMicroAction(action)),
+    [],
+  );
+
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
@@ -130,16 +185,7 @@ function ChatRouteGlobalShortcuts() {
         // The default sidebar routes creation through the command palette
         // whenever there is a real choice to make; the legacy sidebar (and
         // single-project setups) keep the immediate contextual create.
-        if (!legacySidebarEnabled && projectGroupCount > 1) {
-          openCommandPalette({ open: "new-thread-in" });
-          return;
-        }
-        void startNewThreadFromContext({
-          activeDraftThread,
-          activeThread: activeThread ?? undefined,
-          defaultProjectRef,
-          handleNewThread,
-        });
+        startNewThread();
         return;
       }
 
@@ -202,13 +248,12 @@ function ChatRouteGlobalShortcuts() {
     defaultProjectRef,
     previewOpen,
     primaryEnvironmentId,
-    projectGroupCount,
     routeThreadRef,
     scratchEnvironmentId,
     selectedThreadKeysSize,
     startScratchThread,
-    legacySidebarEnabled,
     terminalOpen,
+    startNewThread,
   ]);
 
   return null;

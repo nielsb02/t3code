@@ -149,9 +149,11 @@ import {
   useEnvironmentMachines,
   usePrimaryEnvironmentId,
 } from "../state/environments";
+import { publishDesktopSidebarOrder } from "../state/desktopSessions";
 import {
   readThreadShell,
   useAllEnvironmentProjectSnapshotsReady,
+  useAllEnvironmentShellsBootstrapped,
   useProjects,
   useThreadShells,
 } from "../state/entities";
@@ -2385,6 +2387,7 @@ export default function Sidebar() {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
+  const shellsBootstrapped = useAllEnvironmentShellsBootstrapped();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -2889,6 +2892,18 @@ export default function Sidebar() {
     threads,
     workingShelfEnabled,
   ]);
+
+  // Micro Manager orders its session list like this sidebar's pinned, active,
+  // and working rows. Snoozed and settled rows are not sessions to switch to.
+  useEffect(() => {
+    if (!shellsBootstrapped) return;
+    publishDesktopSidebarOrder(
+      [...pinnedThreads, ...activeThreads, ...workingThreads].map((thread) => ({
+        environmentId: thread.environmentId,
+        threadId: thread.id,
+      })),
+    );
+  }, [pinnedThreads, activeThreads, workingThreads, shellsBootstrapped]);
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
