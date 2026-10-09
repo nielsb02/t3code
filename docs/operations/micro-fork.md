@@ -108,6 +108,11 @@ this as a local patch, so replacing it with a release without the patch left
 Creator Micro connected but showing no sessions. The release workflow covers
 the protocol, broker, session snapshot, and navigation behavior.
 
+Session status comes from the sidebar's thread status (`resolveSidebarThreadStatus`),
+so an upstream change to sidebar status rules also changes what Micro Manager shows.
+Subagent threads are not listed. The published order follows the sidebar: pinned,
+active, then the working shelf, limited to the projects the sidebar shows.
+
 ## Retired fork features
 
 These fork features were replaced by upstream equivalents when the fork moved to
