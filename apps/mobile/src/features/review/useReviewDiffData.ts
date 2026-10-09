@@ -1,3 +1,4 @@
+import { buildWorkspaceReviewDiff } from "./workspaceReviewDiff";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { countReviewCommentContexts, parseReviewInlineComments } from "./reviewCommentSelection";
@@ -128,22 +129,29 @@ export function useReviewDiffData(input: {
   const { draftMessage, selectedSection, threadKey } = input;
   const selectedSectionId = selectedSection?.id ?? null;
   const source = selectedSection?.source;
-  const lazySource = source?.truncated && source.files ? source : null;
+  const lazySource =
+    !selectedSection?.repositoryDiffs && source?.truncated && source.files ? source : null;
   const previewDiff = useMemo<ReviewParsedDiff>(
     () =>
       lazySource
         ? { kind: "empty" }
         : measureReviewWork("parse-diff", () =>
-            getCachedReviewParsedDiff({
-              threadKey,
-              sectionId: selectedSection?.id ?? null,
-              diff: selectedSection?.diff,
-            }),
+            selectedSection?.repositoryDiffs
+              ? buildWorkspaceReviewDiff(
+                  selectedSection.repositoryDiffs,
+                  `${threadKey}:${selectedSection.id}`,
+                )
+              : getCachedReviewParsedDiff({
+                  threadKey,
+                  sectionId: selectedSection?.id ?? null,
+                  diff: selectedSection?.diff,
+                }),
           ),
-    [lazySource, selectedSection?.diff, selectedSection?.id, threadKey],
+    [lazySource, selectedSection, threadKey],
   );
   const registry = useContext(RegistryContext);
-  const { environmentId, cwd } = input;
+  const { environmentId } = input;
+  const cwd = selectedSection?.sourceCwd ?? input.cwd;
   const scope = JSON.stringify([
     environmentId,
     cwd,

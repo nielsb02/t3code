@@ -30,7 +30,7 @@ import { setPendingConnectionError } from "./use-remote-environment-registry";
 import { useAtomCommand } from "./use-atom-command";
 import { showGitActionResult } from "./use-vcs-action-state";
 import { useThreadSelection } from "./use-thread-selection";
-import { useSelectedThreadWorktree } from "./use-selected-thread-worktree";
+import { useWorkspaceRepositories } from "./use-workspace-repositories";
 
 export function useSelectedThreadGitActions() {
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
@@ -52,7 +52,8 @@ export function useSelectedThreadGitActions() {
     AuthOrchestrationOperateScope,
   );
   const canChangeThreadBranch = canWriteSourceControl && canOperateThread;
-  const { selectedThreadCwd, selectedThreadWorktreePath } = useSelectedThreadWorktree();
+  const { selectedThreadCwd, selectedThreadWorktreePath, isChildRepository, refreshRepositories } =
+    useWorkspaceRepositories();
   const runStackedAction = useAtomCommand(
     vcsActionManager.runStackedAction({
       environmentId: selectedThread?.environmentId ?? null,
@@ -61,7 +62,9 @@ export function useSelectedThreadGitActions() {
     { reportFailure: false },
   );
 
-  const selectedThreadGitRootCwd = selectedThreadProject?.workspaceRoot ?? null;
+  const selectedThreadGitRootCwd = isChildRepository
+    ? selectedThreadCwd
+    : (selectedThreadProject?.workspaceRoot ?? null);
   const branchTarget = useMemo(
     () => ({
       environmentId: selectedThread?.environmentId ?? null,
@@ -216,9 +219,10 @@ export function useSelectedThreadGitActions() {
         showGitActionResult({ type: "error", title: "Git action failed", description: message });
         return null;
       }
+      refreshRepositories();
       return result.value;
     },
-    [selectedThread, selectedThreadCwd, selectedThreadProject],
+    [refreshRepositories, selectedThread, selectedThreadCwd, selectedThreadProject],
   );
 
   const refreshSelectedThreadBranches = useCallback(async (): Promise<ReadonlyArray<VcsRef>> => {
@@ -239,17 +243,19 @@ export function useSelectedThreadGitActions() {
     }): Promise<AtomCommandResult<void, unknown>> => {
       // The Git mutation already landed; refresh what the worktree shows even
       // when the thread metadata update is denied, so the sheet does not keep
-      // displaying the previous branch.
-      const updateResult = input.nextThreadState
-        ? await updateThreadGitContext(input.thread, input.nextThreadState)
-        : AsyncResult.success(undefined);
+      // displaying the previous branch. A child repository's branch is not the
+      // thread's, so only the outer workspace writes it back.
+      const updateResult =
+        input.nextThreadState && !isChildRepository
+          ? await updateThreadGitContext(input.thread, input.nextThreadState)
+          : AsyncResult.success(undefined);
       branchState.refresh();
       await refreshSelectedThreadGitStatus({ quiet: true, cwd: input.cwd });
       return AsyncResult.isFailure(updateResult)
         ? AsyncResult.failure(updateResult.cause)
         : AsyncResult.success(undefined);
     },
-    [branchState, refreshSelectedThreadGitStatus, updateThreadGitContext],
+    [branchState, isChildRepository, refreshSelectedThreadGitStatus, updateThreadGitContext],
   );
 
   const onCheckoutSelectedThreadBranch = useCallback(
@@ -322,6 +328,8 @@ export function useSelectedThreadGitActions() {
 
   const onCreateSelectedThreadWorktree = useCallback(
     async (nextWorktree: { readonly baseBranch: string; readonly newBranch: string }) => {
+      // Thread worktrees belong to the outer workspace.
+      if (isChildRepository) return null;
       return runSelectedThreadGitMutation(
         "create_worktree",
         "Creating worktree",
@@ -351,7 +359,12 @@ export function useSelectedThreadGitActions() {
         { changesThreadBranch: true },
       );
     },
-    [createWorktree, runSelectedThreadGitMutation, syncSelectedThreadBranchState],
+    [
+      createWorktree,
+      isChildRepository,
+      runSelectedThreadGitMutation,
+      syncSelectedThreadBranchState,
+    ],
   );
 
   const onPullSelectedThreadBranch = useCallback(async () => {

@@ -41,6 +41,26 @@ vi.mock("../../state/use-thread-detail", () => ({
 vi.mock("../../state/use-selected-thread-worktree", () => ({
   useSelectedThreadWorktree: () => ({ selectedThreadCwd: "/repo" }),
 }));
+vi.mock("@react-navigation/native", () => ({ useFocusEffect: () => undefined }));
+vi.mock("../../state/use-workspace-repositories", () => ({
+  useWorkspaceRepositories: () => ({
+    repositories: [],
+    repositoryFilter: null,
+    selectRepository: vi.fn(),
+    refreshRepositories: vi.fn(),
+    repositoryError: null,
+  }),
+}));
+// No repository has answered, so sections come from the review cache.
+vi.mock("./useWorkspaceReviewSources", () => ({
+  useWorkspaceReviewSources: () => ({
+    entries: [],
+    error: null,
+    hasData: false,
+    isPending: false,
+    refresh: vi.fn(),
+  }),
+}));
 vi.mock("../../state/query", () => ({
   useEnvironmentQuery: (atom: unknown) => ({
     data: atom === state.sessionAtom ? state.session : null,

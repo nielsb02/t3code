@@ -49,7 +49,7 @@ import {
   useAdaptiveWorkspacePaneRole,
   useRegisterWorkspaceInspector,
 } from "../layout/AdaptiveWorkspaceLayout";
-import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
+import { useWorkspaceRepositories } from "../../state/use-workspace-repositories";
 import { useReviewCacheForThread } from "./reviewState";
 import {
   isNativeReviewDiffDrawEvent,
@@ -460,7 +460,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
   const isEnvironmentReady = environment.presentation?.connection.phase === "connected";
   const { draftMessage } = useThreadDraftForThread({ environmentId, threadId });
   const reviewCache = useReviewCacheForThread({ environmentId, threadId });
-  const { selectedThreadCwd } = useSelectedThreadWorktree();
+  const { selectedThreadCwd } = useWorkspaceRepositories();
   const columnMetrics = useNativeColumnLayoutMetrics();
   const safeArea = columnMetrics?.safeArea ?? insets;
   const topContentInset = Platform.OS === "ios" ? safeArea.top : 0;
@@ -476,6 +476,9 @@ export function ReviewSheet(props: ReviewSheetProps) {
     selectedSection,
     refreshSelectedSection,
     selectSection,
+    repositories,
+    repositoryFilter,
+    selectRepositoryFilter,
     isSelectedSectionPending,
     diffPreviewRevision,
   } = useReviewSections({
@@ -737,6 +740,38 @@ export function ReviewSheet(props: ReviewSheetProps) {
 
       <MaterialScreenContent>
         <View className="flex-1 bg-sheet android:bg-sheet-solid">
+          {repositories.length > 1 && selectedSection?.kind !== "turn" ? (
+            <View className="border-b border-border py-2">
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {[
+                  { path: null, label: "All repositories", available: true },
+                  ...repositories.map((repository) => ({
+                    path: repository.path,
+                    label: repository.path === "." ? "Workspace" : repository.path,
+                    available: repository.available,
+                  })),
+                ].map((repository) => (
+                  <Pressable
+                    key={repository.path ?? "all"}
+                    accessibilityRole="button"
+                    accessibilityState={{
+                      selected: repositoryFilter === repository.path,
+                      disabled: !repository.available,
+                    }}
+                    disabled={!repository.available}
+                    onPress={() => selectRepositoryFilter(repository.path)}
+                    className="mx-1 rounded-xl border border-border px-3 py-2"
+                  >
+                    <Text>
+                      {repositoryFilter === repository.path ? "✓ " : ""}
+                      {repository.label}
+                      {repository.available ? "" : " (unavailable)"}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          ) : null}
           {showConnectionNotice ? (
             <View className="flex-1" style={{ paddingTop: topContentInset }}>
               <EnvironmentConnectionNotice

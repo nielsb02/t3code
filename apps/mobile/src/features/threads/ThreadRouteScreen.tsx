@@ -67,6 +67,7 @@ import { useSelectedThreadGitActions } from "../../state/use-selected-thread-git
 import { useSelectedThreadGitState } from "../../state/use-selected-thread-git-state";
 import { useSelectedThreadRequests } from "../../state/use-selected-thread-requests";
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
+import { useWorkspaceRepositories } from "../../state/use-workspace-repositories";
 import { useThreadComposerState } from "../../state/use-thread-composer-state";
 import { resolveMergeBackTargetThreadId } from "@t3tools/client-runtime/state/thread-relationships";
 import { resolveLatestMergeBackRun } from "@t3tools/client-runtime/state/thread-workflows";
@@ -398,11 +399,17 @@ function ThreadRouteContent(
     .filter(Boolean)
     .join(" · ");
   /* ─── Git status for native header trigger ───────────────────────── */
+  // Git targets the repository selected in Git actions; files and terminals keep the checkout.
+  const { selectedThreadCwd: gitCwd, refreshRepositories } = useWorkspaceRepositories();
+  const latestRunCompletedAt = selectedThread?.latestRun?.completedAt ?? null;
+  useEffect(() => {
+    if (latestRunCompletedAt) refreshRepositories();
+  }, [latestRunCompletedAt, refreshRepositories]);
   const gitStatus = useEnvironmentQuery(
-    selectedThread !== null && selectedThreadCwd !== null
+    selectedThread !== null && gitCwd !== null
       ? vcsEnvironment.status({
           environmentId: selectedThread.environmentId,
-          input: { cwd: selectedThreadCwd },
+          input: { cwd: gitCwd },
         })
       : null,
   );
@@ -430,9 +437,9 @@ function ThreadRouteContent(
   const gitActionProgressTarget = useMemo(
     () => ({
       environmentId: selectedThread?.environmentId ?? null,
-      cwd: selectedThreadCwd,
+      cwd: gitCwd,
     }),
-    [selectedThread?.environmentId, selectedThreadCwd],
+    [selectedThread?.environmentId, gitCwd],
   );
   const gitActionProgress = useGitActionProgress(gitActionProgressTarget);
 

@@ -40,10 +40,12 @@ vi.mock("./use-thread-selection", () => ({
     selectedThreadProject: { workspaceRoot: "/repo" },
   }),
 }));
-vi.mock("./use-selected-thread-worktree", () => ({
-  useSelectedThreadWorktree: () => ({
+vi.mock("./use-workspace-repositories", () => ({
+  useWorkspaceRepositories: () => ({
     selectedThreadCwd: "/repo",
     selectedThreadWorktreePath: null,
+    isChildRepository: false,
+    refreshRepositories: () => {},
   }),
 }));
 vi.mock("./queries", () => ({

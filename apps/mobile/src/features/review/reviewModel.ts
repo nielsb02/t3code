@@ -19,6 +19,8 @@ export interface ReviewSectionItem {
   readonly subtitle: string | null;
   readonly diff: string | null;
   readonly isLoading: boolean;
+  readonly sourceCwd?: string | undefined;
+  readonly repositoryDiffs?: readonly { path: string; diff: string; truncated?: boolean }[];
   readonly files?: ReviewDiffPreviewSource["files"];
   readonly truncated?: boolean;
   readonly source?: ReviewDiffPreviewSource;

@@ -1,7 +1,7 @@
+import { useFocusEffect } from "@react-navigation/native";
 import { resolveFilesystemReadAccess } from "@t3tools/client-runtime/state/filesystem";
 import { environmentSession } from "../../state/session";
 import { useCallback, useEffect, useMemo } from "react";
-import * as DateTime from "effect/DateTime";
 
 import {
   deriveThreadCheckpointSummaries,
@@ -12,9 +12,9 @@ import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useCheckpointDiff } from "../../state/queries";
 import { useEnvironmentQuery } from "../../state/query";
 import { useEnvironmentPresentation } from "../../state/presentation";
-import { reviewEnvironment } from "../../state/review";
 import { useSelectedThreadProjection } from "../../state/use-thread-detail";
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
+import { useWorkspaceRepositories } from "../../state/use-workspace-repositories";
 import {
   buildReviewSectionItems,
   getDefaultReviewSectionId,
@@ -29,6 +29,7 @@ import {
   setReviewTurnDiffLoading,
   type ReviewCacheForThread,
 } from "./reviewState";
+import { useWorkspaceReviewSources } from "./useWorkspaceReviewSources";
 
 export function useReviewSections(input: {
   readonly enabled?: boolean;
@@ -51,21 +52,62 @@ export function useReviewSections(input: {
   const { canReadFiles } = fileAccess;
   const selectedThread = useSelectedThreadProjection();
   const { selectedThreadCwd } = useSelectedThreadWorktree();
-  const diffPreview = useEnvironmentQuery(
-    canReadFiles && enabled && environmentId !== undefined && selectedThreadCwd !== null
-      ? reviewEnvironment.diffPreview({
-          environmentId,
-          input: { cwd: selectedThreadCwd },
-        })
-      : null,
+  const workspace = useWorkspaceRepositories();
+  const { refreshRepositories } = workspace;
+  useFocusEffect(
+    useCallback(() => {
+      if (enabled) refreshRepositories();
+    }, [enabled, refreshRepositories]),
+  );
+  const repositoryFilter = workspace.repositoryFilter;
+  // Live and branch review read every declared repository; a plain checkout is its only one.
+  const repositories = useMemo(
+    () =>
+      workspace.repositories.length
+        ? workspace.repositories
+        : selectedThreadCwd
+          ? [{ path: ".", cwd: selectedThreadCwd, available: true }]
+          : [],
+    [workspace.repositories, selectedThreadCwd],
+  );
+  const diffPreview = useWorkspaceReviewSources(
+    environmentId,
+    repositories,
+    canReadFiles && enabled,
+  );
+  const selectedEntries = useMemo(
+    () =>
+      diffPreview.entries.filter(
+        ({ repository }) => repositoryFilter === null || repository.path === repositoryFilter,
+      ),
+    [diffPreview.entries, repositoryFilter],
+  );
+  const gitSections = useMemo(
+    () =>
+      (["working-tree", "branch-range"] as const).flatMap((kind) => {
+        const entries = selectedEntries.filter(({ source }) => source.kind === kind);
+        const first = entries[0];
+        return first
+          ? [
+              {
+                ...first.source,
+                ...(entries.length > 1
+                  ? { files: undefined, truncated: entries.some(({ source }) => source.truncated) }
+                  : {}),
+                diff: entries.map(({ source }) => source.diff).join("\n"),
+              },
+            ]
+          : [];
+      }),
+    [selectedEntries],
   );
   const { loadingTurnIds } = reviewCache.asyncState;
 
   useEffect(() => {
-    if (reviewCache.threadKey && diffPreview.data) {
-      setReviewGitSections(reviewCache.threadKey, diffPreview.data.sources);
+    if (reviewCache.threadKey && diffPreview.hasData) {
+      setReviewGitSections(reviewCache.threadKey, gitSections);
     }
-  }, [diffPreview.data, reviewCache.threadKey]);
+  }, [diffPreview.hasData, gitSections, reviewCache.threadKey]);
 
   const readyCheckpoints = useMemo(
     () =>
@@ -89,11 +131,34 @@ export function useReviewSections(input: {
       checkpoints: readyCheckpoints,
       gitSections:
         canReadFiles || fileAccess.isPending
-          ? (diffPreview.data?.sources ?? reviewCache.gitSections)
+          ? diffPreview.hasData
+            ? gitSections
+            : reviewCache.gitSections
           : [],
       turnDiffById: reviewCache.turnDiffById,
       loadingTurnIds,
       loadingGitSections: fileAccess.isPending || diffPreview.isPending,
+    }).map((section) => {
+      if (section.kind === "turn") return section;
+      const entries = selectedEntries.filter(({ source }) => source.kind === section.kind);
+      return {
+        ...section,
+        sourceCwd: entries[0]?.repository.cwd,
+        subtitle:
+          repositoryFilter === null && repositories.length > 1
+            ? "All workspace repositories"
+            : section.subtitle,
+        // Several repositories render as one diff with repository-prefixed paths.
+        ...(entries.length > 1
+          ? {
+              repositoryDiffs: entries.map(({ repository, source }) => ({
+                path: repository.path,
+                diff: source.diff,
+                truncated: source.truncated,
+              })),
+            }
+          : {}),
+      };
     });
     // Keep the selected section while its grant loads, without displaying cached host files.
     return fileAccess.isPending
@@ -103,13 +168,17 @@ export function useReviewSections(input: {
       : sections;
   }, [
     canReadFiles,
-    diffPreview.data?.sources,
+    diffPreview.hasData,
     diffPreview.isPending,
     fileAccess.isPending,
+    gitSections,
     loadingTurnIds,
     readyCheckpoints,
+    repositories.length,
+    repositoryFilter,
     reviewCache.gitSections,
     reviewCache.turnDiffById,
+    selectedEntries,
   ]);
   const selectedSection = useMemo(
     () =>
@@ -191,8 +260,9 @@ export function useReviewSections(input: {
       activeTurnDiff.refresh();
       return;
     }
+    refreshRepositories();
     diffPreview.refresh();
-  }, [activeTurnDiff, diffPreview, enabled, selectedSection?.kind]);
+  }, [activeTurnDiff, diffPreview, enabled, refreshRepositories, selectedSection?.kind]);
 
   const selectSection = useCallback(
     (sectionId: string) => {
@@ -204,7 +274,11 @@ export function useReviewSections(input: {
   );
 
   return {
+    repositories,
+    repositoryFilter,
+    selectRepositoryFilter: workspace.selectRepository,
     error:
+      workspace.repositoryError ??
       diffPreview.error ??
       activeTurnDiff.error ??
       reviewCache.asyncState.error ??
@@ -214,8 +288,10 @@ export function useReviewSections(input: {
     isSelectedSectionPending:
       selectedSection?.kind === "turn" ? activeTurnDiff.isPending : diffPreview.isPending,
     loadingGitDiffs: fileAccess.isPending || diffPreview.isPending,
-    diffPreviewRevision: diffPreview.data
-      ? DateTime.formatIso(diffPreview.data.generatedAt)
+    diffPreviewRevision: diffPreview.hasData
+      ? JSON.stringify(
+          selectedEntries.map(({ repository, source }) => [repository.path, source.diffHash]),
+        )
       : undefined,
     loadingTurnIds,
     reviewSections,

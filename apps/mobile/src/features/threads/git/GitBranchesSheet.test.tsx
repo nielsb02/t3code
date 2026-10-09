@@ -42,10 +42,11 @@ vi.mock("../../../state/vcs", () => ({ vcsEnvironment: { status: () => null } })
 vi.mock("../../../state/use-thread-selection", () => ({
   useThreadSelection: () => ({ selectedThread: { environmentId: "environment", branch: "main" } }),
 }));
-vi.mock("../../../state/use-selected-thread-worktree", () => ({
-  useSelectedThreadWorktree: () => ({
+vi.mock("../../../state/use-workspace-repositories", () => ({
+  useWorkspaceRepositories: () => ({
     selectedThreadCwd: "/repo",
     selectedThreadWorktreePath: null,
+    isChildRepository: false,
   }),
 }));
 vi.mock("../../../state/use-selected-thread-git-state", () => ({
