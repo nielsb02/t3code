@@ -1,4 +1,5 @@
 {
   "upstreamRelease": "v0.0.45",
+  "includedUpstream": "v0.0.46-nightly.20261009.2873",
   "checkedMonth": "2026-10"
 }

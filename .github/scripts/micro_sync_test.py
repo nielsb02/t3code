@@ -2,10 +2,10 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from micro_sync import git, merge_release
+from micro_sync import git, merge_release, migration_drift, release_version
 
 
-class SyncTests(unittest.TestCase):
+class GitFixture(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="t3-micro-sync-test-")
         self.addCleanup(self.temp.cleanup)
@@ -32,6 +32,8 @@ class SyncTests(unittest.TestCase):
         git(self.root, "add", "-A")
         git(self.root, "commit", "-m", message)
 
+
+class SyncTests(GitFixture):
     def test_merges_source_preserving_patch_and_workflows(self):
         git(self.root, "checkout", "upstream")
         self.write("feature.txt", "new upstream feature\n")
@@ -64,6 +66,42 @@ class SyncTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "dirty"):
             merge_release(self.root, "upstream")
         self.assertEqual((self.root / "feature.txt").read_text(), "uncommitted user edit\n")
+
+
+class ReleaseVersionTests(unittest.TestCase):
+    def test_stable_and_nightly_share_a_base_ordered_by_run(self):
+        self.assertEqual(release_version("v0.0.46-nightly.20261009.2873", 61), "0.0.46-micro.61")
+        self.assertEqual(release_version("v0.0.46", 70), "0.0.46-micro.70")
+
+    def test_rejects_previews_and_other_refs(self):
+        for tag in ("v0.0.46-preview.20261009.2851", "main", "0.0.46", "v0.0.46-nightly"):
+            with self.assertRaises(ValueError):
+                release_version(tag, 1)
+
+
+class MigrationDriftTests(GitFixture):
+    MANIFEST = "apps/server/src/persistence/Migrations.ts"
+
+    def manifest(self, *entries):
+        lines = "".join(f'  [{i}, "{name}", Migration{i}],\n' for i, name in entries)
+        self.write(self.MANIFEST, f"export const migrationEntries = [\n{lines}];\n")
+
+    def test_reports_fork_migrations(self):
+        self.manifest((1, "Init"))
+        self.write("apps/server/src/persistence/Migrations/001_Init.ts", "init\n")
+        self.commit("upstream migrations")
+        git(self.root, "branch", "-f", "upstream")
+        self.assertEqual(migration_drift(self.root, "upstream"), [])
+        self.manifest((1, "Init"), (2, "ForkOnly"))
+        self.write("apps/server/src/persistence/Migrations/002_ForkOnly.ts", "fork\n")
+        self.commit("fork migration")
+        self.assertEqual(
+            migration_drift(self.root, "upstream"),
+            [
+                "manifest entry 2_ForkOnly",
+                "file apps/server/src/persistence/Migrations/002_ForkOnly.ts",
+            ],
+        )
 
 
 if __name__ == "__main__":

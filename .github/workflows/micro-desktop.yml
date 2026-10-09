@@ -6,6 +6,11 @@ on:
   schedule:
     - cron: "37 4 * * *"
   workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: "Upstream tag to merge, such as v0.0.46 or v0.0.46-nightly.20261009.2873. Empty uses the latest stable release."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -35,35 +40,64 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
-      - name: Find the latest upstream release
+      - name: Find the upstream release
         id: upstream
         env:
           GH_TOKEN: ${{ github.token }}
+          REQUESTED_REF: ${{ inputs.upstream_ref }}
         run: |
           set -euo pipefail
-          tag="$(gh api repos/pingdotgg/t3code/releases/latest --jq .tag_name)"
-          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Unexpected release tag" >&2; exit 1; }
-          git fetch --no-tags https://github.com/pingdotgg/t3code.git "+refs/tags/$tag:refs/remotes/upstream/release"
+          tag="${REQUESTED_REF:-}"
+          if [[ -z "$tag" ]]; then
+            tag="$(gh api repos/pingdotgg/t3code/releases/latest --jq .tag_name)"
+            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Unexpected release tag" >&2; exit 1; }
+          fi
+          # Validates stable and nightly tags; previews are rejected.
+          python3 .github/scripts/micro_sync.py version "$tag" 0 > /dev/null
+          git fetch --no-tags https://github.com/pingdotgg/t3code.git \
+            "+refs/tags/$tag:refs/remotes/upstream/release" "+refs/heads/main:refs/remotes/upstream/main"
+          git merge-base --is-ancestor refs/remotes/upstream/release refs/remotes/upstream/main \
+            || { echo "$tag is not on upstream main" >&2; exit 1; }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      - name: Merge upstream while retaining the desktop patch
+      - name: Merge upstream while retaining the fork changes
         id: sync
-        run: python3 .github/scripts/micro_sync.py refs/remotes/upstream/release
+        run: python3 .github/scripts/micro_sync.py merge refs/remotes/upstream/release
 
       - name: Record the monthly update check
+        id: state
         env:
           UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+          SOURCE_CHANGED: ${{ steps.sync.outputs.changed }}
         run: |
           python3 - <<'PY'
           import datetime, json, os
           from pathlib import Path
-          state = {"upstreamRelease": os.environ["UPSTREAM_TAG"], "checkedMonth": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m")}
-          Path(".github/micro-sync-state.json").write_text(json.dumps(state, indent=2) + "\n")
+          path = Path(".github/micro-sync-state.json")
+          previous = json.loads(path.read_text()) if path.exists() else {}
+          # An already-included tag can be older than a nightly merged earlier.
+          included = os.environ["UPSTREAM_TAG"] if os.environ["SOURCE_CHANGED"] == "true" else previous["includedUpstream"]
+          state = {
+              "upstreamRelease": os.environ["UPSTREAM_TAG"],
+              "includedUpstream": included,
+              "checkedMonth": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m"),
+          }
+          path.write_text(json.dumps(state, indent=2) + "\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"included={included}\n")
           PY
           git add .github/micro-sync-state.json
           if ! git diff --cached --quiet; then
             git -c core.hooksPath=/dev/null commit -m 'chore: record upstream release check'
           fi
+
+      - name: Verify the fork adds no database migrations
+        env:
+          INCLUDED_TAG: ${{ steps.state.outputs.included }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags https://github.com/pingdotgg/t3code.git "+refs/tags/$INCLUDED_TAG:refs/remotes/upstream/included"
+          python3 .github/scripts/micro_sync.py check-migrations refs/remotes/upstream/included
 
       - name: Decide whether a build is needed
         id: plan
@@ -137,11 +171,10 @@ jobs:
         if: steps.plan.outputs.build == 'true'
         env:
           T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
-          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+          INCLUDED_TAG: ${{ steps.state.outputs.included }}
         run: |
           set -euo pipefail
-          base_version="${UPSTREAM_TAG#v}"
-          version="${base_version}-micro.${GITHUB_RUN_NUMBER}"
+          version="$(python3 .github/scripts/micro_sync.py version "$INCLUDED_TAG" "$GITHUB_RUN_NUMBER")"
           node scripts/update-release-package-versions.ts "$version"
           cp .env.example .env
           vp run dist:desktop:artifact --platform mac --target dmg --arch arm64 --build-version "$version" --verbose
@@ -175,7 +208,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BUILD_VERSION: ${{ steps.build.outputs.version }}
-          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+          INCLUDED_TAG: ${{ steps.state.outputs.included }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -186,9 +219,8 @@ jobs:
             echo "T3 Code with desktop session opening, dial and joystick navigation, and assignable actions for Micro Manager."
             echo
             echo "Choose this app in Micro Manager, then configure and apply the controls on your T3 layer. Dial and action controls operate while this T3 app is frontmost."
-            echo "Projects can also opt into commands that run when manually settling a worktree. Existing projects are not opted in automatically."
             echo
-            echo "Version: $BUILD_VERSION. Includes upstream release $UPSTREAM_TAG and the fork's retained changes."
+            echo "Version: $BUILD_VERSION. Includes upstream $INCLUDED_TAG and the fork's retained changes."
             echo
             echo "Apple Silicon macOS build. Ad-hoc signed, not notarized; manual installation may be required."
             echo "Close T3 before replacing your app. Select this installation in Micro Manager's desktop app setting."
