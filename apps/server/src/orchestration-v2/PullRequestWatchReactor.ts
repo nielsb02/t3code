@@ -442,7 +442,12 @@ export const make = Effect.gen(function* () {
 
   const referenceOf = (group: WatchGroup) => {
     const first = group.targets[0]!;
-    return { projectId: first.thread.projectId, ...identityOf(first.link) };
+    // Resolved from the repositories declared in the thread's checkout, like link sync.
+    return {
+      projectId: first.thread.projectId,
+      workspace: { threadId: first.thread.id },
+      ...identityOf(first.link),
+    };
   };
 
   /**

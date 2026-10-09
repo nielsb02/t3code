@@ -89,6 +89,8 @@ import * as ProjectFaviconResolver from "./project/ProjectFaviconResolver.ts";
 import * as T3ProjectFileLoader from "./project/T3ProjectFileLoader.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
+import * as WorkspaceRepositories from "./workspace/WorkspaceRepositories.ts";
+import * as WorkspaceSearchIndex from "./workspace/WorkspaceSearchIndex.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
@@ -320,7 +322,15 @@ const layerRepositoryIdentityResolver = Layer.effect(
   }),
 ).pipe(Layer.provide(layerSourceControlProviderRegistry), Layer.provide(ProcessRunner.layer));
 
+const layerWorkspaceRepositories = Layer.effect(
+  WorkspaceRepositories.WorkspaceRepositories,
+  WorkspaceRepositories.make,
+).pipe(Layer.provide(layerRepositoryIdentityResolver), Layer.provide(VcsProcess.layer));
+
 const layerPullRequestService = PullRequestService.layer.pipe(
+  // Resolves pull requests linked from repositories declared in a thread's checkout.
+  Layer.provide(layerWorkspaceRepositories),
+  Layer.provide(ProjectionStoreV2.layer),
   Layer.provide(PullRequestProviderRegistry.layer),
   // Where the viewed-file marks live for a host that keeps none of its own.
   Layer.provide(PullRequestFilesViewed.layer),
@@ -359,6 +369,9 @@ const layerProjectCloneTracker = ProjectCloneTracker.layer.pipe(
 );
 
 const layerReview = ReviewService.layer.pipe(
+  // Reviews may target repositories declared in a registered project or thread checkout.
+  Layer.provide(layerWorkspaceRepositories),
+  Layer.provide(Layer.merge(ProjectionStoreV2.layer, ProjectStore.layer)),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(layerVcsDriverRegistry),
 );
@@ -405,7 +418,15 @@ const layerDevice = DeviceService.layer.pipe(
   Layer.provide(NetService.layer),
 );
 
-const layerWorkspaceEntries = WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer));
+const layerWorkspaceEntries = Layer.effect(
+  WorkspaceEntries.WorkspaceEntries,
+  WorkspaceEntries.make,
+).pipe(
+  Layer.provide(WorkspaceSearchIndex.WorkspaceSearchIndexMap.layer),
+  Layer.provide(layerWorkspaceRepositories),
+  Layer.provide(VcsProcess.layer),
+  Layer.provide(WorkspacePaths.layer),
+);
 
 const layerWorkspaceFileSystem = WorkspaceFileSystem.layer.pipe(
   Layer.provide(WorkspacePaths.layer),

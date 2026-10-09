@@ -212,6 +212,9 @@ import {
   OrchestrationV2ThreadLaunchError,
 } from "./orchestrationV2.ts";
 import {
+  ProjectListRepositoriesInput,
+  ProjectListRepositoriesResult,
+  ProjectListRepositoriesError,
   ProjectCreateNewInput,
   ProjectCreateNewResult,
   ProjectEnsureScratchResult,
@@ -362,6 +365,7 @@ export const WS_METHODS = {
   projectsList: "projects.list",
   projectsAdd: "projects.add",
   projectsRemove: "projects.remove",
+  projectsListRepositories: "projects.listRepositories",
   projectsListEntries: "projects.listEntries",
   projectsReadFile: "projects.readFile",
   projectsSearchContents: "projects.searchContents",
@@ -1166,6 +1170,12 @@ const WsProjectsSearchContentsRpc = Rpc.make(WS_METHODS.projectsSearchContents, 
   error: Schema.Union([ProjectSearchContentsError, EnvironmentAuthorizationError]),
 });
 
+const WsProjectsListRepositoriesRpc = Rpc.make(WS_METHODS.projectsListRepositories, {
+  payload: ProjectListRepositoriesInput,
+  success: ProjectListRepositoriesResult,
+  error: Schema.Union([ProjectListRepositoriesError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsListEntriesRpc = Rpc.make(WS_METHODS.projectsListEntries, {
   payload: ProjectListEntriesInput,
   success: ProjectListEntriesResult,
@@ -1903,6 +1913,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSourceControlLookupRepositoryRpc,
   WsSourceControlCloneRepositoryRpc,
   WsSourceControlPublishRepositoryRpc,
+  WsProjectsListRepositoriesRpc,
   WsProjectCloneStartRpc,
   WsProjectCloneCancelRpc,
   WsProjectCloneRetryRpc,

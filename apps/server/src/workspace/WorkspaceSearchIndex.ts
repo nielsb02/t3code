@@ -107,6 +107,10 @@ export class WorkspaceSearchIndexDestroyFailed extends Schema.TaggedError<Worksp
   }
 }
 
+export type RankedSearchEntriesResult = ProjectSearchEntriesResult & {
+  readonly scores: ReadonlyArray<number>;
+};
+
 export class WorkspaceSearchIndex extends Context.Service<
   WorkspaceSearchIndex,
   {
@@ -116,7 +120,7 @@ export class WorkspaceSearchIndex extends Context.Service<
       limit: number,
       kind?: ProjectEntryKind,
       imageOnly?: boolean,
-    ) => Effect.Effect<ProjectSearchEntriesResult, WorkspaceSearchIndexSearchFailed>;
+    ) => Effect.Effect<RankedSearchEntriesResult, WorkspaceSearchIndexSearchFailed>;
     readonly searchContents: (
       input: Omit<ProjectSearchContentsInput, "cwd">,
     ) => Effect.Effect<ProjectSearchContentsResult, WorkspaceSearchIndexSearchFailed>;
@@ -166,13 +170,17 @@ function mapFileSearchResult(
   result: SearchResult,
   limit: number,
   imageOnly = false,
-): ProjectSearchEntriesResult {
-  const entries = result.items.flatMap((item) => {
+): RankedSearchEntriesResult {
+  const scores: number[] = [];
+  const entries = result.items.flatMap((item, index) => {
     const entry = toFileEntry(item);
-    return entry && (!imageOnly || isWorkspaceImagePreviewPath(entry.path)) ? [entry] : [];
+    if (!entry || (imageOnly && !isWorkspaceImagePreviewPath(entry.path))) return [];
+    scores.push(result.scores[index]?.total ?? 0);
+    return [entry];
   });
   return {
     entries: entries.slice(0, limit),
+    scores: scores.slice(0, limit),
     truncated: entries.length > limit || result.totalMatched > result.items.length,
   };
 }
@@ -180,27 +188,30 @@ function mapFileSearchResult(
 function mapDirectorySearchResult(
   result: DirSearchResult,
   limit: number,
-): ProjectSearchEntriesResult {
-  const entries = result.items.flatMap((item) => {
+): RankedSearchEntriesResult {
+  const scores: number[] = [];
+  const entries = result.items.flatMap((item, index) => {
     const entry = toDirectoryEntry(item);
-    return entry ? [entry] : [];
+    if (!entry) return [];
+    scores.push(result.scores[index]?.total ?? 0);
+    return [entry];
   });
   const rootDirectoryCount = result.items.some((item) => item.relativePath.length === 0) ? 1 : 0;
   return {
     entries: entries.slice(0, limit),
+    scores: scores.slice(0, limit),
     truncated: result.totalMatched - rootDirectoryCount > limit,
   };
 }
 
-function mapMixedSearchResult(
-  result: MixedSearchResult,
-  limit: number,
-): { readonly entries: ProjectEntry[]; readonly truncated: boolean } {
+function mapMixedSearchResult(result: MixedSearchResult, limit: number): RankedSearchEntriesResult {
   const entries: ProjectEntry[] = [];
-  for (const item of result.items) {
+  const scores: number[] = [];
+  for (const [index, item] of result.items.entries()) {
     const entry = toProjectEntry(item);
     if (entry) {
       entries.push(entry);
+      scores.push(result.scores[index]?.total ?? 0);
     }
     if (entries.length >= limit) {
       break;
@@ -214,6 +225,7 @@ function mapMixedSearchResult(
     : 0;
   return {
     entries,
+    scores,
     truncated: result.totalMatched - rootDirectoryCount > limit,
   };
 }

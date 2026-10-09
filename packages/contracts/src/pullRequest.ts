@@ -654,6 +654,12 @@ export const PullRequestListResult = Schema.Struct({
 });
 export type PullRequestListResult = typeof PullRequestListResult.Type;
 
+export const PullRequestWorkspace = Schema.Struct({
+  threadId: ThreadId,
+  /** Omit to find the linked repository by host and identity in the thread's checkout. */
+  repositoryPath: Schema.optional(TrimmedNonEmptyString),
+});
+
 /**
  * Addresses one pull request for reads and writes. `projectId` picks the checkout the host
  * CLI runs in and, when its repository matches, the credentials; `host` lets the server
@@ -662,6 +668,7 @@ export type PullRequestListResult = typeof PullRequestListResult.Type;
  * own host", which is every reference from before thread links became host-level.
  */
 export const PullRequestRef = Schema.Struct({
+  workspace: Schema.optional(PullRequestWorkspace),
   projectId: ProjectId,
   host: Schema.optional(TrimmedNonEmptyString),
   /** Refuse a routed operation unless this GitHub account still owns the active credential. */
@@ -784,6 +791,8 @@ export type PullRequestStack = typeof PullRequestStack.Type;
  * rows on screen at the speed of everything else on them.
  */
 export const PullRequestDiffStat = Schema.Struct({
+  workspace: Schema.optional(PullRequestWorkspace),
+  host: Schema.optional(TrimmedNonEmptyString),
   projectId: ProjectId,
   repository: TrimmedNonEmptyString,
   number: PositiveInt,

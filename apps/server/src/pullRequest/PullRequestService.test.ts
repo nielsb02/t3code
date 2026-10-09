@@ -12,9 +12,12 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
+import { ThreadId } from "@t3tools/contracts";
 import type {
   OrchestrationProjectShell,
   ProjectId,
+  OrchestrationV2ThreadShell,
+  WorkspaceRepository,
   PullRequestReviewCapabilities,
   PullRequestReviewerCapabilities,
   SourceControlProviderKind,
@@ -38,6 +41,11 @@ import {
   type PullRequestProviderApi,
 } from "./PullRequestProvider.ts";
 import * as PullRequestProviderRegistry from "./PullRequestProviderRegistry.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import {
+  WorkspaceRepositories,
+  WorkspaceRepositoryDiscoveryError,
+} from "../workspace/WorkspaceRepositories.ts";
 import * as PullRequestService from "./PullRequestService.ts";
 import * as PullRequestReadCache from "./PullRequestReadCache.ts";
 import {
@@ -471,6 +479,9 @@ function makeService(input: {
   readonly settings?: ServerSettings;
   readonly projects: ReadonlyArray<OrchestrationProjectShell>;
   readonly providers: ReadonlyArray<PullRequestProviderApi>;
+  readonly threads?: ReadonlyArray<OrchestrationV2ThreadShell>;
+  readonly repositories?: (cwd: string) => ReadonlyArray<WorkspaceRepository>;
+  readonly repositoryDiscovery?: WorkspaceRepositories["Service"]["list"];
   readonly resolveHandle?: SourceControlProviderRegistry.SourceControlProviderRegistry["Service"]["resolveHandle"];
   readonly resolveRepositoryIdentity?: RepositoryIdentityResolver.RepositoryIdentityResolver["Service"]["resolve"];
 }) {
@@ -481,6 +492,14 @@ function makeService(input: {
       Layer.mergeAll(
         Layer.mock(ServerSettingsService.ServerSettingsService)({
           getSettings: Effect.succeed(input.settings ?? DEFAULT_SERVER_SETTINGS),
+        }),
+        Layer.succeed(WorkspaceRepositories, {
+          list:
+            input.repositoryDiscovery ?? ((cwd) => Effect.succeed(input.repositories?.(cwd) ?? [])),
+        }),
+        Layer.mock(ProjectionStore.ProjectionStoreV2)({
+          getThreadShell: (threadId) =>
+            Effect.succeed((input.threads ?? []).find((thread) => thread.id === threadId) ?? null),
         }),
         Layer.succeed(
           PullRequestProviderRegistry.PullRequestProviderRegistry,
@@ -5796,6 +5815,788 @@ it.effect("names the signed-in account in the detail, and says nothing where the
     assert.strictEqual(named.viewer, "bilal");
     assert.strictEqual(unnamed.viewer, undefined);
   }),
+);
+
+const scopedThread = {
+  id: "t1" as ThreadId,
+  projectId: "p1" as ProjectId,
+  worktreePath: "/task",
+} as OrchestrationV2ThreadShell;
+const scopedRef = {
+  projectId: "p1" as ProjectId,
+  repository: "org/app",
+  number: 1,
+  workspace: { threadId: "t1" as ThreadId, repositoryPath: "projects/app" },
+};
+const appIdentity =
+  project({ id: "child", title: "app", workspaceRoot: "/task/projects/app", repository: "org/app" })
+    .repositoryIdentity ?? undefined;
+
+const linkedRef = {
+  ...scopedRef,
+  host: "github.com",
+  workspace: { threadId: scopedThread.id },
+};
+
+it.effect("reads linked child PR status from each thread checkout without a repository path", () =>
+  Effect.gen(function* () {
+    const reads: string[] = [];
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper" })],
+      threads: [scopedThread, { ...scopedThread, id: ThreadId.make("t2"), worktreePath: null }],
+      repositories: (cwd) => [
+        {
+          path: "projects/app",
+          name: "app",
+          cwd: `${cwd}/projects/app`,
+          kind: "repository",
+          available: true,
+          repositoryIdentity: appIdentity,
+        },
+      ],
+      providers: [
+        fakeProvider("github", {
+          getChangeRequestSummary: ({ cwd }) => {
+            reads.push(cwd);
+            return Effect.succeed({
+              ...changeRequest(1, "2026-07-02T00:00:00Z"),
+              state: cwd.startsWith("/task/") ? "merged" : "closed",
+            });
+          },
+        }),
+      ],
+    });
+    const summary = yield* service.summary(linkedRef, { recoverTransientFailure: false });
+    assert.strictEqual(summary.state, "merged");
+    assert.strictEqual(summary.title, "Change request 1");
+    yield* service.summary(linkedRef);
+    const other = yield* service.summary({
+      ...linkedRef,
+      workspace: { threadId: ThreadId.make("t2") },
+    });
+    assert.strictEqual(other.state, "closed");
+    yield* service.invalidate({ reference: linkedRef });
+    yield* service.summary(linkedRef);
+    assert.deepStrictEqual(reads, [
+      "/task/projects/app",
+      "/wrapper/projects/app",
+      "/task/projects/app",
+    ]);
+  }),
+);
+
+it.effect.each(["forgejo", "unknown"] as const)(
+  `resolves linked %s child PRs through the refined Forgejo HTTP authority`,
+  (provider) =>
+    Effect.gen(function* () {
+      const reads: string[] = [];
+      const service = yield* makeService({
+        projects: [project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper" })],
+        threads: [scopedThread],
+        repositories: (cwd) => [
+          {
+            path: "projects/app",
+            name: "app",
+            cwd: `${cwd}/projects/app`,
+            kind: "repository",
+            available: true,
+            repositoryIdentity:
+              project({
+                id: "child",
+                title: "child",
+                workspaceRoot: `${cwd}/projects/app`,
+                provider,
+                host: "ssh.code.example",
+                repository: "org/app",
+                remoteUrl: "git@ssh.code.example:org/app.git",
+              }).repositoryIdentity ?? undefined,
+          },
+        ],
+        providers: [
+          fakeProvider("forgejo", {
+            getChangeRequestSummary: ({ cwd, host }) => {
+              reads.push(`${cwd}:${host}`);
+              return Effect.succeed(changeRequest(1, "2026-07-02T00:00:00Z"));
+            },
+          }),
+        ],
+        resolveHandle: ({ context }) =>
+          Effect.succeed({
+            context:
+              context?.requestedHost === "code.example:3000"
+                ? {
+                    ...context,
+                    provider: {
+                      kind: "forgejo",
+                      name: "Forgejo",
+                      baseUrl: "http://code.example:3000",
+                    },
+                  }
+                : context!,
+            provider: undefined as never,
+          }),
+      });
+      const summary = yield* service.summary(
+        { ...linkedRef, host: "code.example:3000" },
+        { recoverTransientFailure: false },
+      );
+      assert.strictEqual(summary.state, "open");
+      assert.deepStrictEqual(reads, ["/task/projects/app:code.example:3000"]);
+    }),
+);
+
+it.effect.each([
+  ["forgejo", "org/app"],
+  ["unknown", "org/app"],
+  ["forgejo", "git/repo"],
+] as const)(
+  `resolves linked %s SSH %s child PRs under their Forgejo web mount`,
+  ([provider, repository]) =>
+    Effect.gen(function* () {
+      const service = yield* makeService({
+        projects: [project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper" })],
+        threads: [scopedThread],
+        repositories: (cwd) => [
+          {
+            path: "projects/app",
+            name: "app",
+            cwd: `${cwd}/projects/app`,
+            kind: "repository",
+            available: true,
+            repositoryIdentity:
+              project({
+                id: "child",
+                title: "child",
+                workspaceRoot: `${cwd}/projects/app`,
+                provider,
+                host: "ssh.code.example",
+                repository,
+                remoteUrl: `git@ssh.code.example:${repository}.git`,
+              }).repositoryIdentity ?? undefined,
+          },
+        ],
+        providers: [
+          fakeProvider("forgejo", {
+            getChangeRequestSummary: ({ cwd, repository }) =>
+              Effect.succeed({
+                ...changeRequest(1, "2026-07-02T00:00:00Z"),
+                title: `${cwd}:${repository}`,
+              }),
+          }),
+        ],
+        resolveHandle: ({ context }) =>
+          Effect.succeed({
+            context: {
+              ...context!,
+              provider: {
+                kind: "forgejo",
+                name: "Forgejo",
+                baseUrl: "http://code.example:3000/git",
+              },
+            },
+            provider: undefined as never,
+          }),
+      });
+      const reference = {
+        ...linkedRef,
+        host: "code.example:3000",
+        repository: `git/${repository}`,
+      };
+      const summary = yield* service.summary(reference, { recoverTransientFailure: false });
+      assert.strictEqual(summary.title, `/task/projects/app:${repository}`);
+      for (const mismatch of [
+        { ...reference, host: "code.example:4000" },
+        { ...reference, host: "other.example:3000" },
+        { ...reference, repository: `other/${repository}` },
+        { ...reference, repository },
+      ]) {
+        assert.strictEqual(
+          (yield* Effect.result(service.summary(mismatch, { recoverTransientFailure: false })))
+            ._tag,
+          "Failure",
+        );
+      }
+    }),
+);
+
+it.effect.each([
+  { registeredRoot: true, label: "root" },
+  { registeredRoot: false, label: "host" },
+])(
+  `preserves registered $label reads when inferred workspace discovery fails`,
+  ({ registeredRoot }) =>
+    Effect.gen(function* () {
+      const service = yield* makeService({
+        projects: [
+          project({
+            id: "p1",
+            title: "wrapper",
+            workspaceRoot: "/wrapper",
+            ...(registeredRoot ? { repository: "org/app" } : {}),
+          }),
+          project({ id: "p2", title: "other", workspaceRoot: "/other", repository: "org/other" }),
+        ],
+        threads: [scopedThread],
+        repositoryDiscovery: (cwd) =>
+          Effect.fail(
+            new WorkspaceRepositoryDiscoveryError({
+              cwd,
+              message: "Invalid workspace configuration",
+            }),
+          ),
+        providers: [
+          fakeProvider("github", {
+            getChangeRequestSummary: ({ cwd }) =>
+              Effect.succeed({ ...changeRequest(1, "2026-07-02T00:00:00Z"), title: cwd }),
+          }),
+        ],
+      });
+      const summary = yield* service.summary(linkedRef, { recoverTransientFailure: false });
+      assert.strictEqual(summary.title, registeredRoot ? "/wrapper" : "/other");
+      const explicit = yield* Effect.result(
+        service.summary({ ...scopedRef, host: "github.com" }, { recoverTransientFailure: false }),
+      );
+      assert.strictEqual(explicit._tag, "Failure");
+    }),
+);
+
+it.effect("selects the matching host among child repositories with the same name", () =>
+  Effect.gen(function* () {
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper" })],
+      threads: [scopedThread],
+      repositories: (cwd) =>
+        ["other.example", "github.com"].map((host) => ({
+          path: host,
+          name: host,
+          cwd: `${cwd}/${host}`,
+          kind: "repository",
+          available: true,
+          repositoryIdentity:
+            project({
+              id: host,
+              title: host,
+              workspaceRoot: `${cwd}/${host}`,
+              host,
+              repository: "org/app",
+            }).repositoryIdentity ?? undefined,
+        })),
+      providers: [
+        fakeProvider("github", {
+          getChangeRequestSummary: ({ cwd }) =>
+            Effect.succeed({
+              ...changeRequest(1, "2026-07-02T00:00:00Z"),
+              title: cwd,
+            }),
+        }),
+      ],
+    });
+    assert.strictEqual((yield* service.summary(linkedRef)).title, "/task/github.com");
+  }),
+);
+
+it.effect("keeps inferred child PR stats and their caches separate by host", () =>
+  Effect.gen(function* () {
+    const reads: string[] = [];
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper" })],
+      threads: [scopedThread],
+      repositories: (cwd) =>
+        ["github.com", "github.example"].map((host) => ({
+          path: host,
+          name: host,
+          cwd: `${cwd}/${host}`,
+          kind: "repository",
+          available: true,
+          repositoryIdentity:
+            project({
+              id: host,
+              title: host,
+              workspaceRoot: `${cwd}/${host}`,
+              host,
+              repository: "org/app",
+            }).repositoryIdentity ?? undefined,
+        })),
+      providers: [
+        fakeProvider("github", {
+          listChangeRequestStats: ({ host, changeRequests }) => {
+            reads.push(host);
+            return Effect.succeed(
+              changeRequests.map((ref) => ({
+                ...ref,
+                additions: host === "github.com" ? 10 : 20,
+                deletions: 0,
+              })),
+            );
+          },
+        }),
+      ],
+    });
+    const refs = [linkedRef, { ...linkedRef, host: "github.example" }];
+    const stats = yield* service.listStats({ refs });
+    assert.deepStrictEqual(
+      stats.stats.map((stat) => [stat.host, stat.additions]),
+      [
+        ["github.com", 10],
+        ["github.example", 20],
+      ],
+    );
+    for (const ref of refs) {
+      const cached = yield* service.listStats({ refs: [ref] });
+      assert.strictEqual(cached.stats[0]?.additions, ref.host === "github.com" ? 10 : 20);
+    }
+    assert.deepStrictEqual(reads, ["github.com", "github.example"]);
+  }),
+);
+
+it.effect.each(["thread", "host", "hostless", "unavailable"] as const)(
+  `refuses inferred child PR access with invalid %s`,
+  (invalid) =>
+    Effect.gen(function* () {
+      const service = yield* makeService({
+        projects: [project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper" })],
+        threads: [
+          { ...scopedThread, projectId: (invalid === "thread" ? "other" : "p1") as ProjectId },
+        ],
+        repositories: (cwd) => [
+          {
+            path: "projects/app",
+            name: "app",
+            cwd: `${cwd}/projects/app`,
+            kind: "repository",
+            available: invalid !== "unavailable",
+            repositoryIdentity: appIdentity,
+          },
+        ],
+        providers: [
+          fakeProvider("github", {
+            getChangeRequestSummary: () => Effect.die("must not read an unrelated repository"),
+          }),
+        ],
+      });
+      const { host, ...hostless } = linkedRef;
+      const reference =
+        invalid === "hostless"
+          ? hostless
+          : {
+              ...linkedRef,
+              host: invalid === "host" ? "other.example" : host,
+            };
+      const result = yield* Effect.result(
+        service.summary(reference, { recoverTransientFailure: false }),
+      );
+      assert.strictEqual(result._tag, "Failure");
+    }),
+);
+
+it.effect("preserves host routing for linked PRs outside the thread workspace", () =>
+  Effect.gen(function* () {
+    const reads: string[] = [];
+    const service = yield* makeService({
+      projects: [
+        project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper" }),
+        project({
+          id: "other",
+          title: "other",
+          workspaceRoot: "/registered",
+          repository: "org/other",
+        }),
+      ],
+      threads: [scopedThread],
+      providers: [
+        fakeProvider("github", {
+          getChangeRequestSummary: ({ cwd, repository }) => {
+            reads.push(`${cwd}:${repository}`);
+            return Effect.succeed(changeRequest(1, "2026-07-02T00:00:00Z"));
+          },
+        }),
+      ],
+    });
+    const summary = yield* service.summary(linkedRef, { recoverTransientFailure: false });
+    assert.strictEqual(summary.state, "open");
+    assert.deepStrictEqual(reads, ["/registered:org/app"]);
+  }),
+);
+
+it.effect.each(["dev.azure.com", "ssh.dev.azure.com", "org-b.visualstudio.com"])(
+  `resolves linked Azure child PRs through the matching %s checkout`,
+  (host) =>
+    Effect.gen(function* () {
+      const reads: string[] = [];
+      const service = yield* makeService({
+        projects: [project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper" })],
+        threads: [scopedThread],
+        repositories: (cwd) =>
+          ["org-a", "org-b"].map((org) => ({
+            path: org,
+            name: org,
+            cwd: `${cwd}/${org}`,
+            kind: "repository",
+            available: true,
+            repositoryIdentity:
+              project({
+                id: org,
+                title: org,
+                workspaceRoot: `${cwd}/${org}`,
+                provider: "azure-devops",
+                host: host === "org-b.visualstudio.com" ? `${org}.visualstudio.com` : host,
+                repository:
+                  host === "ssh.dev.azure.com"
+                    ? `v3/${org}/project/web`
+                    : host === "org-b.visualstudio.com"
+                      ? "DefaultCollection/project/_git/web"
+                      : `${org}/project/_git/web`,
+              }).repositoryIdentity ?? undefined,
+          })),
+        providers: [
+          fakeProvider("azure-devops", {
+            getChangeRequestSummary: ({ cwd, repository }) => {
+              reads.push(`${cwd}:${repository}`);
+              return Effect.succeed(changeRequest(1, "2026-07-02T00:00:00Z"));
+            },
+          }),
+        ],
+      });
+      const reference = {
+        ...linkedRef,
+        host: "dev.azure.com",
+        repository: "org-b/project/_git/web",
+      };
+      assert.strictEqual(
+        (yield* service.summary(reference, { recoverTransientFailure: false })).state,
+        "open",
+      );
+      const wrongOrg = yield* Effect.result(
+        service.summary(
+          { ...reference, repository: "org-c/project/_git/web" },
+          { recoverTransientFailure: false },
+        ),
+      );
+      assert.strictEqual(wrongOrg._tag, "Failure");
+      assert.deepStrictEqual(reads, ["/task/org-b:web"]);
+    }),
+);
+
+it.effect("reads child PRs from the active workspace and separates checkout caches", () =>
+  Effect.gen(function* () {
+    const reads: string[] = [];
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper" })],
+      threads: [scopedThread, { ...scopedThread, id: "t2" as ThreadId, worktreePath: "/other" }],
+      repositories: (cwd) => [
+        {
+          path: "projects/app",
+          name: "app",
+          cwd: `${cwd}/projects/app`,
+          kind: "repository",
+          available: true,
+          repositoryIdentity: appIdentity,
+        },
+      ],
+      providers: [
+        fakeProvider("github", {
+          getChangeRequest: ({ cwd }) => {
+            reads.push(cwd);
+            return Effect.succeed(hostedChangeRequest(cwd));
+          },
+        }),
+      ],
+    });
+    yield* service.detail({ ...scopedRef, host: "github.com" });
+    yield* service.detail({ ...scopedRef, host: "github.com" });
+    yield* service.detail({
+      ...scopedRef,
+      workspace: { ...scopedRef.workspace, threadId: "t2" as ThreadId },
+    });
+    assert.deepStrictEqual(reads, ["/task/projects/app", "/other/projects/app"]);
+  }),
+);
+
+it.effect.each(["thread", "path", "unavailable", "identity", "host"] as const)(
+  `refuses scoped PR access with invalid %s`,
+  (invalid) =>
+    Effect.gen(function* () {
+      let reads = 0;
+      const service = yield* makeService({
+        projects: [
+          project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper", repository: "org/app" }),
+        ],
+        threads: [
+          { ...scopedThread, projectId: (invalid === "thread" ? "p2" : "p1") as ProjectId },
+        ],
+        repositories: () => [
+          {
+            path: invalid === "path" ? "projects/else" : "projects/app",
+            name: "app",
+            cwd: "/task/projects/app",
+            kind: "repository",
+            available: invalid !== "unavailable",
+            repositoryIdentity:
+              invalid === "identity"
+                ? (project({
+                    id: "other",
+                    title: "other",
+                    workspaceRoot: "/other",
+                    repository: "org/other",
+                  }).repositoryIdentity ?? undefined)
+                : appIdentity,
+          },
+        ],
+        providers: [
+          fakeProvider("github", {
+            getChangeRequest: () => {
+              reads++;
+              return Effect.succeed(hostedChangeRequest("bad"));
+            },
+          }),
+        ],
+      });
+      const reference =
+        invalid === "host" ? { ...scopedRef, host: "other.example.test" } : scopedRef;
+      const result = yield* Effect.result(service.detail(reference));
+      assert.strictEqual(result._tag, "Failure");
+      assert.strictEqual(reads, 0);
+      const action = yield* Effect.result(service.runAction({ ...reference, action: "merge" }));
+      assert.strictEqual(action._tag, "Failure");
+    }),
+);
+
+it.effect("keeps scoped summary, activity, diff and stats reads in their checkout", () =>
+  Effect.gen(function* () {
+    const reads: string[] = [];
+    const statsRequests: number[][] = [];
+    const service = yield* makeService({
+      projects: [project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper" })],
+      threads: [scopedThread, { ...scopedThread, id: "t2" as ThreadId, worktreePath: "/other" }],
+      repositories: (cwd) => [
+        {
+          path: "projects/app",
+          name: "app",
+          cwd: `${cwd}/projects/app`,
+          kind: "repository",
+          available: true,
+          repositoryIdentity: appIdentity,
+        },
+      ],
+      providers: [
+        fakeProvider("github", {
+          getChangeRequest: ({ cwd }) => {
+            reads.push(`summary:${cwd}`);
+            return Effect.succeed(hostedChangeRequest(cwd));
+          },
+          getChangeRequestActivity: ({ cwd }) => {
+            reads.push(`activity:${cwd}`);
+            return Effect.succeed({
+              comments: [],
+              commentCount: 0,
+              commentsTruncated: false,
+              reviewThreads: [],
+              commits: [],
+            });
+          },
+          getDiff: ({ cwd }) => {
+            reads.push(`diff:${cwd}`);
+            return Effect.succeed({ patch: cwd, truncated: false, nextCursor: null });
+          },
+          listChangeRequestStats: ({ cwd, changeRequests }) => {
+            statsRequests.push(changeRequests.map((ref) => ref.number));
+            reads.push(`stats:${cwd}`);
+            return Effect.succeed(
+              changeRequests.map(({ number }) => ({
+                repository: "org/app",
+                number,
+                additions: cwd === "/task/projects/app" ? 10 : 20,
+                deletions: 0,
+              })),
+            );
+          },
+        }),
+      ],
+    });
+    const refs = [
+      scopedRef,
+      { ...scopedRef, workspace: { ...scopedRef.workspace, threadId: "t2" as ThreadId } },
+    ];
+    for (const ref of refs) {
+      yield* service.summary(ref);
+      yield* service.summary(ref);
+      yield* service.activity(ref);
+      yield* service.activity(ref);
+      yield* service.diff(ref);
+      yield* service.diff(ref);
+    }
+    const statsRefs = [...refs, { ...scopedRef, number: 2 }];
+    const stats = yield* service.listStats({ refs: statsRefs });
+    assert.deepStrictEqual(
+      stats.stats.map((stat) => [stat.workspace?.threadId, stat.additions]),
+      [
+        ["t1" as ThreadId, 10],
+        ["t1" as ThreadId, 10],
+        ["t2" as ThreadId, 20],
+      ],
+    );
+    yield* service.listStats({ refs: statsRefs });
+    assert.deepStrictEqual(statsRequests, [[1, 2], [1]]);
+    for (const kind of ["summary", "activity", "diff", "stats"])
+      assert.deepStrictEqual(
+        reads.filter((read) => read.startsWith(`${kind}:`)),
+        [`${kind}:/task/projects/app`, `${kind}:/other/projects/app`],
+      );
+  }),
+);
+
+it.effect.each(["same-checkout", "different-checkout", "different-remote"] as const)(
+  `coalesces scoped provider refinement only for the same checkout and remote (%s)`,
+  (variation) =>
+    Effect.gen(function* () {
+      const refinements: Array<{ cwd: string; remoteUrl: string | undefined }> = [];
+      const statsReads: string[] = [];
+      const unknownIdentity = project({
+        id: "child",
+        title: "app",
+        workspaceRoot: "/task/projects/app",
+        repository: "org/app",
+        provider: "unknown",
+        host: "code.example.test",
+      }).repositoryIdentity!;
+      const secondIdentity =
+        variation === "different-remote"
+          ? project({
+              id: "child",
+              title: "app",
+              workspaceRoot: "/task/projects/app",
+              repository: "org/app",
+              provider: "unknown",
+              host: "other.example.test",
+            }).repositoryIdentity!
+          : unknownIdentity;
+      const service = yield* makeService({
+        projects: [project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper" })],
+        threads: [
+          scopedThread,
+          {
+            ...scopedThread,
+            id: "t2" as ThreadId,
+            worktreePath: variation === "different-checkout" ? "/other" : "/task",
+          },
+          { ...scopedThread, id: "invalid" as ThreadId, projectId: "p2" as ProjectId },
+        ],
+        repositories: (cwd) => [
+          {
+            path: "projects/app",
+            name: "app",
+            cwd: `${cwd}/projects/app`,
+            kind: "repository",
+            available: true,
+            repositoryIdentity: unknownIdentity,
+          },
+          {
+            path: "projects/alias",
+            name: "alias",
+            cwd: `${cwd}/projects/app`,
+            kind: "repository",
+            available: true,
+            repositoryIdentity: secondIdentity,
+          },
+        ],
+        resolveHandle: ({ cwd, context }) =>
+          Effect.gen(function* () {
+            refinements.push({ cwd, remoteUrl: context?.remoteUrl });
+            yield* Effect.yieldNow;
+            return {
+              context: {
+                ...context!,
+                provider: { ...context!.provider, kind: "gitlab" as const },
+              },
+              provider: undefined as never,
+            };
+          }),
+        providers: [
+          fakeProvider("gitlab", {
+            listChangeRequestStats: ({ cwd, host, changeRequests }) => {
+              statsReads.push(`${cwd} ${host}`);
+              return Effect.succeed(
+                [...new Set(changeRequests.map((ref) => ref.number))].map((number) => ({
+                  repository: "org/app",
+                  number,
+                  additions: 10,
+                  deletions: 0,
+                })),
+              );
+            },
+          }),
+        ],
+      });
+      const refs = [
+        scopedRef,
+        {
+          ...scopedRef,
+          workspace: { threadId: "t2" as ThreadId, repositoryPath: "projects/alias" },
+        },
+        { ...scopedRef, workspace: { ...scopedRef.workspace, threadId: "invalid" as ThreadId } },
+        { ...scopedRef, repository: "org/not-authorized" },
+      ];
+      const result = yield* service.listStats({ refs });
+      assert.deepStrictEqual(result.stats.map((stat) => stat.workspace?.threadId).sort(), [
+        ThreadId.make("t1"),
+        ThreadId.make("t2"),
+      ]);
+      assert.strictEqual(refinements.length, variation === "same-checkout" ? 1 : 2);
+      assert.strictEqual(statsReads.length, variation === "same-checkout" ? 1 : 2);
+      if (variation === "different-checkout")
+        assert.deepStrictEqual(refinements.map((entry) => entry.cwd).sort(), [
+          "/other/projects/app",
+          "/task/projects/app",
+        ]);
+      if (variation === "different-remote")
+        assert.deepStrictEqual(refinements.map((entry) => entry.remoteUrl).sort(), [
+          "https://code.example.test/org/app.git",
+          "https://other.example.test/org/app.git",
+        ]);
+      assert.deepStrictEqual(yield* service.listStats({ refs: refs.slice(2) }), { stats: [] });
+    }),
+);
+
+it.effect("publishes child repository merges with their workspace scope", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const actions: string[] = [];
+      const service = yield* makeService({
+        projects: [project({ id: "p1", title: "wrapper", workspaceRoot: "/wrapper" })],
+        threads: [scopedThread],
+        repositories: () => [
+          {
+            path: "projects/app",
+            name: "app",
+            cwd: "/task/projects/app",
+            kind: "repository",
+            available: true,
+            repositoryIdentity: appIdentity,
+          },
+        ],
+        providers: [
+          fakeProvider("github", {
+            getChangeRequestSummary: () =>
+              Effect.succeed({ ...changeRequest(1, "2026-07-02T00:00:00Z"), state: "merged" }),
+            runAction: ({ cwd }) =>
+              Effect.sync(() => {
+                actions.push(cwd);
+              }),
+          }),
+        ],
+      });
+      const merges = yield* service.subscribeMerges;
+      const observed = yield* Stream.runHead(merges).pipe(
+        Effect.forkChild({ startImmediately: true }),
+      );
+      yield* service.runAction({ ...scopedRef, action: "merge" });
+      assert.deepStrictEqual(
+        Option.getOrThrow(yield* Fiber.join(observed)).workspace,
+        scopedRef.workspace,
+      );
+      assert.deepStrictEqual(actions, ["/task/projects/app"]);
+    }),
+  ),
 );
 
 it.effect("keeps the diff cached across a file being ticked off", () =>

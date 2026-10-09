@@ -7,6 +7,7 @@ import {
   PullRequestFilesViewedResult,
   PullRequestListInput,
   PullRequestListResult,
+  PullRequestRef,
   PullRequestReviewerRequestInput,
   PullRequestSetFilesViewedInput,
   pullRequestHostOf,
@@ -273,6 +274,42 @@ describe("naming the reader as the author to narrow by", () => {
   it("stands as typed where the host has not said who the reader is", () => {
     expect(resolvePullRequestAuthorFilter("me", null)).toBe("me");
     expect(resolvePullRequestAuthorFilter("me", "  ")).toBe("me");
+  });
+});
+
+it("preserves workspace scope on pull request actions and requires its thread", () => {
+  const action = {
+    projectId: "p1",
+    repository: "org/app",
+    number: 1,
+    action: "merge",
+    workspace: { threadId: "t1", repositoryPath: "projects/app" },
+  };
+  expect(decodeAction(action).workspace).toEqual(action.workspace);
+  expect(() =>
+    decodeAction({ ...action, workspace: { repositoryPath: "projects/app" } }),
+  ).toThrow();
+});
+
+describe("PullRequestRef workspace", () => {
+  it("accepts thread context with or without an explicit repository path", () => {
+    const decode = Schema.decodeUnknownSync(PullRequestRef);
+    const reference = {
+      projectId: "wrapper",
+      host: "github.com",
+      repository: "org/app",
+      number: 7,
+      workspace: { threadId: "thread" },
+    };
+    expect(decode(reference)).toStrictEqual(reference);
+    const selected = {
+      ...reference,
+      workspace: { threadId: "thread", repositoryPath: "projects/app" },
+    };
+    expect(decode(selected)).toStrictEqual(selected);
+    expect(() =>
+      decode({ ...reference, workspace: { threadId: "thread", repositoryPath: "" } }),
+    ).toThrow();
   });
 });
 

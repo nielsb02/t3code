@@ -68,6 +68,7 @@ import {
   type ProjectFileOperation,
   type ProjectMutation,
   ProjectListEntriesError,
+  ProjectListRepositoriesError,
   ProjectReadFileError,
   ProjectSearchContentsError,
   ProjectSearchEntriesError,
@@ -436,6 +437,12 @@ function projectEntriesFailureContext(error: WorkspaceEntries.WorkspaceEntriesEr
   readonly detail?: string;
 } {
   switch (error._tag) {
+    case "WorkspaceRepositoryDiscoveryError":
+      return {
+        failure: "search_index_create_failed",
+        normalizedCwd: error.cwd,
+        detail: error.message,
+      };
     case "WorkspaceRootNotExistsError":
       return {
         failure: "workspace_root_not_found",
@@ -513,8 +520,11 @@ function projectFileFailureContext(
   readonly resolvedWorkspaceRoot?: string;
   readonly operation?: ProjectFileOperation;
   readonly operationPath?: string;
+  readonly code?: string;
 } {
   switch (error._tag) {
+    case "WorkspaceFileChangedError":
+      return { failure: "file_changed" };
     case "WorkspacePathOutsideRootError":
       return { failure: "workspace_path_outside_root" };
     case "WorkspaceFileSystemOperationError":
@@ -523,6 +533,13 @@ function projectFileFailureContext(
         resolvedPath: error.resolvedPath,
         operation: error.operation,
         operationPath: error.operationPath,
+        // Lets clients tell a missing file (ENOENT) from other read failures.
+        ...(typeof error.cause === "object" &&
+        error.cause !== null &&
+        "code" in error.cause &&
+        typeof error.cause.code === "string"
+          ? { code: error.cause.code }
+          : {}),
       };
     case "WorkspaceFilePathEscapeError":
       return {
@@ -2627,6 +2644,17 @@ const layerWsRpc = (
                   queryLength: input.query.length,
                   limit: input.limit,
                   ...projectEntriesFailureContext(cause),
+                  cause,
+                }),
+            ),
+          ),
+        [WS_METHODS.projectsListRepositories]: (input) =>
+          workspaceEntries.listRepositories(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProjectListRepositoriesError({
+                  cwd: input.cwd,
+                  message: cause.message,
                   cause,
                 }),
             ),
