@@ -368,6 +368,19 @@ describe("getDiffLineStat", () => {
   });
 });
 
+describe("diff path normalization", () => {
+  it("preserves directory names in normalized diff metadata", () => {
+    const parsed = getRenderablePatch(
+      "diff --git a/old.ts b/new.ts\nsimilarity index 100%\nrename from old.ts\nrename to new.ts\n",
+    );
+    if (parsed?.kind !== "files" || !parsed.files[0]) throw new Error("Expected renamed file");
+    const file = { ...parsed.files[0], name: "b/new.ts", prevName: "a/old.ts" };
+    expect(resolveFileDiffPath(file)).toBe("b/new.ts");
+    expect(resolveFileDiffPreviousPath(file)).toBe("a/old.ts");
+    expect(buildFileDiffIdentityKey(file)).toBe("a/old.ts\u0000b/new.ts\u0000rename-pure");
+  });
+});
+
 describe("a file whose name a patch header cannot carry plainly", () => {
   /** How git writes such a name, and so how every provider's patch arrives here. */
   const quotedPatch = (written: string) =>

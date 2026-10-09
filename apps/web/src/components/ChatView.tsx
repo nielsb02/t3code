@@ -180,7 +180,7 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
-import { useDiffPanelStore } from "../diffPanelStore";
+import { selectThreadDiffPanelSelection, useDiffPanelStore } from "../diffPanelStore";
 import { useActiveThreadRef } from "../hooks/useActiveThreadRef";
 import {
   type ComposerSubmissionIntent,
@@ -221,6 +221,7 @@ import {
 import { seedUserInputDraftAnswers } from "@t3tools/client-runtime/state/thread-requests";
 import { useUiStateStore } from "../uiStateStore";
 import { useWorkspaceMutationRefresh } from "../hooks/useWorkspaceMutationRefresh";
+import { useWorkspaceRepositories } from "../hooks/useWorkspaceRepositories";
 import {
   buildPlanImplementationThreadTitle,
   buildPlanImplementationPrompt,
@@ -284,6 +285,8 @@ import {
   threadPullRequestPanelTarget,
 } from "./pullRequest/pullRequestDetail.logic";
 import { PullRequestDetailPanel } from "./pullRequest/PullRequestDetailPanel";
+import { WorkspacePullRequestsPanel } from "./pullRequest/WorkspacePullRequestsPanel";
+import { WorkspaceRepositorySelector } from "./WorkspaceRepositorySelector";
 import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs } from "./RightPanelTabs";
@@ -4125,6 +4128,22 @@ export default function ChatView(props: ChatViewProps) {
         worktreePath: activeThread?.worktreePath ?? null,
       })
     : null;
+  const supportsWorkspaceRepositories =
+    serverConfig?.environment.capabilities.workspaceRepositories === true;
+  const workspaceRepositories = useWorkspaceRepositories({
+    environmentId,
+    cwd: gitCwd,
+    mutationId: workspaceMutationId,
+    enabled: supportsWorkspaceRepositories,
+  });
+  const hasWorkspaceRepositories = workspaceRepositories.repositories.length > 1;
+  const selectedGitRepository = workspaceRepositories.selectedRepository;
+  // Git actions target the selected repository; the agent and terminals stay in the checkout.
+  const selectedGitCwd = workspaceRepositories.error
+    ? null
+    : supportsWorkspaceRepositories
+      ? (selectedGitRepository?.cwd ?? gitCwd)
+      : gitCwd;
   const gitStatusCwd = activeThread?.worktreePath ?? gitCwd;
   const gitStatusQuery = useEnvironmentQuery(
     gitStatusCwd === null
@@ -7135,11 +7154,16 @@ export default function ChatView(props: ChatViewProps) {
       })
     : null;
   const addPullRequestSurface = useCallback(() => {
-    if (!supportsPullRequests || activeThreadRef === null || pullRequestPanelTarget === null)
-      return;
-    useRightPanelStore.getState().openPullRequest(activeThreadRef, pullRequestPanelTarget);
-  }, [activeThreadRef, pullRequestPanelTarget, supportsPullRequests]);
-  const pullRequestSurfaceAvailable = supportsPullRequests && pullRequestPanelTarget !== null;
+    if (!supportsPullRequests || activeThreadRef === null) return;
+    // Several repositories: one tab per repository branch instead of the thread's own PR.
+    if (hasWorkspaceRepositories) {
+      useRightPanelStore.getState().open(activeThreadRef, "workspace-pull-requests");
+    } else if (pullRequestPanelTarget !== null) {
+      useRightPanelStore.getState().openPullRequest(activeThreadRef, pullRequestPanelTarget);
+    }
+  }, [activeThreadRef, hasWorkspaceRepositories, pullRequestPanelTarget, supportsPullRequests]);
+  const pullRequestSurfaceAvailable =
+    supportsPullRequests && (hasWorkspaceRepositories || pullRequestPanelTarget !== null);
   const supportsSettlement = serverConfig?.environment.capabilities.threadSettlement === true;
   const supportsSnooze = serverConfig?.environment.capabilities.threadSnooze === true;
   const supportsPinning = serverConfig?.environment.capabilities.threadPinning === true;
@@ -11033,9 +11057,35 @@ export default function ChatView(props: ChatViewProps) {
           key={activeThreadKey}
           mode="embedded"
           composerDraftTarget={composerDraftTarget}
+          {...(hasWorkspaceRepositories
+            ? {
+                repositories: workspaceRepositories.repositories,
+                repositoryFilter: workspaceRepositories.repositoryFilter,
+                onSelectRepository: workspaceRepositories.selectRepository,
+              }
+            : {})}
           workspaceMutationId={workspaceMutationId}
         />
       </Suspense>
+    ) : renderedRightPanelSurface?.kind === "workspace-pull-requests" &&
+      activeProject &&
+      activeThreadRef ? (
+      <WorkspacePullRequestsPanel
+        shortcutsEnabled={
+          rightPanelOpen && activeRightPanelSurface?.id === renderedRightPanelSurface.id
+        }
+        getShortcutContext={getShortcutContext}
+        key={activeThreadKey}
+        threadRef={activeThreadRef}
+        projectId={activeProject.id}
+        repositories={workspaceRepositories.repositories}
+        statuses={workspaceRepositories.statuses}
+        initialRepositoryPath={selectedGitRepository?.path ?? null}
+        composerDraftTarget={composerDraftTarget}
+        error={workspaceRepositories.error}
+        isPending={workspaceRepositories.isPending}
+        onRefresh={workspaceRepositories.refresh}
+      />
     ) : renderedRightPanelSurface?.kind === "pull-request" && !pullRequestsCapabilityKnown ? (
       <PullRequestDetailGhost />
     ) : renderedRightPanelSurface?.kind === "pull-request" && !supportsPullRequests ? (
@@ -11068,6 +11118,13 @@ export default function ChatView(props: ChatViewProps) {
         threadRef={activeThreadRef}
         reference={{
           projectId: renderedRightPanelSurface.projectId as ProjectId,
+          // A link beside its thread resolves from the repositories declared in the thread's
+          // checkout, so a child repository's PR opens without registering it as a project.
+          ...(serverConfig?.environment.capabilities.workspacePullRequestLinks &&
+          renderedRightPanelSurface.host &&
+          renderedRightPanelSurface.projectId === activeThread.projectId
+            ? { workspace: { threadId: activeThread.id } }
+            : {}),
           ...(renderedRightPanelSurface.host ? { host: renderedRightPanelSurface.host } : {}),
           repository: renderedRightPanelSurface.repository,
           number: renderedRightPanelSurface.number,
@@ -11083,6 +11140,7 @@ export default function ChatView(props: ChatViewProps) {
           renderedRightPanelSurface,
         )}
         composerDraftTarget={composerDraftTarget}
+        {...(renderedRightPanelSurface.url ? { browserUrl: renderedRightPanelSurface.url } : {})}
         onBack={
           activeThreadRef !== null && pullRequestsSurfaceAvailable && visiblePullRequestCount > 1
             ? addPullRequestsSurface
@@ -11169,6 +11227,35 @@ export default function ChatView(props: ChatViewProps) {
     availableEditors,
     showOpenInPicker,
     gitCwd,
+    gitActionsCwd: selectedGitCwd,
+    syncThreadBranch: !supportsWorkspaceRepositories || selectedGitRepository?.path === ".",
+    gitRepositorySelector: workspaceRepositories.error ? (
+      <Tooltip>
+        <TooltipTrigger
+          render={<span role="alert" className="max-w-48 truncate text-xs text-error" />}
+        >
+          Repositories unavailable
+        </TooltipTrigger>
+        <TooltipPopup>{workspaceRepositories.error}</TooltipPopup>
+      </Tooltip>
+    ) : (
+      <WorkspaceRepositorySelector
+        repositories={workspaceRepositories.repositories}
+        statuses={workspaceRepositories.statuses}
+        selectedPath={selectedGitRepository?.path ?? null}
+        onSelect={(path) => {
+          workspaceRepositories.selectRepository(path);
+          const selection = selectThreadDiffPanelSelection(
+            useDiffPanelStore.getState().byThreadKey,
+            activeThreadRef,
+          );
+          // Turn diffs cover only the outer workspace, so a repository choice shows its tree.
+          if (activeThreadRef && selection.kind === "turn") {
+            useDiffPanelStore.getState().selectGitScope(activeThreadRef, "unstaged");
+          }
+        }}
+      />
+    ),
     isGitRepo,
     envLocked,
     availableEnvironments: logicalProjectEnvironments,

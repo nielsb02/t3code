@@ -15,7 +15,7 @@ import ProjectScriptsControl, {
   type NewProjectScriptInput,
   type ProjectScriptActionResult,
 } from "../ProjectScriptsControl";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { ThreadDetailsCard } from "./ThreadDetailsCard";
 import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
@@ -37,6 +37,15 @@ export interface ThreadDetailsPanelProps extends Pick<
   availableEditors: ReadonlyArray<EditorId>;
   showOpenInPicker: boolean;
   gitCwd: string | null;
+  /**
+   * The repository Git actions target when the checkout declares several. Null hides the
+   * actions, such as when the repositories could not be discovered; absent means `gitCwd`.
+   */
+  gitActionsCwd?: string | null;
+  /** Whether Git actions may write their branch back to the thread; only the outer workspace's do. */
+  syncThreadBranch?: boolean;
+  /** Picks the repository for Git actions in a multi-repository checkout. */
+  gitRepositorySelector?: ReactNode;
   isGitRepo: boolean;
   envLocked: boolean;
   availableEnvironments: readonly EnvironmentOption[];
@@ -63,6 +72,7 @@ export interface ThreadDetailsPanelProps extends Pick<
 }
 
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
+  const gitActionsCwd = props.gitActionsCwd === undefined ? props.gitCwd : props.gitActionsCwd;
   const fileScripts = useT3ProjectFileScripts(
     props.environmentId,
     props.activeProjectScripts ? props.gitCwd : null,
@@ -155,11 +165,14 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 {props.isGitRepo ? (
                   <BranchToolbar layout="panel" panelSection="branch" {...branchToolbarProps} />
                 ) : null}
-                {props.activeProjectName ? (
+                {props.gitRepositorySelector}
+                {props.activeProjectName && gitActionsCwd ? (
                   <GitActionsControl
+                    key={gitActionsCwd}
                     displayMode="panel"
                     compact={density !== "full"}
-                    gitCwd={props.gitCwd}
+                    gitCwd={gitActionsCwd}
+                    syncThreadBranch={props.syncThreadBranch ?? true}
                     activeThreadRef={{
                       environmentId: props.environmentId,
                       threadId: props.threadId,

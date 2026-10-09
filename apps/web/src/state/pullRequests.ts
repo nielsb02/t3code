@@ -97,6 +97,7 @@ function pullRequestSummaryKey(environmentId: EnvironmentId, reference: PullRequ
     reference.projectId,
     reference.repository.toLowerCase(),
     reference.number,
+    ...(reference.workspace ? [reference.host?.toLowerCase() ?? null, reference.workspace] : []),
   ]);
 }
 

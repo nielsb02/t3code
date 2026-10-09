@@ -135,6 +135,7 @@ import { useOpenLink } from "~/browser/useOpenLink";
 interface GitActionsControlProps {
   presentation?: "toolbar" | "menu";
   gitCwd: string | null;
+  syncThreadBranch?: boolean;
   activeThreadRef: ScopedThreadRef | null;
   draftId?: DraftId;
   /**
@@ -1065,6 +1066,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
 export default function GitActionsControl({
   presentation = "toolbar",
   gitCwd,
+  syncThreadBranch = true,
   activeThreadRef,
   draftId,
   displayMode = "toolbar",
@@ -1137,7 +1139,7 @@ export default function GitActionsControl({
 
   const persistThreadBranchSync = useCallback(
     (branch: string | null, manualSelection = false) => {
-      if (!activeThreadRef) {
+      if (!activeThreadRef || !syncThreadBranch) {
         return;
       }
 
@@ -1180,6 +1182,7 @@ export default function GitActionsControl({
       draftId,
       setDraftThreadContext,
       updateThreadMetadata,
+      syncThreadBranch,
     ],
   );
 

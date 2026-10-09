@@ -427,10 +427,12 @@ export function PullRequestDetailPanel({
   onClose,
   context = "page",
   composerDraftTarget,
+  browserUrl,
   onBack,
   onSelectPullRequest,
 }: {
   environmentId: EnvironmentId;
+  browserUrl?: string;
   shortcutsEnabled: boolean;
   getShortcutContext: () => ShortcutMatchContext;
   onSelectPullRequest?: ((reference: PullRequestRef) => void) | undefined;
@@ -488,16 +490,24 @@ export function PullRequestDetailPanel({
     environmentConfigs.get(environmentId)?.environment.capabilities.threadPullRequests === true;
   const reference = useMemo(
     () =>
-      supportsThreadPullRequests
+      // A selected workspace repository has its own remote; the project's host would be wrong.
+      supportsThreadPullRequests && requestedReference.workspace?.repositoryPath === undefined
         ? resolvePullRequestReferenceHost(requestedReference, repositoryIdentity)
         : {
             projectId: requestedReference.projectId,
             repository: requestedReference.repository,
             number: requestedReference.number,
+            ...(requestedReference.workspace ? { workspace: requestedReference.workspace } : {}),
           },
     [requestedReference, repositoryIdentity, supportsThreadPullRequests],
   );
-  const pullRequestKey = `${reference.projectId}:${reference.host ?? ""}:${reference.repository}#${reference.number}`;
+  const pullRequestKey = JSON.stringify([
+    reference.projectId,
+    reference.host ?? null,
+    reference.repository,
+    reference.number,
+    reference.workspace ?? null,
+  ]);
   const matchingListEntry =
     listEntry?.projectId === reference.projectId &&
     listEntry.repository.toLowerCase() === reference.repository.toLowerCase() &&
@@ -907,11 +917,21 @@ export function PullRequestDetailPanel({
   const newThread = useNewThreadHandler();
   const { environments } = useEnvironments();
   const unavailableGitHubUrl = useMemo(() => {
+    if (browserUrl) return browserUrl;
+    if (reference.workspace) return null;
     const identity = projects.find(
       (project) => project.id === reference.projectId && project.environmentId === environmentId,
     )?.repositoryIdentity;
     return gitHubPullRequestBrowserUrl(identity, reference.repository, reference.number);
-  }, [environmentId, projects, reference.number, reference.projectId, reference.repository]);
+  }, [
+    browserUrl,
+    environmentId,
+    projects,
+    reference.number,
+    reference.projectId,
+    reference.repository,
+    reference.workspace,
+  ]);
   // Beside a thread there is nothing to pick: the hand-offs land in that thread's composer, and
   // the thread is already on one server's copy of the branch.
   const pickableEnvironments = useMemo(

@@ -71,6 +71,7 @@ import {
 } from "./ui/combobox";
 import {
   DropdownMenu,
+  DropdownMenuItem,
   DropdownMenuContent,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -86,6 +87,8 @@ import { serverEnvironment } from "../state/server";
 import { reviewEnvironment } from "../state/review";
 import { vcsEnvironment } from "../state/vcs";
 import { buildBaseRefChoices, filterBaseRefChoices } from "../lib/baseRefChoices";
+import { useWorkspaceDiff } from "../hooks/useWorkspaceDiff";
+import { createWorkspaceDiff, type WorkspaceDiffRepository } from "../lib/workspaceDiff";
 import { createGitDiffFileContentsLoader } from "../lib/diffFileContents";
 
 import { useReviewFilePatches } from "./diffs/useReviewFilePatches";
@@ -93,6 +96,7 @@ import { DiffFileLoadingBoundary } from "./diffs/DiffFileLoadingBoundary";
 import { DiffFileStatus } from "./diffs/DiffFileStatus";
 
 type DiffThemeType = "light" | "dark";
+const EMPTY_REPOSITORIES: readonly WorkspaceDiffRepository[] = [];
 const AUTOMATIC_BASE_REF = "__automatic_base_ref__";
 const DIFF_FILE_TREE_STORAGE_KEY = "t3code.diffFileTreeOpen";
 const fileEntryCache = new WeakMap<
@@ -188,6 +192,9 @@ function DiffFileHeaderSuffix({
 }
 
 interface DiffPanelProps {
+  repositories?: readonly WorkspaceDiffRepository[];
+  repositoryFilter?: string | null;
+  onSelectRepository?: (path: string | null) => void;
   mode?: DiffPanelMode;
   composerDraftTarget: ScopedThreadRef | DraftId;
   workspaceMutationId: string | null;
@@ -197,6 +204,9 @@ export default function DiffPanel({
   mode = "inline",
   composerDraftTarget,
   workspaceMutationId,
+  repositories = EMPTY_REPOSITORIES,
+  repositoryFilter = null,
+  onSelectRepository,
 }: DiffPanelProps) {
   const { resolvedTheme } = useTheme();
   const settings = useClientSettings();
@@ -209,6 +219,9 @@ export default function DiffPanel({
     false,
     Schema.Boolean,
   );
+  const [repositoryBaseRefs, setRepositoryBaseRefs] = useState<
+    Readonly<Record<string, string | null>>
+  >({});
   const [baseRefQuery, setBaseRefQuery] = useState("");
   const [collapsedDiffFiles, setCollapsedDiffFiles] = useState<CollapsedDiffFilesState>(() => ({
     scopeKey: null,
@@ -287,7 +300,32 @@ export default function DiffPanel({
 
   const selectedRunId = diffSelection.kind === "turn" ? diffSelection.turnId : null;
   const selectedGitScope = diffSelection.kind === "unstaged" ? "unstaged" : "branch";
-  const selectedBaseRef = diffSelection.kind === "branch" ? diffSelection.baseRef : null;
+  const hasWorkspaceRepositories = repositories.length > 0;
+  const filteredRepository = repositories.find((repo) => repo.path === repositoryFilter);
+  const selectedBaseRef = hasWorkspaceRepositories
+    ? filteredRepository
+      ? (repositoryBaseRefs[filteredRepository.cwd] ?? null)
+      : null
+    : diffSelection.kind === "branch"
+      ? diffSelection.baseRef
+      : null;
+  const visibleRepositories = useMemo(
+    () =>
+      selectedRunId !== null
+        ? EMPTY_REPOSITORIES
+        : filteredRepository
+          ? [filteredRepository]
+          : repositoryFilter === null
+            ? repositories
+            : EMPTY_REPOSITORIES,
+    [selectedRunId, filteredRepository, repositories, repositoryFilter],
+  );
+  const workspaceDiffQuery = useWorkspaceDiff(
+    canReadFiles ? (activeThread?.environmentId ?? null) : null,
+    visibleRepositories,
+    repositoryBaseRefs,
+    diffIgnoreWhitespace,
+  );
   const selectedFilePath = diffSelection.kind === "turn" ? diffSelection.filePath : null;
   const selectedFileRevealRequestId =
     diffSelection.kind === "turn" ? diffSelection.revealRequestId : 0;
@@ -340,7 +378,7 @@ export default function DiffPanel({
     { enabled: isGitRepo && selectedTurn !== undefined },
   );
   const primaryBranchDiffPreview = useEnvironmentQuery(
-    canReadFiles && selectedRunId === null && activeThread && activeCwd
+    !hasWorkspaceRepositories && canReadFiles && selectedRunId === null && activeThread && activeCwd
       ? reviewEnvironment.diffPreview({
           environmentId: activeThread.environmentId,
           input: {
@@ -368,11 +406,26 @@ export default function DiffPanel({
         })
       : null,
   );
-  const branchDiffPreview = shouldRetryBranchDiffAtEnvironmentCwd
-    ? fallbackBranchDiffPreview
-    : primaryBranchDiffPreview;
+  const branchDiffPreview = hasWorkspaceRepositories
+    ? {
+        data: filteredRepository ? (workspaceDiffQuery.results[0]?.data ?? null) : null,
+        error:
+          workspaceDiffQuery.results
+            .flatMap((result) =>
+              result.error ? [`${result.repository.name}: ${result.error}`] : [],
+            )
+            .join("; ") || null,
+        isPending: workspaceDiffQuery.results.some((result) => result.isPending),
+        refresh: workspaceDiffQuery.refresh,
+      }
+    : shouldRetryBranchDiffAtEnvironmentCwd
+      ? fallbackBranchDiffPreview
+      : primaryBranchDiffPreview;
   const canRefreshGitDiff =
-    isGitRepo && selectedRunId === null && activeThread != null && activeCwd != null;
+    (isGitRepo || hasWorkspaceRepositories) &&
+    selectedRunId === null &&
+    activeThread != null &&
+    activeCwd != null;
   const activeThreadRefreshKey = routeThreadRef
     ? `${routeThreadRef.environmentId}:${routeThreadRef.threadId}`
     : null;
@@ -380,10 +433,38 @@ export default function DiffPanel({
   const selectedGitSource = branchDiffPreview.data?.sources.find(
     (source) => source.kind === (selectedGitScope === "unstaged" ? "working-tree" : "branch-range"),
   );
+  const workspaceDiff = useMemo(
+    () =>
+      activeThread && hasWorkspaceRepositories && !filteredRepository && selectedRunId === null
+        ? createWorkspaceDiff(
+            workspaceDiffQuery.results.flatMap((result) => {
+              const source = result.data?.sources.find(
+                (item) =>
+                  item.kind === (selectedGitScope === "unstaged" ? "working-tree" : "branch-range"),
+              );
+              return source ? [{ repository: result.repository, source }] : [];
+            }),
+            activeThread.environmentId,
+            getDiffFileContents,
+            resolvedTheme,
+          )
+        : null,
+    [
+      activeThread,
+      hasWorkspaceRepositories,
+      selectedRunId,
+      workspaceDiffQuery.results,
+      filteredRepository,
+      selectedGitScope,
+      getDiffFileContents,
+      resolvedTheme,
+    ],
+  );
   const refreshPreviewQuery = branchDiffPreview.refresh;
   const refreshDiffFromUserAction = refreshPreviewQuery;
 
   const currentLoadDiffFiles = useMemo<FileDiffContentsLoader | undefined>(() => {
+    if (workspaceDiff) return workspaceDiff.loadDiffFiles;
     const preview = branchDiffPreview.data;
     if (selectedRunId !== null || !activeThread || !preview || !selectedGitSource) {
       return undefined;
@@ -405,6 +486,7 @@ export default function DiffPanel({
     canReadFiles,
     selectedGitSource,
     selectedRunId,
+    workspaceDiff,
   ]);
   const loadDiffFilesRef = useRef(currentLoadDiffFiles);
   loadDiffFilesRef.current = currentLoadDiffFiles;
@@ -464,25 +546,52 @@ export default function DiffPanel({
   const gitDiff = selectedGitSource?.diff;
 
   const selectedPatch = selectedTurn ? activeCheckpointDiff.data?.diff : gitDiff;
-  const isSelectedPatchTruncated = !selectedTurn && selectedGitSource?.truncated === true;
+  const isSelectedPatchTruncated =
+    !selectedTurn &&
+    (workspaceDiff
+      ? workspaceDiffQuery.results.some((result) =>
+          result.data?.sources.some(
+            (source) =>
+              source.kind === (selectedGitScope === "unstaged" ? "working-tree" : "branch-range") &&
+              source.truncated,
+          ),
+        )
+      : selectedGitSource?.truncated === true);
   const isLoadingSelectedPatch = selectedTurn
     ? activeCheckpointDiff.isPending
     : branchDiffPreview.isPending;
   const selectedPatchError = selectedTurn ? activeCheckpointDiff.error : branchDiffPreview.error;
   const hasResolvedPatch = typeof selectedPatch === "string";
-  const hasNoNetChanges = hasResolvedPatch && selectedPatch.trim().length === 0;
+  const hasNoNetChanges = workspaceDiff
+    ? !branchDiffPreview.isPending &&
+      !branchDiffPreview.error &&
+      (repositoryFilter === null || filteredRepository !== undefined) &&
+      visibleRepositories.every((repo) => repo.available) &&
+      !isSelectedPatchTruncated &&
+      workspaceDiff.files.length === 0 &&
+      workspaceDiff.warnings.length === 0
+    : hasResolvedPatch && selectedPatch.trim().length === 0;
   const lazySource =
     !selectedTurn && selectedGitSource?.truncated && selectedGitSource.files
       ? selectedGitSource
       : null;
   const renderablePatch = useMemo(
     () =>
-      lazySource
-        ? null
-        : getRenderablePatch(selectedPatch, `diff-panel:${resolvedTheme}`, {
-            compactPartialHunkOffsets: selectedRunId === null,
-          }),
-    [lazySource, resolvedTheme, selectedPatch, selectedRunId],
+      workspaceDiff
+        ? (workspaceDiff.rawPatch ??
+          (workspaceDiff.files.length > 0
+            ? {
+                kind: "files" as const,
+                files: workspaceDiff.files,
+                sourceFiles: workspaceDiff.files,
+              }
+            : null))
+        : lazySource
+          ? null
+          : getRenderablePatch(selectedPatch, `diff-panel:${resolvedTheme}`, {
+              compactPartialHunkOffsets: selectedRunId === null,
+            }),
+    [lazySource, resolvedTheme, selectedPatch, selectedRunId, workspaceDiff],
   );
   const fileStats = useMemo(
     () => new Map(lazySource?.files?.map((file) => [file.path, file])),
@@ -730,6 +839,11 @@ export default function DiffPanel({
     useDiffPanelStore.getState().selectGitScope(routeThreadRef, scope);
   };
   const selectBranchBaseRef = (baseRef: string | null) => {
+    if (hasWorkspaceRepositories) {
+      if (filteredRepository)
+        setRepositoryBaseRefs((current) => ({ ...current, [filteredRepository.cwd]: baseRef }));
+      return;
+    }
     if (!routeThreadRef) return;
     useDiffPanelStore.getState().selectBranchBaseRef(routeThreadRef, baseRef);
   };
@@ -757,6 +871,44 @@ export default function DiffPanel({
   const headerRow = (
     <>
       <div className="flex min-w-0 flex-1 items-center gap-3 [-webkit-app-region:no-drag]">
+        {hasWorkspaceRepositories && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<Button variant="ghost" size="sm" className="max-w-48" />}
+              aria-label="Filter diff by repository"
+            >
+              <span className="truncate">
+                {selectedRunId !== null
+                  ? (repositories.find((repo) => repo.path === ".")?.name ?? "Workspace")
+                  : (filteredRepository?.name ??
+                    (repositoryFilter === null ? "All repositories" : repositoryFilter))}
+              </span>
+              <ChevronDownIcon className="size-3.5 shrink-0" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem
+                onClick={() => {
+                  onSelectRepository?.(null);
+                  if (selectedRunId !== null) selectGitScope("unstaged");
+                }}
+              >
+                All repositories
+              </DropdownMenuItem>
+              {repositories.map((repository) => (
+                <DropdownMenuItem
+                  key={repository.cwd}
+                  onClick={() => {
+                    onSelectRepository?.(repository.path);
+                    if (selectedRunId !== null) selectGitScope("unstaged");
+                  }}
+                >
+                  {repository.name}
+                  {repository.available ? "" : " (unavailable)"}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger
             render={<Button size="xs" variant="secondary" />}
@@ -1066,7 +1218,7 @@ export default function DiffPanel({
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Select a thread to inspect turn diffs.
         </div>
-      ) : !isGitRepo ? (
+      ) : !isGitRepo && (selectedRunId !== null || !hasWorkspaceRepositories) ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Turn diffs are unavailable because this project is not a git repository.
         </div>
@@ -1088,10 +1240,40 @@ export default function DiffPanel({
             {isSelectedPatchTruncated && !lazySource && (
               <p className="shrink-0 border-b border-border/70 bg-muted/40 px-3 py-1.5 text-2xs text-muted-foreground">
                 This preview exceeds the size limit. Changes shown are incomplete.
+                {hasWorkspaceRepositories ? " Select a repository to load its full diff." : ""}
                 {selectedGitSource?.files ? " Totals include all changes." : ""}
               </p>
             )}
-            {selectedPatchError && !renderablePatch && (
+            {workspaceDiff &&
+              visibleRepositories
+                .filter((repo) => !repo.available)
+                .map((repo) => (
+                  <p key={repo.cwd} className="px-3 py-1.5 text-2xs text-muted-foreground">
+                    {repo.name}: repository is unavailable.
+                  </p>
+                ))}
+            {selectedRunId === null && repositoryFilter !== null && !filteredRepository && (
+              <p className="px-3 py-2 text-xs text-muted-foreground">
+                The selected repository is no longer in this workspace. Choose another repository.
+              </p>
+            )}
+            {workspaceDiff?.warnings.map((warning) => (
+              <p key={warning} className="px-3 py-1.5 text-2xs text-error/80">
+                {warning}
+              </p>
+            ))}
+            {workspaceDiff && isLoadingSelectedPatch && renderablePatch && (
+              <p className="px-3 py-1.5 text-2xs text-muted-foreground">
+                Loading remaining repository diffs…
+              </p>
+            )}
+            {selectedRunId !== null && hasWorkspaceRepositories && (
+              <p className="px-3 py-2 text-xs text-muted-foreground">
+                Turn snapshots cover the workspace repository. Choose a repository to view its
+                working tree.
+              </p>
+            )}
+            {selectedPatchError && (!renderablePatch || workspaceDiff) && (
               <div className="px-3">
                 <p className="mb-2 text-2xs text-error/80">{selectedPatchError}</p>
               </div>

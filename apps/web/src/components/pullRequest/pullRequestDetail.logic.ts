@@ -1306,6 +1306,9 @@ export function resolvePullRequestReferenceHost(
 }
 
 export interface PullRequestDetailSnapshotRef {
+  readonly workspace?:
+    | { readonly threadId: string; readonly repositoryPath?: string | undefined }
+    | undefined;
   readonly host?: string | undefined;
   readonly projectId: string;
   readonly repository: string;
@@ -1316,9 +1319,10 @@ const pullRequestDetailSnapshotKey = (
   environmentId: string,
   reference: PullRequestDetailSnapshotRef,
 ) =>
-  reference.host
+  (reference.host
     ? `t3.pullRequests.detail:${JSON.stringify([environmentId, reference.projectId, reference.host.toLowerCase(), reference.repository.toLowerCase(), reference.number])}`
-    : `t3.pullRequests.detail:${environmentId}:${reference.projectId}:${reference.repository}#${reference.number}`;
+    : `t3.pullRequests.detail:${environmentId}:${reference.projectId}:${reference.repository}#${reference.number}`) +
+  (reference.workspace ? `:${JSON.stringify(reference.workspace)}` : "");
 
 const decodeDetailSnapshot = Schema.decodeUnknownOption(PullRequestDetail);
 
