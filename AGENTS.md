@@ -162,3 +162,16 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 
 - Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
+
+## Micro fork
+
+This is the Micro Manager fork of T3 Code. Fork maintenance, release channels,
+and retired fork features are described in
+[the fork maintenance guide](docs/operations/micro-fork.md).
+
+- Never add a database migration in the fork. Upstream's migrator keys on ids only,
+  so a fork migration masks a future upstream one. The release workflow rejects any
+  difference from upstream's migrations.
+- Prefer upstream mechanisms over fork code. When upstream ships a feature the fork
+  also has, present the behavior differences to the maintainer and record the
+  decision in the maintenance guide.
