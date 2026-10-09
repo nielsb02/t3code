@@ -3,6 +3,50 @@
 T3 Code integrates with GitHub, GitLab, Forgejo, Gitea, Bitbucket, and Azure DevOps to clone and publish
 repositories, create pull requests, and review changes.
 
+## Work with several repositories
+
+A checkout can declare the repositories it contains, such as a workspace folder with one clone per
+service. In **Settings → Projects**, select a project and edit **Repository paths** and **Include Git
+submodules** under **Repositories**. Saving writes to that checkout's `t3.json` and keeps comments
+and other settings. If the file changed since the settings loaded, the save is rejected; reload and
+try again. Existing task worktrees keep their own `t3.json`.
+
+You can also declare repositories directly in `t3.json`, alongside any existing scripts:
+
+```json
+{
+  "repositories": {
+    "paths": ["projects/*"],
+    "includeSubmodules": true
+  }
+}
+```
+
+Paths resolve from the thread's checkout. `projects/*` includes the immediate child folders that are
+repository roots, including linked Git worktrees. Explicit paths such as `apps/backend` also work.
+Recursive patterns and paths outside the workspace are not supported, and other worktrees of those
+repositories are not included. `includeSubmodules` adds declared submodules; uninitialized ones appear
+as unavailable.
+
+Files and search include these repositories even when the outer workspace ignores their parent
+folder; each repository keeps its own ignore rules. After adding or removing a repository, return
+focus to T3 Code or refresh the panel. Finished agent file and command work also refreshes the list.
+
+In the thread details panel, choose a repository beside the Git controls before committing, pushing,
+or switching branches. The agent and terminals keep the outer workspace as their working directory,
+and only the outer workspace's branch is recorded on the thread. The Diff panel shows all
+repositories by default, with a repository filter and a separate branch comparison base for each.
+
+On web and desktop, **Workspace PRs** in the right panel has a tab for each repository's checked-out
+branch. Switch tabs to review that branch's pull request, or use the repository's Git actions to
+create one. It lists pull requests for the current branches, not every open pull request on each
+remote.
+
+On mobile, select a repository in the Git sheet. Live and branch review can show all repositories or
+one of them. Open a repository's pull request with the existing browser action.
+
+Turn diffs and checkpoint restore apply only to the outer workspace repository.
+
 ## Connect an account
 
 Install Git and configure authentication on the machine running your T3 Code server. For a remote
@@ -218,8 +262,11 @@ A watched thread counts as working between wakes, so it stays in the **Working**
 not auto-settle. Agents stop watching when they hand the work back to you, and the thread then
 returns to your inbox.
 
-Cross-repository links use a project on the same host. Azure DevOps reviews require a project checked
-out from the matching organization and repository.
+Linked reviews resolve through the matching repository declared in the thread's checkout, so a
+workspace with several repositories does not need a separate project for each one. Other
+cross-repository links use a project on the same host. Azure DevOps reviews require a checkout from
+the matching organization and repository. A remote server that predates this needs the child
+repository added as a project until it is updated.
 
 ## GitHub stacks
 
