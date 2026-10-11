@@ -389,23 +389,6 @@ export default function DiffPanel({
         })
       : null,
   );
-  const shouldRetryBranchDiffAtEnvironmentCwd =
-    selectedRunId === null &&
-    primaryBranchDiffPreview.error?.includes("configured workspace root") === true &&
-    serverConfig?.cwd !== undefined &&
-    serverConfig.cwd !== activeCwd;
-  const fallbackBranchDiffPreview = useEnvironmentQuery(
-    canReadFiles && shouldRetryBranchDiffAtEnvironmentCwd && activeThread && serverConfig
-      ? reviewEnvironment.diffPreview({
-          environmentId: activeThread.environmentId,
-          input: {
-            cwd: serverConfig.cwd,
-            ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
-            ignoreWhitespace: diffIgnoreWhitespace,
-          },
-        })
-      : null,
-  );
   const branchDiffPreview = hasWorkspaceRepositories
     ? {
         data: filteredRepository ? (workspaceDiffQuery.results[0]?.data ?? null) : null,
@@ -418,9 +401,7 @@ export default function DiffPanel({
         isPending: workspaceDiffQuery.results.some((result) => result.isPending),
         refresh: workspaceDiffQuery.refresh,
       }
-    : shouldRetryBranchDiffAtEnvironmentCwd
-      ? fallbackBranchDiffPreview
-      : primaryBranchDiffPreview;
+    : primaryBranchDiffPreview;
   const canRefreshGitDiff =
     (isGitRepo || hasWorkspaceRepositories) &&
     selectedRunId === null &&

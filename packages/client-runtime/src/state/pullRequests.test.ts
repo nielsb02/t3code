@@ -1164,6 +1164,7 @@ it.live("invalidates every origin thread scope after a routed PR mutation", () =
 it.live("keeps source workspace metadata when an alternate answers a detail read", () =>
   Effect.scoped(
     Effect.gen(function* () {
+      const noted = yield* Deferred.make<unknown>();
       const clientFor = (local: boolean) =>
         ({
           [local ? WS_METHODS.pullRequestsRoutingIdentity : WS_METHODS.pullRequestsRouting]: () =>
@@ -1182,8 +1183,12 @@ it.live("keeps source workspace metadata when an alternate answers a detail read
                   projectTitle: "local project",
                   workspaceRoot: "/Users/local/repo",
                   title: "github title",
+                  state: "closed",
+                  updatedAt: "2026-10-10T01:52:36Z",
                 })
               : Effect.never,
+          [WS_METHODS.pullRequestsReportState]: (input: unknown) =>
+            Deferred.succeed(noted, input).pipe(Effect.asVoid),
         }) as unknown as WsRpcProtocolClient;
       const { environmentRegistry, supervisor } = yield* makeTestRuntime(
         clientFor(false),
@@ -1204,6 +1209,12 @@ it.live("keeps source workspace metadata when an alternate answers a detail read
         projectTitle: "source project",
         workspaceRoot: "/srv/source/repo",
         title: "github title",
+        state: "closed",
+        updatedAt: "2026-10-10T01:52:36Z",
+      });
+      expect(yield* Deferred.await(noted)).toEqual({
+        reference: { projectId: "project-1", repository: "acme/web", number: 7 },
+        state: "closed",
       });
     }),
   ),

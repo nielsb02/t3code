@@ -3,7 +3,6 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
 import {
@@ -19,11 +18,11 @@ import {
 import * as ServerConfig from "../config.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
-import * as WorkspaceRepositories from "../workspace/WorkspaceRepositories.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { isFilesystemRoot, managedWorktreesDirectories } from "../worktreesDirectory.ts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 
 export class ReviewService extends Context.Service<
   ReviewService,
@@ -37,8 +36,6 @@ export class ReviewService extends Context.Service<
   }
 >()("t3/review/ReviewService") {}
 
-type ReviewOperation = "ReviewService.getDiffPreview" | "ReviewService.getDiffFileContents";
-
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
@@ -47,11 +44,8 @@ export const make = Effect.gen(function* () {
   const vcsRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const git = yield* GitVcsDriver.GitVcsDriver;
   const settings = yield* ServerSettings.ServerSettingsService;
-  const projectStore = yield* Effect.serviceOption(ProjectStore.ProjectStoreV2);
-  const projectionStore = yield* Effect.serviceOption(ProjectionStore.ProjectionStoreV2);
-  const workspaceRepositories = yield* Effect.serviceOption(
-    WorkspaceRepositories.WorkspaceRepositories,
-  );
+  const projectStore = yield* ProjectStore.ProjectStoreV2;
+  const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
 
   const canonicalizePath = (value: string) => {
     const resolvedPath = path.resolve(value);
@@ -77,89 +71,21 @@ export const make = Effect.gen(function* () {
     return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
   };
 
-  const detectionError =
-    (operation: ReviewOperation, cwd: string, detail: string) => (cause: unknown) =>
-      new VcsRepositoryDetectionError({ operation, cwd, detail, cause });
-
-  /**
-   * A registered project root or active thread checkout, or an available repository its
-   * `t3.json` declares. Checked only after the configured roots, so ordinary reviews never
-   * read projects or threads.
-   */
-  const isRegisteredWorkspaceCwd = Effect.fn("ReviewService.isRegisteredWorkspaceCwd")(function* (
-    operation: ReviewOperation,
-    cwd: string,
-    candidate: string,
-  ) {
-    if (Option.isNone(projectStore)) return false;
-    const projects = yield* projectStore.value
-      .listShells()
-      .pipe(
-        Effect.mapError(
-          detectionError(operation, cwd, "Failed to validate registered review workspaces."),
-        ),
-      );
-    const checkRoots = Effect.fn(function* (roots: Iterable<string>) {
-      for (const root of roots) {
-        const activeCwd = yield* canonicalizePath(root);
-        if (candidate === activeCwd) return true;
-        if (!isWithinRoot(candidate, activeCwd) || Option.isNone(workspaceRepositories)) continue;
-        const repositories = yield* workspaceRepositories.value
-          .list(activeCwd, { includeIdentity: false })
-          .pipe(
-            Effect.mapError(
-              detectionError(
-                operation,
-                cwd,
-                "Failed to validate workspace repositories for review.",
-              ),
-            ),
-          );
-        for (const repository of repositories) {
-          if (!repository.available) continue;
-          const repositoryRoot = yield* canonicalizePath(repository.cwd);
-          if (isWithinRoot(repositoryRoot, activeCwd) && candidate === repositoryRoot) return true;
-        }
-      }
-      return false;
-    });
-    if (yield* checkRoots(new Set(projects.map((project) => project.workspaceRoot)))) return true;
-    if (Option.isNone(projectionStore)) return false;
-    // Thread checkouts outside the managed worktree directories are rare, so the thread
-    // shells are read only when no project root matched.
-    const snapshot = yield* projectionStore.value
-      .getShellSnapshot({ location: "active" })
-      .pipe(
-        Effect.mapError(
-          detectionError(operation, cwd, "Failed to validate registered review workspaces."),
-        ),
-      );
-    const projectIds = new Set(projects.map((project) => project.id));
-    return yield* checkRoots(
-      new Set(
-        snapshot.threads.flatMap((thread) =>
-          projectIds.has(thread.projectId) && thread.archivedAt === null && thread.worktreePath
-            ? [thread.worktreePath]
-            : [],
-        ),
-      ),
-    );
-  });
-
   const assertWorkspaceBoundCwd = Effect.fn("ReviewService.assertWorkspaceBoundCwd")(function* (
-    operation: ReviewOperation,
+    operation: "ReviewService.getDiffPreview" | "ReviewService.getDiffFileContents",
     cwd: string,
   ) {
     const worktreesDirectories = yield* settings.getSettings.pipe(
       Effect.orElseSucceed(() => ({ worktreesDirectory: "", previousWorktreesDirectories: [] })),
     );
+    const home = yield* HostProcess.HomeDirectory;
     const [candidate, workspaceRoot, worktreesRoots] = yield* Effect.all([
       canonicalizePath(cwd),
       canonicalizePath(config.cwd),
       // A managed root that cannot be resolved, or resolves to a filesystem
       // root through a symlink, is skipped rather than failing every review.
       Effect.forEach(
-        managedWorktreesDirectories(worktreesDirectories, config.worktreesDir, path),
+        managedWorktreesDirectories(worktreesDirectories, config.worktreesDir, path, home),
         (directory) => canonicalizePath(directory).pipe(Effect.orElseSucceed(() => null)),
       ).pipe(
         Effect.map((roots) =>
@@ -175,7 +101,32 @@ export const make = Effect.gen(function* () {
       return;
     }
 
-    if (yield* isRegisteredWorkspaceCwd(operation, cwd, candidate)) return;
+    // Registered projects can live outside the server cwd, which is the home
+    // directory in packaged desktop builds, e.g. a repository on another
+    // Windows drive. Unreadable or unresolvable project roots grant nothing.
+    const projects = yield* projectStore.listShells().pipe(Effect.orElseSucceed(() => []));
+    const isWithinAny = Effect.fn(function* (roots: Iterable<string>) {
+      for (const root of roots) {
+        const resolved = yield* canonicalizePath(root).pipe(Effect.orElseSucceed(() => null));
+        if (resolved !== null && isWithinRoot(candidate, resolved)) return true;
+      }
+      return false;
+    });
+    if (yield* isWithinAny(projects.map((project) => project.workspaceRoot))) return;
+
+    // Active thread checkouts outside the managed worktree directories are rare,
+    // so thread shells are read only when no project root matched.
+    const projectIds = new Set(projects.map((project) => project.id));
+    const threads = yield* projectionStore.getShellSnapshot({ location: "active" }).pipe(
+      Effect.map((snapshot) => snapshot.threads),
+      Effect.orElseSucceed(() => []),
+    );
+    const checkouts = threads.flatMap((thread) =>
+      projectIds.has(thread.projectId) && thread.archivedAt === null && thread.worktreePath
+        ? [thread.worktreePath]
+        : [],
+    );
+    if (yield* isWithinAny(checkouts)) return;
 
     return yield* new VcsRepositoryDetectionError({
       operation,

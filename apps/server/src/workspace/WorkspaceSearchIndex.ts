@@ -25,7 +25,7 @@ import type {
   ProjectSearchContentsResult,
   ProjectSearchEntriesResult,
 } from "@t3tools/contracts";
-import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
+import { isProjectFaviconPath } from "@t3tools/shared/projectFavicon";
 
 // fff-node stays external to the CLI bundle because it dlopens a native
 // library. A static `import` of an external package is a hard error inside a
@@ -174,7 +174,7 @@ function mapFileSearchResult(
   const scores: number[] = [];
   const entries = result.items.flatMap((item, index) => {
     const entry = toFileEntry(item);
-    if (!entry || (imageOnly && !isWorkspaceImagePreviewPath(entry.path))) return [];
+    if (!entry || (imageOnly && !isProjectFaviconPath(entry.path))) return [];
     scores.push(result.scores[index]?.total ?? 0);
     return [entry];
   });

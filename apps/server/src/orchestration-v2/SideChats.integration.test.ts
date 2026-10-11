@@ -16,8 +16,8 @@ import {
 } from "@t3tools/contracts";
 import {
   ProviderAdapterProtocolError,
+  type ProviderAdapterV2,
   type ProviderAdapterV2Event,
-  type ProviderAdapterV2Shape,
   type ProviderAdapterV2TurnInput,
 } from "@t3tools/provider-core/server/ProviderAdapter";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
@@ -63,7 +63,7 @@ function unsupported(detail: string) {
 function makeAdapter(input: {
   readonly captured: Ref.Ref<ReadonlyArray<CapturedTurn>>;
   readonly gates: Map<string, Deferred.Deferred<void>>;
-}): ProviderAdapterV2Shape {
+}): ProviderAdapterV2["Service"] {
   return {
     instanceId,
     driver,
