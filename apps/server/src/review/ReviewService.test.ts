@@ -247,50 +247,56 @@ describe("ReviewService", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it.effect("accepts only active worktrees owned by a registered project", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
-      const registeredRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-registered-" });
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
-      const worktreeRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-worktrees-" });
-      const threads: OrchestrationV2ThreadShell[] = [];
-      for (const name of ["active", "archived", "orphan"]) {
-        const worktreePath = `${worktreeRoot}/${name}`;
-        yield* fs.makeDirectory(worktreePath);
-        threads.push(
-          v2PullRequestThread({
-            id: ThreadId.make(name),
-            projectId: ProjectId.make(name === "orphan" ? "missing" : "project-0"),
-            title: name,
-            pullRequests: [],
-            worktreePath,
-            branch: "task",
-            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
-            runtimeMode: "full-access",
-            interactionMode: "default",
-            latestUserMessageAt: null,
-            createdAt: "2026-01-01T00:00:00.000Z",
-            updatedAt: "2026-01-01T00:00:00.000Z",
-            archivedAt: name === "archived" ? "2026-01-01T00:00:00.000Z" : null,
-            settledOverride: null,
-            settledAt: null,
-          }),
-        );
-      }
-      yield* Effect.gen(function* () {
-        const review = yield* ReviewService.ReviewService;
-        yield* review.getDiffPreview({ cwd: `${worktreeRoot}/active` });
-        for (const name of ["archived", "orphan"]) {
-          const error = yield* review
-            .getDiffPreview({ cwd: `${worktreeRoot}/${name}` })
-            .pipe(Effect.flip);
-          assert.strictEqual(error._tag, "VcsRepositoryDetectionError");
+  it.effect(
+    "accepts only active worktrees owned by a registered project, never a filesystem root",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
+        const registeredRoot = yield* fs.makeTempDirectoryScoped({
+          prefix: "t3-review-registered-",
+        });
+        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
+        const worktreeRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-worktrees-" });
+        const threads: OrchestrationV2ThreadShell[] = [];
+        const unowned = `${worktreeRoot}/unowned`;
+        yield* fs.makeDirectory(unowned);
+        for (const name of ["active", "archived", "orphan", "root"]) {
+          const worktreePath = name === "root" ? "/" : `${worktreeRoot}/${name}`;
+          if (name !== "root") yield* fs.makeDirectory(worktreePath);
+          threads.push(
+            v2PullRequestThread({
+              id: ThreadId.make(name),
+              projectId: ProjectId.make(name === "orphan" ? "missing" : "project-0"),
+              title: name,
+              pullRequests: [],
+              worktreePath,
+              branch: "task",
+              modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              latestUserMessageAt: null,
+              createdAt: "2026-01-01T00:00:00.000Z",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+              archivedAt: name === "archived" ? "2026-01-01T00:00:00.000Z" : null,
+              settledOverride: null,
+              settledAt: null,
+            }),
+          );
         }
-      }).pipe(
-        Effect.provide(layer({ workspaceRoot, baseDir, projectRoots: [registeredRoot], threads })),
-      );
-    }).pipe(Effect.provide(NodeServices.layer)),
+        yield* Effect.gen(function* () {
+          const review = yield* ReviewService.ReviewService;
+          yield* review.getDiffPreview({ cwd: `${worktreeRoot}/active` });
+          for (const cwd of [`${worktreeRoot}/archived`, `${worktreeRoot}/orphan`, unowned]) {
+            const error = yield* review.getDiffPreview({ cwd }).pipe(Effect.flip);
+            assert.strictEqual(error._tag, "VcsRepositoryDetectionError");
+          }
+        }).pipe(
+          Effect.provide(
+            layer({ workspaceRoot, baseDir, projectRoots: [registeredRoot], threads }),
+          ),
+        );
+      }).pipe(Effect.provide(NodeServices.layer)),
   );
 
   it.effect("preserves unexpected path-resolution failures", () =>

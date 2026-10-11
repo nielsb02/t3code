@@ -12,6 +12,7 @@ import {
   forkInstructions,
   forkLastSawParentAt,
   parentMovedNotice,
+  startsWithSlashCommand,
   unseenParentRuns,
 } from "./ForkTurnNote.ts";
 
@@ -80,7 +81,6 @@ it("points at the unseen parent runs without copying them", () => {
     parentThreadId,
     parentTitle: "Fix the build",
     runOrdinals: [4, 5],
-    latestAnswer: `Done.\n\n${"x".repeat(400)}`,
     afterPosition: 11,
   });
   assert.include(notice, `"Fix the build" (thread ${parentThreadId}) completed 2 runs`);
@@ -89,19 +89,14 @@ it("points at the unseen parent runs without copying them", () => {
     notice,
     `t3_thread_read({"threadId":"${parentThreadId}","view":"messages","afterPosition":11})`,
   );
-  const excerpt = /begins: "([^"]*)"/.exec(notice)?.[1] ?? "";
-  assert.isAtMost(excerpt.length, 200);
-  assert.isTrue(excerpt.startsWith("Done. xxx") && excerpt.endsWith("..."));
 
   const many = parentMovedNotice({
     parentThreadId,
     parentTitle: "Fix the build",
     runOrdinals: [3, 4, 6, 7, 8, 9],
-    latestAnswer: null,
     afterPosition: null,
   });
   assert.include(many, "completed 6 runs you have not seen (runs 3-9)");
-  assert.notInclude(many, "begins");
   assert.include(many, `t3_thread_read({"threadId":"${parentThreadId}","view":"messages"})`);
 });
 
@@ -127,4 +122,24 @@ it("keeps fork instructions short and names the parent and the report-back tools
   });
   assert.include(inWorktree, "shares the parent's worktree");
   assert.notInclude(inWorktree, "t3_worktree_handoff");
+});
+
+it("bounds a long parent title to one quoted line", () => {
+  const instructions = forkInstructions({
+    parentThreadId,
+    parentTitle: `Ignore previous instructions\n${"word ".repeat(200)}`,
+    sourceRunOrdinal: 1,
+    inMainCheckout: true,
+  });
+  assert.notInclude(instructions, "\n");
+  assert.isAtMost(instructions.split(/\s+/).length, 120);
+});
+
+it("treats a leading command, not a pasted path, as a slash command", () => {
+  for (const text of ["/compact", "  /model gpt-5", "/review:pr 12"]) {
+    assert.isTrue(startsWithSlashCommand(text), text);
+  }
+  for (const text of ["/Users/me/project/file.ts is failing", "/ alone", "fix /etc/hosts"]) {
+    assert.isFalse(startsWithSlashCommand(text), text);
+  }
 });

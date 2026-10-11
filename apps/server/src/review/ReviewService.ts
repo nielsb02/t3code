@@ -105,10 +105,13 @@ export const make = Effect.gen(function* () {
     // directory in packaged desktop builds, e.g. a repository on another
     // Windows drive. Unreadable or unresolvable project roots grant nothing.
     const projects = yield* projectStore.listShells().pipe(Effect.orElseSucceed(() => []));
-    const isWithinAny = Effect.fn(function* (roots: Iterable<string>) {
+    const isWithinAny = Effect.fn(function* (
+      roots: Iterable<string>,
+      grants: (root: string) => boolean = () => true,
+    ) {
       for (const root of roots) {
         const resolved = yield* canonicalizePath(root).pipe(Effect.orElseSucceed(() => null));
-        if (resolved !== null && isWithinRoot(candidate, resolved)) return true;
+        if (resolved !== null && grants(resolved) && isWithinRoot(candidate, resolved)) return true;
       }
       return false;
     });
@@ -126,7 +129,13 @@ export const make = Effect.gen(function* () {
         ? [thread.worktreePath]
         : [],
     );
-    if (yield* isWithinAny(checkouts)) return;
+    // A checkout recorded as a filesystem root or the home directory grants nothing.
+    const homeRoot = path.resolve(home);
+    if (
+      yield* isWithinAny(checkouts, (root) => !isFilesystemRoot(root, path) && root !== homeRoot)
+    ) {
+      return;
+    }
 
     return yield* new VcsRepositoryDetectionError({
       operation,

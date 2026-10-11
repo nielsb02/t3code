@@ -366,7 +366,8 @@ it.live("tells a fork how to report back and points it at parent runs it has not
       // The parent runs in a worktree, which t3_worktree_handoff cannot move a thread out of.
       assert.include(first, "shares the parent's worktree");
       assert.include(first, "completed 1 run you have not seen (run 2)");
-      assert.include(first, `Its latest answer begins: "answer:parent two"`);
+      // A pointer only: the parent's output is read through t3_thread_read.
+      assert.notInclude(first, "answer:parent two");
       assert.isTrue(first.endsWith("User message:\nfork one"));
       const afterPosition = Number(/"afterPosition":(\d+)/.exec(first)?.[1]);
       const catchUp = yield* service.getTimelinePage(parentThreadId, {

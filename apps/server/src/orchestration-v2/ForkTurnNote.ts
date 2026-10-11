@@ -10,7 +10,9 @@ import * as Effect from "effect/Effect";
 
 import type * as ProjectionStore from "./ProjectionStore.ts";
 
-const EXCERPT_MAX_CHARS = 200;
+const TITLE_MAX_CHARS = 80;
+// A leading `/name` token, so a pasted path such as `/Users/me` is not one.
+const SLASH_COMMAND = /^\/[A-Za-z][\w:-]*(?:\s|$)/;
 const LISTED_ORDINALS_MAX = 5;
 
 interface ForkOrigin {
@@ -77,11 +79,17 @@ export function unseenParentRuns(input: {
     .toSorted((left, right) => left.ordinal - right.ordinal);
 }
 
-function oneLine(text: string): string {
-  const compact = text.replaceAll(/\s+/g, " ").trim();
-  return compact.length > EXCERPT_MAX_CHARS
-    ? `${compact.slice(0, EXCERPT_MAX_CHARS - 3)}...`
-    : compact;
+/** Slash commands must stay at the start of the prompt. */
+export function startsWithSlashCommand(text: string): boolean {
+  return SLASH_COMMAND.test(text.trimStart());
+}
+
+/** Titles are user or model text; quote them on one bounded line. */
+function quotedTitle(title: string): string {
+  const compact = title.replaceAll(/\s+/g, " ").trim();
+  return JSON.stringify(
+    compact.length > TITLE_MAX_CHARS ? `${compact.slice(0, TITLE_MAX_CHARS - 3)}...` : compact,
+  );
 }
 
 function describeOrdinals(ordinals: ReadonlyArray<number>): string {
@@ -101,7 +109,7 @@ export function forkInstructions(input: {
 }): string {
   const parent = JSON.stringify(input.parentThreadId);
   return [
-    `Side chat: this thread is a fork of ${JSON.stringify(input.parentTitle)} (thread ${input.parentThreadId}) at its run ${input.sourceRunOrdinal}.`,
+    `Side chat: this thread is a fork of ${quotedTitle(input.parentTitle)} (thread ${input.parentThreadId}) at its run ${input.sourceRunOrdinal}.`,
     input.inMainCheckout
       ? "It shares the parent's checkout, so coordinate before editing files the parent may also change; t3_worktree_handoff moves this thread into its own worktree if you need isolation."
       : "It shares the parent's worktree, so coordinate before editing files the parent may also change.",
@@ -110,12 +118,15 @@ export function forkInstructions(input: {
   ].join(" ");
 }
 
-/** A pointer to parent progress the fork has not seen; the agent reads the content itself. */
+/**
+ * A pointer to parent progress the fork has not seen. It quotes none of the
+ * parent's output, which arrives with user authority here; the agent reads it
+ * through `t3_thread_read` instead.
+ */
 export function parentMovedNotice(input: {
   readonly parentThreadId: ThreadId;
   readonly parentTitle: string;
   readonly runOrdinals: ReadonlyArray<number>;
-  readonly latestAnswer: string | null;
   readonly afterPosition: number | null;
 }): string {
   const count = input.runOrdinals.length;
@@ -124,10 +135,8 @@ export function parentMovedNotice(input: {
     view: "messages",
     ...(input.afterPosition === null ? {} : { afterPosition: input.afterPosition }),
   });
-  const excerpt = input.latestAnswer === null ? "" : oneLine(input.latestAnswer);
   return [
-    `Parent update: ${JSON.stringify(input.parentTitle)} (thread ${input.parentThreadId}) completed ${count} ${count === 1 ? "run" : "runs"} you have not seen (${describeOrdinals(input.runOrdinals)}).`,
-    ...(excerpt === "" ? [] : [`Its latest answer begins: ${JSON.stringify(excerpt)}`]),
+    `Parent update: ${quotedTitle(input.parentTitle)} (thread ${input.parentThreadId}) completed ${count} ${count === 1 ? "run" : "runs"} you have not seen (${describeOrdinals(input.runOrdinals)}).`,
     `This is a pointer, not the content. To catch up, call t3_thread_read(${read}).`,
   ].join(" ");
 }
@@ -149,8 +158,7 @@ export const forkTurnNote = Effect.fn("orchestrationV2.forkTurnNote")(
     readonly firstTurnInNativeConversation: boolean;
   }) {
     const origin = forkOrigin(input.thread);
-    // Slash commands must stay at the start of the prompt.
-    if (origin === null || input.userText.trimStart().startsWith("/")) return "";
+    if (origin === null || startsWithSlashCommand(input.userText)) return "";
     const parent = yield* input.projectionStore.getThreadRecords(origin.parentThreadId, ["runs"]);
     if (parent.thread.deletedAt !== null) return "";
     const sourceRun = parent.runs.find((run) => run.id === origin.sourceRunId);
@@ -170,7 +178,6 @@ export const forkTurnNote = Effect.fn("orchestrationV2.forkTurnNote")(
         : parentMovedNotice({
             ...parentContext,
             runOrdinals: unseen.map((run) => run.ordinal),
-            latestAnswer: yield* latestAssistantText(input.projectionStore, unseen.at(-1)!),
             afterPosition: yield* positionBefore(input.projectionStore, unseen[0]!),
           });
     const instructions = input.firstTurnInNativeConversation
@@ -195,24 +202,6 @@ export const forkTurnNote = Effect.fn("orchestrationV2.forkTurnNote")(
       ),
     ),
 );
-
-const latestAssistantText = (projectionStore: ForkTurnNoteReads, run: OrchestrationV2Run) =>
-  projectionStore
-    .getThreadRecords(run.threadId, ["turnItems"], {
-      turnItemRunIds: [run.id],
-      turnItemTypes: ["assistant_message"],
-    })
-    .pipe(
-      Effect.map(
-        ({ turnItems }) =>
-          turnItems
-            .flatMap((item) =>
-              item.type === "assistant_message" && item.text.trim() !== "" ? [item] : [],
-            )
-            .toSorted((left, right) => left.ordinal - right.ordinal)
-            .at(-1)?.text ?? null,
-      ),
-    );
 
 /** The `t3_thread_read` position just before `run`'s request, so reading starts there. */
 const positionBefore = (projectionStore: ForkTurnNoteReads, run: OrchestrationV2Run) =>
