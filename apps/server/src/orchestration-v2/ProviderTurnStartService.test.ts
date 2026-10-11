@@ -238,6 +238,8 @@ function makeLocalCommandHarness(input: {
       activeProviderThreadId: providerThreadId,
       branch: null,
       worktreePath: null,
+      lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+      forkedFrom: null,
     } as OrchestrationV2ThreadProjection["thread"],
     runs: [
       ...(input.previousNativeSession
