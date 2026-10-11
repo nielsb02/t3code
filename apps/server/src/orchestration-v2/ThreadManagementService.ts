@@ -16,6 +16,7 @@ import {
   type OrchestrationV2Command,
   type OrchestrationV2GetTurnItemResult,
   type OrchestrationV2ServerCommand,
+  type OrchestrationV2ThreadForkSourcePoint,
   type OrchestrationV2ConversationMessage,
   type OrchestrationV2CreationSource,
   type OrchestrationV2Run,
@@ -163,6 +164,19 @@ export type ThreadManagementInterruptResult =
       readonly type: "already_terminal";
       readonly run: OrchestrationV2Run & { readonly status: ThreadManagementTerminalRunStatus };
     };
+
+export interface ThreadManagementMergeBackInput extends ThreadManagementProvenance {
+  readonly commandId: CommandId;
+  readonly sourceThreadId: ThreadId;
+  readonly targetThreadId: ThreadId;
+  /** Omitted means the latest run: the current turn when the fork's own agent asks. */
+  readonly sourcePoint?: OrchestrationV2ThreadForkSourcePoint;
+  readonly byOwnAgent: boolean;
+}
+
+export type ThreadManagementMergeBackResult =
+  | { readonly sequence: number }
+  | { readonly mergesWhenTurnEnds: true; readonly sourceRunId: RunId };
 
 export class ThreadManagementThreadNotFoundError extends Schema.TaggedError<ThreadManagementThreadNotFoundError>()(
   "ThreadManagementThreadNotFoundError",
@@ -361,6 +375,14 @@ export interface ThreadManagementServiceShape {
     { readonly sequence: number } | { readonly settlesWhenTurnEnds: true },
     Orchestrator.OrchestratorV2Error
   >;
+  /**
+   * Merges a fork back into its parent. When the fork's own agent asks for
+   * its latest run, that run is still in flight, so the merge waits for it and
+   * happens only if it completes. A failed or interrupted turn merges nothing.
+   */
+  readonly mergeBack: (
+    input: ThreadManagementMergeBackInput,
+  ) => Effect.Effect<ThreadManagementMergeBackResult, Orchestrator.OrchestratorV2Error>;
   readonly interruptThread: (
     input: ThreadManagementInterruptInput,
   ) => Effect.Effect<ThreadManagementInterruptResult, ThreadManagementFailure>;
@@ -795,6 +817,64 @@ const make = Effect.gen(function* () {
     return { sequence: result.sequence };
   });
 
+  const mergeBack: ThreadManagementServiceShape["mergeBack"] = Effect.fn(
+    "orchestrationV2.threadManagement.mergeBack",
+  )(function* (input) {
+    const sourcePoint = input.sourcePoint ?? { type: "latest_stable" };
+    const command = {
+      type: "thread.merge_back",
+      sourceThreadId: input.sourceThreadId,
+      targetThreadId: input.targetThreadId,
+      createdBy: input.createdBy,
+      creationSource: input.creationSource,
+    } as const;
+    const source = input.byOwnAgent
+      ? yield* orchestrator.getThreadShell(input.sourceThreadId)
+      : null;
+    const runId = source?.activeRunId ?? null;
+    const mergesCurrentTurn =
+      sourcePoint.type === "latest_stable" ||
+      (sourcePoint.type === "run" && sourcePoint.runId === runId);
+    if (source == null || runId === null || !mergesCurrentTurn) {
+      const result = yield* dispatch({ ...command, commandId: input.commandId, sourcePoint });
+      return { sequence: result.sequence };
+    }
+    // The orchestrator checks lineage again at merge time; refuse now so the
+    // agent hears about a wrong target instead of a merge that never lands.
+    if (
+      source.lineage.relationshipToParent !== "fork" ||
+      source.lineage.parentThreadId !== input.targetThreadId
+    ) {
+      return yield* new Orchestrator.OrchestratorDispatchError({
+        commandId: input.commandId,
+        commandType: command.type,
+        cause: `Thread ${input.sourceThreadId} is not a fork of ${input.targetThreadId}.`,
+      });
+    }
+    yield* waitForThread({
+      projectId: source.projectId,
+      threadId: source.id,
+      runId,
+      timeoutMs: SETTLE_AFTER_RUN_WAIT_MS,
+    }).pipe(
+      Effect.flatMap(({ run }) =>
+        run?.status === "completed"
+          ? dispatch({
+              ...command,
+              // One merge per turn and target, however often the agent asks.
+              commandId: CommandId.make(
+                `server:merge-back-after-run:${runId}:${input.targetThreadId}`,
+              ),
+              sourcePoint: { type: "run", runId },
+            })
+          : Effect.void,
+      ),
+      Effect.ignoreCause({ log: true }),
+      Effect.forkIn(layerScope),
+    );
+    return { mergesWhenTurnEnds: true, sourceRunId: runId } as const;
+  });
+
   const interruptThread: ThreadManagementServiceShape["interruptThread"] = (input) =>
     Effect.gen(function* () {
       const target = yield* getProjectThreadRecords(input, ["runs", "providerTurns"]);
@@ -918,6 +998,7 @@ const make = Effect.gen(function* () {
     waitForThread,
     settleAfterRun,
     settleThread,
+    mergeBack,
     interruptThread,
     stopDelegatedTasks,
     getThreadEventSequence: orchestrator.getThreadEventSequence,

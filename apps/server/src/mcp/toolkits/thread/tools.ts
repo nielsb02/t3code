@@ -214,13 +214,20 @@ const ThreadForkTool = Tool.make("t3_thread_fork", {
 const ThreadMergeBackTool = Tool.make("t3_thread_merge_back", {
   ...commandTool,
   description:
-    "Merge context from a thread back to a related thread in the same project. Omit sourceThreadId to merge from this thread. Existing lineage and transfer rules apply.",
+    "Merge a fork's context back into its parent thread (targetThreadId). Omit sourceThreadId to merge from this thread, and sourcePoint to merge its latest run. The parent receives the context with its next message and is not woken. Merging this thread's current turn takes effect when the turn completes, returning mergesWhenTurnEnds=true; a turn that fails or is interrupted merges nothing. A newer merge from the same fork replaces a pending one.",
   parameters: Schema.Struct({
     sourceThreadId: Schema.optional(ThreadId),
     targetThreadId: ThreadId,
-    sourcePoint: OrchestrationV2ThreadForkSourcePoint,
+    sourcePoint: Schema.optional(OrchestrationV2ThreadForkSourcePoint),
   }),
-  success: transferResult,
+  success: Schema.Union([
+    transferResult,
+    Schema.Struct({
+      mergesWhenTurnEnds: Schema.Literal(true),
+      targetThreadId: ThreadId,
+      sourceRunId: RunId,
+    }),
+  ]),
 }).annotate(Tool.Destructive, true);
 const ThreadTransfersTool = Tool.make("t3_thread_transfers", {
   ...commandTool,

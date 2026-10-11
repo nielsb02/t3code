@@ -141,17 +141,17 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
         const context = yield* readThread(input.targetThreadId);
         const source = yield* readThread(input.sourceThreadId);
         const result = yield* context.threads
-          .dispatch({
-            type: "thread.merge_back",
+          .mergeBack({
             commandId: yield* newCommandId(),
             sourceThreadId: source.projection.thread.id,
             targetThreadId: input.targetThreadId,
-            sourcePoint: input.sourcePoint,
+            ...(input.sourcePoint === undefined ? {} : { sourcePoint: input.sourcePoint }),
+            byOwnAgent: source.caller?.id === source.projection.thread.id,
             createdBy: "agent",
             creationSource: "mcp",
           })
           .pipe(Effect.mapError(dispatchFailure));
-        return { sequence: result.sequence, targetThreadId: input.targetThreadId };
+        return { ...result, targetThreadId: input.targetThreadId };
       }),
   ),
   t3_thread_transfers: McpToolAccess.reads((input) =>
