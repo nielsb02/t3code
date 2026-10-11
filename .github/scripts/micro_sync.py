@@ -10,6 +10,8 @@ import subprocess
 UPSTREAM_TAG = re.compile(r"^v(\d+\.\d+\.\d+)(?:-nightly\.\d{8}\.\d+)?$")
 MIGRATIONS = "apps/server/src/persistence/Migrations"
 MANIFEST_ENTRY = re.compile(r'^\s*\[(\d+), "(\w+)", ', re.MULTILINE)
+TEST_FILE = re.compile(r"\.test\.tsx?$")
+SOURCE_FILE = re.compile(r"^(?:apps|packages|scripts)/.*(?<!\.d)\.tsx?$")
 
 
 def git(root, *args, check=True):
@@ -77,6 +79,22 @@ def migration_drift(root: Path, upstream: str) -> list[str]:
     return drift + [f"file {path}" for path in files]
 
 
+def fork_tests(root: Path, upstream: str) -> list[str]:
+    """Tests the fork adds or changes, and the tests beside sources it changes.
+
+    Browser tests need a separate runner, so they are left out.
+    """
+    changed = git(root, "diff", "--name-only", "--diff-filter=d", upstream, "HEAD").stdout.split()
+    candidates = set()
+    for path in changed:
+        if TEST_FILE.search(path):
+            candidates.add(path)
+        elif SOURCE_FILE.match(path):
+            stem = path.rsplit(".", 1)[0]
+            candidates.update({f"{stem}.test.ts", f"{stem}.test.tsx"})
+    return sorted(p for p in candidates if ".browser.test." not in p and (root / p).is_file())
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -85,6 +103,7 @@ if __name__ == "__main__":
     version.add_argument("tag")
     version.add_argument("run_number", type=int)
     commands.add_parser("check-migrations").add_argument("reference")
+    commands.add_parser("fork-tests").add_argument("reference")
     args = parser.parse_args()
 
     if args.command == "version":
@@ -93,6 +112,8 @@ if __name__ == "__main__":
         if drift := migration_drift(Path.cwd(), args.reference):
             raise SystemExit("Fork migrations diverge from upstream:\n" + "\n".join(drift))
         print("Migrations match upstream.")
+    elif args.command == "fork-tests":
+        print("\n".join(fork_tests(Path.cwd(), args.reference)))
     else:
         changed = merge_release(Path.cwd(), args.reference)
         print("Merged upstream release." if changed else "Latest upstream release is already included.")

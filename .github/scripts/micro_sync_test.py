@@ -2,7 +2,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from micro_sync import git, merge_release, migration_drift, release_version
+from micro_sync import fork_tests, git, merge_release, migration_drift, release_version
 
 
 class GitFixture(unittest.TestCase):
@@ -101,6 +101,26 @@ class MigrationDriftTests(GitFixture):
                 "manifest entry 2_ForkOnly",
                 "file apps/server/src/persistence/Migrations/002_ForkOnly.ts",
             ],
+        )
+
+
+class ForkTestsTests(GitFixture):
+    def test_lists_changed_tests_and_tests_beside_changed_sources(self):
+        for path in ("apps/web/a.ts", "apps/web/a.test.ts", "apps/web/b.tsx", "apps/web/b.test.tsx",
+                     "apps/web/c.ts", "apps/web/c.test.ts", "apps/web/d.browser.test.ts"):
+            self.write(path, "upstream\n")
+        self.commit("upstream sources")
+        git(self.root, "branch", "-f", "upstream")
+        self.write("apps/web/a.ts", "fork\n")
+        self.write("apps/web/b.test.tsx", "fork\n")
+        self.write("apps/web/d.browser.test.ts", "fork\n")
+        self.write("apps/web/new.integration.test.ts", "fork\n")
+        self.write("apps/web/untested.ts", "fork\n")
+        (self.root / "apps/web/c.test.ts").unlink()
+        self.commit("fork changes")
+        self.assertEqual(
+            fork_tests(self.root, "upstream"),
+            ["apps/web/a.test.ts", "apps/web/b.test.tsx", "apps/web/new.integration.test.ts"],
         )
 
 

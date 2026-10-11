@@ -28,6 +28,8 @@ later stable build.
 
 For each new upstream release, the workflow merges its tag, verifies the fork's
 tests and affected type checks, and builds an Apple Silicon macOS DMG and ZIP.
+The fork's tests are derived from its diff against the included tag: tests it
+adds or changes, and existing tests beside source files it changes.
 Only a successful build advances `main` and publishes a new release. A failed
 source merge is aborted. A failed test or build leaves the published source and
 previous release intact. Conflicts and breaking upstream changes still need a
@@ -86,13 +88,16 @@ upgrade.
 ## Recovering from a failed update
 
 Read the failed workflow step. Reproduce a merge on a branch or isolated worktree,
-resolve source conflicts without dropping the fork's changes, and run the test
-list in the workflow's verification step and:
+resolve source conflicts without dropping the fork's changes, and run:
 
 ```sh
 python3 .github/scripts/micro_sync_test.py
 python3 .github/scripts/micro_sync.py check-migrations <upstream-tag>
+vp test run apps/server/src/persistence/reconcileV2PreviewMigration.test.ts \
+  $(python3 .github/scripts/micro_sync.py fork-tests <upstream-tag>)
 ```
+
+plus the type checks listed in the workflow's verification step.
 
 Push the fix to this fork's `main` and run **Micro desktop release** again. The
 workflow and retained releases provide the source commit and build version for
@@ -112,6 +117,21 @@ Session status comes from the sidebar's thread status (`resolveSidebarThreadStat
 so an upstream change to sidebar status rules also changes what Micro Manager shows.
 Subagent threads are not listed. The published order follows the sidebar: pinned,
 active, then the working shelf, limited to the projects the sidebar shows.
+
+## Workspace repositories
+
+A checkout's `t3.json` can declare nested repositories (`repositories.paths` and
+`includeSubmodules`). The server lists them through `projects.listRepositories`
+and includes them in file search; Git actions, diffs, reviews, and linked pull
+requests then target the repository the user picks. See
+[working with several repositories](../user/source-control.md#work-with-several-repositories).
+
+The server advertises the `workspaceRepositories` and `workspacePullRequestLinks`
+capabilities, so clients skip these paths against an upstream server. Upstream
+changes to these areas are the likeliest merge conflicts: `PullRequestService`,
+the pull request sync and watch reactors, `WorkspaceEntries`,
+`WorkspaceFileSystem`, `ReviewService`, the web chat view, thread details and
+diff panels, and the mobile review sections and Git actions.
 
 ## Retired fork features
 
