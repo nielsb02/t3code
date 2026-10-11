@@ -32,7 +32,8 @@ export function materializeReplayTranscriptForkInstructions(
     readonly sourceRunOrdinal: number;
   },
 ): ProviderReplayTranscript {
-  const note = forkInstructions(fork);
+  // The recorded fixtures run in the project's main checkout.
+  const note = forkInstructions({ ...fork, inMainCheckout: true });
   return {
     ...transcript,
     entries: transcript.entries.map((entry) =>

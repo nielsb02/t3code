@@ -22,7 +22,10 @@ type ForkTurnNoteReads = Pick<
   ProjectionStore.ProjectionStoreV2Shape,
   "getThreadRecords" | "getTimelinePage"
 >;
-type ForkThread = Pick<OrchestrationV2AppThread, "id" | "lineage" | "forkedFrom" | "createdAt">;
+type ForkThread = Pick<
+  OrchestrationV2AppThread,
+  "id" | "lineage" | "forkedFrom" | "createdAt" | "worktreePath"
+>;
 type CompletedRun = OrchestrationV2Run & { readonly completedAt: DateTime.Utc };
 
 function forkOrigin(thread: ForkThread): ForkOrigin | null {
@@ -93,11 +96,15 @@ export function forkInstructions(input: {
   readonly parentThreadId: ThreadId;
   readonly parentTitle: string;
   readonly sourceRunOrdinal: number;
+  /** t3_worktree_handoff only moves a thread out of the project's main checkout. */
+  readonly inMainCheckout: boolean;
 }): string {
   const parent = JSON.stringify(input.parentThreadId);
   return [
     `Side chat: this thread is a fork of ${JSON.stringify(input.parentTitle)} (thread ${input.parentThreadId}) at its run ${input.sourceRunOrdinal}.`,
-    "It shares the parent's checkout, so coordinate before editing files the parent may also change; t3_worktree_handoff moves this thread into its own worktree if you need isolation.",
+    input.inMainCheckout
+      ? "It shares the parent's checkout, so coordinate before editing files the parent may also change; t3_worktree_handoff moves this thread into its own worktree if you need isolation."
+      : "It shares the parent's worktree, so coordinate before editing files the parent may also change.",
     `To report back, finish your answer and call t3_thread_merge_back({targetThreadId:${parent}}). Called during your turn, it merges once the turn completes; the parent receives the context with its next message and is not woken.`,
     `Use t3_thread_send({threadId:${parent},mode:"queue"}) only when the parent must act now.`,
   ].join(" ");
@@ -167,7 +174,11 @@ export const forkTurnNote = Effect.fn("orchestrationV2.forkTurnNote")(
             afterPosition: yield* positionBefore(input.projectionStore, unseen[0]!),
           });
     const instructions = input.firstTurnInNativeConversation
-      ? forkInstructions({ ...parentContext, sourceRunOrdinal: sourceRun.ordinal })
+      ? forkInstructions({
+          ...parentContext,
+          sourceRunOrdinal: sourceRun.ordinal,
+          inMainCheckout: input.thread.worktreePath === null,
+        })
       : "";
     return [instructions, notice].filter((part) => part !== "").join("\n\n");
   },

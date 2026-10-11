@@ -110,10 +110,21 @@ it("keeps fork instructions short and names the parent and the report-back tools
     parentThreadId,
     parentTitle: "Fix the build",
     sourceRunOrdinal: 3,
+    inMainCheckout: true,
   });
   assert.isAtMost(instructions.split(/\s+/).length, 120);
   assert.include(instructions, `thread ${parentThreadId}) at its run 3`);
   assert.include(instructions, `t3_thread_merge_back({targetThreadId:"${parentThreadId}"})`);
   assert.include(instructions, `t3_thread_send({threadId:"${parentThreadId}",mode:"queue"})`);
   assert.include(instructions, "t3_worktree_handoff");
+
+  // Handoff cannot move a thread that already has a worktree.
+  const inWorktree = forkInstructions({
+    parentThreadId,
+    parentTitle: "Fix the build",
+    sourceRunOrdinal: 3,
+    inMainCheckout: false,
+  });
+  assert.include(inWorktree, "shares the parent's worktree");
+  assert.notInclude(inWorktree, "t3_worktree_handoff");
 });

@@ -363,6 +363,8 @@ it.live("tells a fork how to report back and points it at parent runs it has not
       const first = turnText(yield* Ref.get(captured), forkOne.id);
       assert.include(first, `Side chat: this thread is a fork of "Parent work"`);
       assert.include(first, "at its run 1.");
+      // The parent runs in a worktree, which t3_worktree_handoff cannot move a thread out of.
+      assert.include(first, "shares the parent's worktree");
       assert.include(first, "completed 1 run you have not seen (run 2)");
       assert.include(first, `Its latest answer begins: "answer:parent two"`);
       assert.isTrue(first.endsWith("User message:\nfork one"));
