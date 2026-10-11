@@ -62,7 +62,9 @@ jobs:
 
       - name: Merge upstream while retaining the fork changes
         id: sync
-        run: python3 .github/scripts/micro_sync.py merge refs/remotes/upstream/release
+        env:
+          UPSTREAM_TAG: ${{ steps.upstream.outputs.tag }}
+        run: python3 .github/scripts/micro_sync.py merge refs/remotes/upstream/release --name "$UPSTREAM_TAG"
 
       - name: Record the monthly update check
         id: state

@@ -30,7 +30,8 @@ For each new upstream release, the workflow merges its tag, verifies the fork's
 tests and affected type checks, and builds an Apple Silicon macOS DMG and ZIP.
 The fork's tests are derived from its diff against the included tag: tests it
 adds or changes, and existing tests beside source files it changes.
-Only a successful build advances `main` and publishes a new release. A failed
+Only a successful build advances `main` with upstream source and publishes a
+new release; the monthly check record below is pushed without a build. A failed
 source merge is aborted. A failed test or build leaves the published source and
 previous release intact. Conflicts and breaking upstream changes still need a
 person or agent to resolve them.

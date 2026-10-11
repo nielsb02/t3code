@@ -42,7 +42,11 @@ class SyncTests(GitFixture):
         self.commit("new release")
         git(self.root, "checkout", "main")
         before = git(self.root, "rev-parse", "HEAD").stdout.strip()
-        self.assertTrue(merge_release(self.root, "upstream"))
+        self.assertTrue(merge_release(self.root, "upstream", "v0.0.46"))
+        self.assertEqual(
+            git(self.root, "log", "-1", "--format=%s").stdout.strip(),
+            "chore: merge upstream release v0.0.46",
+        )
         self.assertEqual((self.root / "opening.txt").read_text(), "custom opening\n")
         self.assertEqual((self.root / "feature.txt").read_text(), "new upstream feature\n")
         self.assertEqual(git(self.root, "diff", before, "HEAD", "--", ".github/workflows").stdout, "")

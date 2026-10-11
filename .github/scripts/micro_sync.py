@@ -23,7 +23,7 @@ def git(root, *args, check=True):
     return result
 
 
-def merge_release(root: Path, reference: str) -> bool:
+def merge_release(root: Path, reference: str, name: str | None = None) -> bool:
     if git(root, "status", "--porcelain").stdout:
         raise RuntimeError("Refusing to sync a dirty checkout.")
     upstream = git(root, "rev-parse", "--verify", reference + "^{commit}").stdout.strip()
@@ -44,7 +44,7 @@ def merge_release(root: Path, reference: str) -> bool:
         # which cannot grant itself permission to edit workflow files.
         git(root, "rm", "-rf", "--ignore-unmatch", "--", ".github/workflows")
         git(root, "restore", "--source=HEAD", "--staged", "--worktree", "--", ".github/workflows")
-        git(root, "-c", "core.hooksPath=/dev/null", "commit", "-m", f"chore: merge upstream release {reference}")
+        git(root, "-c", "core.hooksPath=/dev/null", "commit", "-m", f"chore: merge upstream release {name or reference}")
     except Exception:
         git(root, "merge", "--abort", check=False)
         raise
@@ -98,7 +98,9 @@ def fork_tests(root: Path, upstream: str) -> list[str]:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("merge").add_argument("reference")
+    merge = commands.add_parser("merge")
+    merge.add_argument("reference")
+    merge.add_argument("--name", help="Upstream tag named in the merge commit")
     version = commands.add_parser("version")
     version.add_argument("tag")
     version.add_argument("run_number", type=int)
@@ -115,7 +117,7 @@ if __name__ == "__main__":
     elif args.command == "fork-tests":
         print("\n".join(fork_tests(Path.cwd(), args.reference)))
     else:
-        changed = merge_release(Path.cwd(), args.reference)
+        changed = merge_release(Path.cwd(), args.reference, args.name)
         print("Merged upstream release." if changed else "Latest upstream release is already included.")
         import os
 
