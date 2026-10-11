@@ -225,6 +225,32 @@ Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it
 finishes; the call's own result shows its status.
 
+## Side chats
+
+A side chat is a fork: a separate thread for a tangent that should not crowd the
+original conversation. Choose **Fork from this response** on an answer. The fork
+knows the conversation up to that answer, and its first message can use any model.
+With a different provider, it receives the conversation as a
+[portable handoff](./portable-handoffs.md).
+
+A side chat works in the same checkout as the thread it came from, so both agents
+see each other's file changes. Its agent is asked to coordinate edits. If the
+thread runs in the project's main checkout, you can ask the side chat's agent to
+move it into its own worktree. While another active thread still uses a worktree,
+T3 Code refuses to remove it.
+
+When the original thread finishes more turns, the side chat's next turn starts
+with a short note that points its agent at the new answers.
+
+To bring the result back, merge it: from the side chat's thread details on web and
+desktop or its Git menu on mobile, or ask its agent to merge back when it is done.
+The result reaches the original thread with your next message there; merging does
+not start a turn. An agent that merges during its turn merges only if that turn
+completes, and a newer merge from the same side chat replaces a pending one. On web
+and desktop, the original thread's details show the side chat as **Merge pending**
+until then, with a button to cancel the merge. A pending merge also stops that
+thread from queueing a message behind a running turn.
+
 ## Snooze until later
 
 Choose **Snooze → Custom…** from a thread's menu to pick a date and time in your
