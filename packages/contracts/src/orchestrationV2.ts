@@ -2998,6 +2998,16 @@ export const OrchestrationV2Command = Schema.Union([
     sourcePoint: OrchestrationV2ThreadForkSourcePoint,
     createdAt: Schema.optional(Schema.DateTimeUtc),
   }),
+  /**
+   * Withdraws a pending merge-back before `threadId`, its target, consumes it.
+   * The transfer becomes `superseded` with a cancellation error.
+   */
+  Schema.Struct({
+    type: Schema.Literal("thread.merge_back.cancel"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    transferId: ContextTransferId,
+  }),
   Schema.Struct({
     type: Schema.Literal("delegated_task.request"),
     ...OrchestrationV2CreationFields,

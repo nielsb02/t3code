@@ -16,6 +16,7 @@ import {
   isParentThreadRelationship,
   threadRelationshipRowStatus,
   orderWebThreadLineageRows,
+  pendingMergeBacksBySourceThread,
   resolveMergeBackTargetThreadId,
   type ThreadRelationshipEdge,
   type ThreadRelationshipWalkRow,
@@ -24,7 +25,12 @@ import {
   canDetachThreadProviderSession,
   resolveLatestMergeBackRun,
 } from "@t3tools/client-runtime/state/thread-workflows";
-import type { EnvironmentId, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
+import type {
+  ContextTransferId,
+  EnvironmentId,
+  OrchestrationV2ThreadShell,
+  ThreadId,
+} from "@t3tools/contracts";
 import { deriveSubagentElapsedMs } from "@t3tools/shared/orchestrationTiming";
 import { groupBy } from "effect/Array";
 import * as DateTime from "effect/DateTime";
@@ -39,6 +45,7 @@ import {
   PlusIcon,
   SquareIcon,
   UnplugIcon,
+  XIcon,
 } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 
@@ -239,8 +246,14 @@ export function ThreadRelationshipsPanel(props: {
   const mergeBack = useAtomCommand(threadEnvironment.mergeBack);
   const stopSession = useAtomCommand(threadEnvironment.stopSession);
   const interruptTurn = useAtomCommand(threadEnvironment.interruptTurn);
+  const cancelMergeBack = useAtomCommand(threadEnvironment.cancelMergeBack);
   const [busyAction, setBusyAction] = useState<"merge" | "detach" | null>(null);
   const [stoppingThreadId, setStoppingThreadId] = useState<ThreadId | null>(null);
+  const [cancellingTransferId, setCancellingTransferId] = useState<ContextTransferId | null>(null);
+  const pendingMergeBacks = useMemo(
+    () => pendingMergeBacksBySourceThread(projection),
+    [projection],
+  );
   const latestMergeBackRun = projection === null ? null : resolveLatestMergeBackRun(projection);
   const mergeTargetThreadId = resolveMergeBackTargetThreadId(projection);
   const relationshipRows = useMemo(
@@ -329,6 +342,19 @@ export function ThreadRelationshipsPanel(props: {
     }
   };
 
+  const cancelMerge = async (transferId: ContextTransferId) => {
+    if (cancellingTransferId !== null) return;
+    setCancellingTransferId(transferId);
+    const result = await cancelMergeBack({
+      environmentId: props.environmentId,
+      input: { threadId: props.threadId, transferId },
+    });
+    setCancellingTransferId(null);
+    if (result._tag === "Failure") {
+      toastManager.add({ type: "error", title: "Could not cancel the merge-back" });
+    }
+  };
+
   const parentTitle =
     mergeTargetThreadId === null
       ? null
@@ -389,9 +415,15 @@ export function ThreadRelationshipsPanel(props: {
                 agent?.origin === "app_owned" &&
                 agent.startedAt &&
                 ["pending", "running", "waiting"].includes(agent.status);
-              const trailingVisibilityClass = canStop
-                ? "group-hover:opacity-0 group-focus-within:opacity-0 pointer-coarse:opacity-0 [@media(hover:none)]:opacity-0"
-                : "";
+              // Delivered with this thread's next message unless cancelled first.
+              const pendingMerge = pendingMergeBacks.get(threadId);
+              const statusLabel = pendingMerge
+                ? "Merge pending"
+                : threadRelationshipStatusLabel(status);
+              const trailingVisibilityClass =
+                canStop || pendingMerge
+                  ? "group-hover:opacity-0 group-focus-within:opacity-0 pointer-coarse:opacity-0 [@media(hover:none)]:opacity-0"
+                  : "";
               const threadTitle = relationshipThreadTitle({
                 title: node?.thread?.title ?? agent?.title ?? threadId,
                 isSubagent,
@@ -457,7 +489,7 @@ export function ThreadRelationshipsPanel(props: {
                     <span
                       className={`shrink-0 text-2xs ${failed ? "text-destructive" : "text-muted-foreground"} ${trailingVisibilityClass}`}
                     >
-                      {threadRelationshipStatusLabel(status)}
+                      {statusLabel}
                     </span>
                   ) : null}
                 </>
@@ -565,6 +597,32 @@ export function ThreadRelationshipsPanel(props: {
                           )}
                         </TooltipTrigger>
                         <TooltipPopup side="left">Stop subagent</TooltipPopup>
+                      </Tooltip>
+                    </div>
+                  ) : pendingMerge ? (
+                    <div className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <ThreadDetailsControl
+                              size="icon-xs"
+                              variant="ghost"
+                              part="icon"
+                              aria-label={`Cancel the merge-back from ${threadTitle}`}
+                              disabled={cancellingTransferId !== null}
+                              onClick={() => void cancelMerge(pendingMerge.id)}
+                            />
+                          }
+                        >
+                          {cancellingTransferId === pendingMerge.id ? (
+                            <LoaderCircleIcon aria-hidden className="size-3 animate-spin" />
+                          ) : (
+                            <XIcon aria-hidden className="size-3" />
+                          )}
+                        </TooltipTrigger>
+                        <TooltipPopup side="left">
+                          Cancel merge-back. Your next message here will not include it.
+                        </TooltipPopup>
                       </Tooltip>
                     </div>
                   ) : null}

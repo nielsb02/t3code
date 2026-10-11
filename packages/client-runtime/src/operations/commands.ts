@@ -8,6 +8,7 @@ import {
   OrchestrationV2CheckpointUnavailableError,
   WS_METHODS,
   type ChatAttachment,
+  type ContextTransferId,
   type MessageId,
   type ModelSelection,
   type OrchestrationV2Command,
@@ -222,6 +223,11 @@ export interface MergeThreadBackInput extends CommandMetadata {
   readonly sourceThreadId: ThreadId;
   readonly targetThreadId: ThreadId;
   readonly runId: RunId;
+}
+
+/** `threadId` is the merge target that would otherwise receive the transfer. */
+export interface CancelMergeBackInput extends ThreadCommandInput {
+  readonly transferId: ContextTransferId;
 }
 
 export interface ReorderQueuedRunInput extends ThreadCommandInput {
@@ -960,6 +966,17 @@ export const mergeThreadBack = Effect.fn("EnvironmentCommands.mergeThreadBack")(
     sourceThreadId: input.sourceThreadId,
     targetThreadId: input.targetThreadId,
     sourcePoint: { type: "run", runId: input.runId },
+  });
+});
+
+export const cancelMergeBack = Effect.fn("EnvironmentCommands.cancelMergeBack")(function* (
+  input: CancelMergeBackInput,
+) {
+  return yield* dispatch({
+    type: "thread.merge_back.cancel",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    transferId: input.transferId,
   });
 });
 

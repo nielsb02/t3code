@@ -1,4 +1,5 @@
 import type {
+  OrchestrationV2ContextTransfer,
   OrchestrationV2ThreadProjection,
   OrchestrationV2ThreadShell,
   ThreadId,
@@ -39,6 +40,26 @@ export function resolveMergeBackTargetThreadId(
   return projection.thread.forkedFrom?.type === "run"
     ? projection.thread.forkedFrom.threadId
     : projection.thread.lineage.parentThreadId;
+}
+
+/**
+ * Merge-backs waiting for this thread's next run, keyed by the fork that sent
+ * them. Until that run starts, the user can still cancel one.
+ */
+export function pendingMergeBacksBySourceThread(
+  projection: Pick<OrchestrationV2ThreadProjection, "thread" | "contextTransfers"> | null,
+): ReadonlyMap<ThreadId, OrchestrationV2ContextTransfer> {
+  const pending = new Map<ThreadId, OrchestrationV2ContextTransfer>();
+  for (const transfer of projection?.contextTransfers ?? []) {
+    if (
+      transfer.type === "merge_back" &&
+      transfer.status === "pending" &&
+      transfer.targetThreadId === projection?.thread.id
+    ) {
+      pending.set(transfer.sourceThreadId, transfer);
+    }
+  }
+  return pending;
 }
 
 function edgeKey(edge: ThreadRelationshipEdge): string {

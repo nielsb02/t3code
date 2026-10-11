@@ -472,3 +472,48 @@ it.live("merges a fork's own turn back only once that turn completes", () =>
     }),
   ),
 );
+
+it.live("cancels a pending merge-back so the parent's next turn does not receive it", () =>
+  sideChatTest("side-chats-cancel-merge", ({ cwd, captured }) =>
+    Effect.gen(function* () {
+      const service = yield* threads;
+      yield* createParentAndFork(cwd);
+      yield* sendAndWait(forkThreadId, "fork one");
+      yield* service.mergeBack({
+        commandId: CommandId.make("command:side-chats:merge"),
+        sourceThreadId: forkThreadId,
+        targetThreadId: parentThreadId,
+        byOwnAgent: false,
+        createdBy: "user",
+        creationSource: "web",
+      });
+      const pendingTransfer = (yield* service.getThreadRecords(parentThreadId, [
+        "contextTransfers",
+      ])).contextTransfers.find((transfer) => transfer.type === "merge_back");
+      assert.equal(pendingTransfer?.status, "pending");
+      const cancel = (commandName: string) =>
+        service.dispatch({
+          type: "thread.merge_back.cancel",
+          commandId: CommandId.make(`command:side-chats:${commandName}`),
+          threadId: parentThreadId,
+          transferId: pendingTransfer!.id,
+        });
+
+      yield* cancel("cancel");
+      const cancelled = (yield* service.getThreadRecords(parentThreadId, [
+        "contextTransfers",
+      ])).contextTransfers.find((transfer) => transfer.id === pendingTransfer!.id);
+      assert.equal(cancelled?.status, "superseded");
+      assert.equal(cancelled?.error, Orchestrator.MERGE_BACK_CANCELLED_ERROR);
+      const again = yield* Effect.flip(cancel("cancel-again"));
+      assert.equal(again._tag, "OrchestratorDispatchError");
+
+      const next = yield* sendAndWait(parentThreadId, "parent two");
+      assert.equal(turnText(yield* Ref.get(captured), next.id), "parent two");
+      const { contextHandoffs } = yield* service.getThreadRecords(parentThreadId, [
+        "contextHandoffs",
+      ]);
+      assert.isTrue(contextHandoffs.every((handoff) => handoff.transferId !== pendingTransfer!.id));
+    }),
+  ),
+);

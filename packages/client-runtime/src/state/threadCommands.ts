@@ -29,6 +29,7 @@ import {
   type MarkThreadUnreadInput,
   type ForkThreadFromRunInput,
   type MergeThreadBackInput,
+  type CancelMergeBackInput,
   type PromoteQueuedRunInput,
   type ReorderQueuedRunInput,
   type LinkThreadPullRequestInput,
@@ -63,6 +64,7 @@ import {
   forkThreadFromRun,
   markThreadUnread,
   mergeThreadBack,
+  cancelMergeBack,
   promoteQueuedRun,
   reorderQueuedRun,
   resumeThreadQueue,
@@ -110,6 +112,7 @@ export type {
   MarkThreadUnreadInput,
   ForkThreadFromRunInput,
   MergeThreadBackInput,
+  CancelMergeBackInput,
   PromoteQueuedRunInput,
   ReorderQueuedRunInput,
   LinkThreadPullRequestInput,
@@ -335,6 +338,12 @@ export function createThreadEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) =>
           JSON.stringify([environmentId, input.sourceThreadId, input.targetThreadId]),
       },
+    }),
+    cancelMergeBack: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:cancel-merge-back",
+      execute: (input: CancelMergeBackInput) => cancelMergeBack(input),
+      scheduler,
+      concurrency,
     }),
     resumeThreadQueue: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:resume-queue",
