@@ -96,8 +96,8 @@ function exchangeLine(address: string, line: string) {
 describe("desktop app control server", () => {
   it.effect("returns large session lists and rejects oversized replies without truncation", () =>
     Effect.gen(function* () {
-      const platform = yield* HostProcessPlatform;
-      const userId = yield* HostProcessUserId;
+      const platform = yield* HostProcess.Platform;
+      const userId = yield* HostProcess.UserId;
       yield* Effect.promise(async () => {
         const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-app-snapshot-"));
         const target = makeTarget(NodePath.join(root, "userdata"), platform, userId);
@@ -161,8 +161,8 @@ describe("desktop app control server", () => {
 
   it.effect("roundtrips every Micro action and rejects malformed requests before dispatch", () =>
     Effect.gen(function* () {
-      const platform = yield* HostProcessPlatform;
-      const userId = yield* HostProcessUserId;
+      const platform = yield* HostProcess.Platform;
+      const userId = yield* HostProcess.UserId;
       yield* Effect.promise(async () => {
         const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-micro-control-"));
         const target = makeTarget(NodePath.join(root, "userdata"), platform, userId);
@@ -239,8 +239,8 @@ describe("desktop app control server", () => {
 
   it.effect("roundtrips an open-thread request and a renderer rejection", () =>
     Effect.gen(function* () {
-      const platform = yield* HostProcessPlatform;
-      const userId = yield* HostProcessUserId;
+      const platform = yield* HostProcess.Platform;
+      const userId = yield* HostProcess.UserId;
       yield* Effect.promise(async () => {
         const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-thread-open-"));
         const target = makeTarget(NodePath.join(root, "userdata"), platform, userId);

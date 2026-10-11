@@ -540,7 +540,7 @@ function ProjectDetail({
         <ProjectDefaultsSettings category="project" />
         <ProjectActionsSettings />
         {group.memberProjects.map((member) =>
-          environmentById.get(member.environmentId)?.serverConfig?.environment.capabilities
+          environmentById.get(member.environmentId)?.serverConfig?.environment?.capabilities
             .workspaceRepositories === true ? (
             <SettingsSection
               key={member.physicalProjectKey}
