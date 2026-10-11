@@ -332,6 +332,9 @@ const sendWhileRunning = (threadId: ThreadId, text: string) =>
     return run;
   });
 
+const turnText = (captured: ReadonlyArray<CapturedTurn>, runId: RunId) =>
+  captured.find((turn) => turn.runId === runId)?.text ?? "";
+
 /** Waits for the next event on `threadId` matching `predicate`, subscribed before `trigger` runs. */
 const awaitEventAfter = <A, E, R>(
   threadId: ThreadId,
@@ -348,6 +351,48 @@ const awaitEventAfter = <A, E, R>(
     yield* trigger;
     return yield* Fiber.join(next);
   });
+
+it.live("tells a fork how to report back and points it at parent runs it has not seen", () =>
+  sideChatTest("side-chats-notice", ({ cwd, captured }) =>
+    Effect.gen(function* () {
+      const service = yield* threads;
+      yield* createParentAndFork(cwd);
+      const parentTwo = yield* sendAndWait(parentThreadId, "parent two");
+
+      const forkOne = yield* sendAndWait(forkThreadId, "fork one");
+      const first = turnText(yield* Ref.get(captured), forkOne.id);
+      assert.include(first, `Side chat: this thread is a fork of "Parent work"`);
+      assert.include(first, "at its run 1.");
+      assert.include(first, "completed 1 run you have not seen (run 2)");
+      assert.include(first, `Its latest answer begins: "answer:parent two"`);
+      assert.isTrue(first.endsWith("User message:\nfork one"));
+      const afterPosition = Number(/"afterPosition":(\d+)/.exec(first)?.[1]);
+      const catchUp = yield* service.getTimelinePage(parentThreadId, {
+        afterPosition,
+        view: "messages",
+        limit: 1,
+      });
+      assert.equal(catchUp.items[0]?.item.runId, parentTwo.id);
+
+      // Nothing new on the parent, and the instructions are already in this conversation.
+      const forkTwo = yield* sendAndWait(forkThreadId, "fork two");
+      assert.equal(turnText(yield* Ref.get(captured), forkTwo.id), "fork two");
+
+      yield* sendAndWait(parentThreadId, "parent three");
+      const forkThree = yield* sendAndWait(forkThreadId, "fork three");
+      const third = turnText(yield* Ref.get(captured), forkThree.id);
+      assert.notInclude(third, "Side chat:");
+      assert.include(third, "completed 1 run you have not seen (run 3)");
+      assert.notInclude(third, "run 2");
+
+      // The parent itself is not a fork.
+      const parentRuns = (yield* Ref.get(captured)).filter(
+        (turn) => turn.threadId === parentThreadId,
+      );
+      assert.isTrue(parentRuns.every((turn) => !turn.text.includes("Side chat:")));
+    }),
+  ),
+);
 
 it.live("merges a fork's own turn back only once that turn completes", () =>
   sideChatTest("side-chats-deferred-merge", ({ cwd, gates }) =>

@@ -36,6 +36,7 @@ import {
   THREAD_MERGE_BACK_SIBLINGS_SOURCE_PROMPT,
   THREAD_MERGE_BACK_SOURCE_PROMPT,
 } from "./fixtures/shared.ts";
+import { materializeReplayTranscriptForkInstructions } from "./ForkTurnNoteReplay.ts";
 import { runOrchestratorV2ProviderReplayScenario } from "./ProviderReplayHarness.ts";
 import { makeCheckpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import {
@@ -372,7 +373,14 @@ describe("orchestration V2 merge-back provider replay", () => {
           forkAssistantText: "merge fork stored",
         });
         const generatedProviderMessage = providerMessage(summary, MERGE_BACK_USER_TEXT);
-        const parameterizedTranscript = parameterizeHandoffs(rawTranscript, [
+        // Recorded before forks received instructions on their first turn.
+        const forkTranscript = materializeReplayTranscriptForkInstructions(rawTranscript, {
+          prompt: THREAD_MERGE_BACK_FORK_PROMPT,
+          parentThreadId: materialized.sourceThreadId,
+          parentTitle: "Merge-back source",
+          sourceRunOrdinal: 1,
+        });
+        const parameterizedTranscript = parameterizeHandoffs(forkTranscript, [
           [
             THREAD_MERGE_BACK_HANDOFF_PROMPT,
             variant.driver === "codex" ? MERGE_BACK_USER_TEXT : generatedProviderMessage,
@@ -613,7 +621,21 @@ describe("orchestration V2 merge-back provider replay", () => {
           forkUserText: THREAD_MERGE_BACK_SIBLINGS_SECOND_FORK_PROMPT,
           forkAssistantText: "second merge sibling stored",
         });
-        const transcript = parameterizeHandoffs(rawTranscript, [
+        // Recorded before forks received instructions on their first turn.
+        const forkTranscript = [
+          THREAD_MERGE_BACK_SIBLINGS_FIRST_FORK_PROMPT,
+          THREAD_MERGE_BACK_SIBLINGS_SECOND_FORK_PROMPT,
+        ].reduce(
+          (current, prompt) =>
+            materializeReplayTranscriptForkInstructions(current, {
+              prompt,
+              parentThreadId: materialized.sourceThreadId,
+              parentTitle: "Merge-back source",
+              sourceRunOrdinal: 1,
+            }),
+          rawTranscript,
+        );
+        const transcript = parameterizeHandoffs(forkTranscript, [
           [
             THREAD_MERGE_BACK_SIBLINGS_FIRST_HANDOFF_PROMPT,
             variant.driver === "codex"

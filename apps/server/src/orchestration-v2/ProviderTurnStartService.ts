@@ -37,6 +37,7 @@ import {
   latestNativeContextUsage,
 } from "@t3tools/provider-core/server/handoffBudget";
 import { deliverContextHandoffs } from "./ContextHandoffDelivery.ts";
+import { forkTurnNote } from "./ForkTurnNote.ts";
 import {
   ProviderAdapterTurnStartError,
   type ProviderAdapterV2Error,
@@ -1082,6 +1083,22 @@ export const layer: Layer.Layer<
           !deliveredAttemptIds.has(source.activeAttemptId),
       );
       const missedRunIds = new Set(missedRuns.map((source) => source.id));
+      // Legacy accepted attempts have no native id. They count only before
+      // a replacement, while no accepted attempt records a native identity.
+      const nativeThreadHasTurns =
+        nativeInputRunIds.size > 0 ||
+        (legacyInputRunIds.size > 0 &&
+          sameNativeThread &&
+          !acceptedAttempts.some((source) => source.nativeThreadId !== undefined));
+      const forkNote = yield* forkTurnNote({
+        projectionStore,
+        thread: projection.thread,
+        runs: projection.runs,
+        providerTurns: projection.providerTurns,
+        run,
+        userText,
+        firstTurnInNativeConversation: !nativeThreadHasTurns,
+      });
       const missedItems =
         missedRunIds.size === 0
           ? []
@@ -1129,8 +1146,10 @@ export const layer: Layer.Layer<
               return handoffBudget({
                 tokenCap,
                 modelContextWindow,
-                // The note is sent with the user text, so it spends the same allowance.
-                userText: restartNote === "" ? userText : `${restartNote}\n\n${userText}`,
+                // Notes are sent with the user text, so they spend the same allowance.
+                userText: [restartNote, forkNote, userText]
+                  .filter((part) => part !== "")
+                  .join("\n\n"),
                 attachments: message.attachments,
                 providerThread: budgetProviderThread,
                 nativeContextEstimate:
@@ -1171,7 +1190,7 @@ export const layer: Layer.Layer<
           });
           if (!(yield* isCurrentAttemptInStatus("running"))) return;
           const start = compact ? session.compactThread! : session.startTurn;
-          const context = [delivery.context, restartNote]
+          const context = [delivery.context, restartNote, forkNote]
             .filter((part) => part !== "")
             .join("\n\n");
           // A note continuation has no turn to resume; its text is the prompt.
@@ -1224,6 +1243,7 @@ export const layer: Layer.Layer<
         effectiveHandoffs.length === 0 &&
         missedItems.length === 0 &&
         restartNote === "" &&
+        forkNote === "" &&
         !noteContinuation
           ? session
           : makeDeliverySession(session, startWithHandoffs);
@@ -1252,13 +1272,7 @@ export const layer: Layer.Layer<
               .filter((turn) => turn.providerThreadId === providerThread.id)
               .map((turn) => turn.ordinal),
           ) + 1,
-        // Legacy accepted attempts have no native id. They count only before
-        // a replacement, while no accepted attempt records a native identity.
-        nativeThreadHasTurns:
-          nativeInputRunIds.size > 0 ||
-          (legacyInputRunIds.size > 0 &&
-            sameNativeThread &&
-            !acceptedAttempts.some((source) => source.nativeThreadId !== undefined)),
+        nativeThreadHasTurns,
         shouldStartProviderTurn: runControls.shouldStartProviderTurn,
         shouldFinalizeRun: runControls.shouldFinalizeRun,
         hasUnpairedRunInterruptRequest: runControls.hasUnpairedRunInterruptRequest,
