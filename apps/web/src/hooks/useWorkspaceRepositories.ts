@@ -8,6 +8,8 @@ import { vcsEnvironment } from "../state/vcs";
 import { useEnvironmentQuery, formatEnvironmentQueryError } from "../state/query";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import {
+  defaultWorkspaceRepositoryPath,
+  resolveWorkspaceGitCwd,
   selectWorkspaceRepository,
   updateWorkspaceRepositorySelection,
 } from "../lib/workspaceRepositories";
@@ -34,10 +36,11 @@ export function useWorkspaceRepositories(input: {
     path: string | null;
     diffPath: string | null;
   } | null>(null);
-  const selectedRepository = selectWorkspaceRepository(
-    repositories,
-    selection?.scope === scope ? selection.path : null,
-  );
+  const selectedPath = selection?.scope === scope ? selection.path : null;
+  const selectedRepository = selectWorkspaceRepository(repositories, selectedPath);
+  // A failed list leaves Git actions on the workspace unless a repository was chosen; only the
+  // picker reports the failure.
+  const gitRepositories = query.error ? EMPTY_REPOSITORIES : repositories;
   const selectRepository = useCallback(
     (path: string | null) => {
       setSelection((current) => ({
@@ -95,6 +98,9 @@ export function useWorkspaceRepositories(input: {
     repositories,
     statuses,
     selectedRepository,
+    /** The repository Git actions target, chosen or default; `.` is the workspace. */
+    gitRepositoryPath: selectedPath ?? defaultWorkspaceRepositoryPath(gitRepositories),
+    gitCwd: resolveWorkspaceGitCwd(cwd, selectedPath, gitRepositories),
     selectRepository,
     repositoryFilter: selection?.scope === scope ? selection.diffPath : null,
     refresh,

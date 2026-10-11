@@ -337,9 +337,108 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceEntries", (it) => {
           const escaping = yield* entries.listRepositories({ cwd }).pipe(Effect.flip);
           expect(escaping._tag).toBe("WorkspaceRepositoryDiscoveryError");
           yield* writeTextFile(cwd, "t3.json", '{"repositories":{"paths":["projects/**"]}}');
-          const recursive = yield* entries.list({ cwd }).pipe(Effect.flip);
+          const recursive = yield* entries.listRepositories({ cwd }).pipe(Effect.flip);
           expect(recursive._tag).toBe("WorkspaceRepositoryDiscoveryError");
         }),
+    );
+    it.effect(
+      "keeps the root's files searchable when the repository configuration is unusable",
+      () =>
+        Effect.gen(function* () {
+          const cwd = yield* makeTempDir({ git: true });
+          yield* writeTextFile(cwd, "src/index.ts", "workspace needle");
+          const entries = yield* WorkspaceEntries.WorkspaceEntries;
+          for (const config of [
+            '{"repositories":{"paths":["projects/**"]}}',
+            '{"repositories":{"paths":["../escape"]}}',
+            '{"repositories":{"paths":[',
+          ]) {
+            yield* writeTextFile(cwd, "t3.json", config);
+            const error = yield* entries.listRepositories({ cwd }).pipe(Effect.flip);
+            expect(error._tag).toBe("WorkspaceRepositoryDiscoveryError");
+            expect((yield* entries.list({ cwd })).entries).toContainEqual({
+              path: "src/index.ts",
+              kind: "file",
+            });
+            expect(
+              (yield* entries.search({ cwd, query: "index.ts", limit: 10 })).entries,
+            ).toContainEqual({ path: "src/index.ts", kind: "file" });
+            const contents = yield* entries.searchContents({
+              cwd,
+              query: "needle",
+              limit: 10,
+              caseSensitive: false,
+              wholeWord: false,
+              useRegex: false,
+            });
+            expect(contents.matches.map((match) => match.path)).toEqual(["src/index.ts"]);
+          }
+        }),
+    );
+    it.effect("searches workspaces that declare no repositories without spawning Git", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ git: true });
+        yield* writeTextFile(cwd, "src/index.ts", "workspace needle");
+        const vcs = yield* VcsProcess.VcsProcess;
+        const calls = vi.spyOn(vcs, "run");
+        const entries = yield* WorkspaceEntries.WorkspaceEntries;
+        for (const config of [
+          undefined,
+          "{}",
+          '{"repositories":{}}',
+          '{"repositories":{"paths":[],"includeSubmodules":false}}',
+        ]) {
+          if (config !== undefined) yield* writeTextFile(cwd, "t3.json", config);
+          expect(
+            (yield* entries.search({ cwd, query: "index.ts", limit: 10 })).entries,
+          ).toContainEqual({ path: "src/index.ts", kind: "file" });
+          yield* entries.list({ cwd });
+          yield* entries.searchContents({
+            cwd,
+            query: "needle",
+            limit: 10,
+            caseSensitive: false,
+            wholeWord: false,
+            useRegex: false,
+          });
+        }
+        expect(calls).not.toHaveBeenCalled();
+      }),
+    );
+    it.effect("reuses repository membership across searches until t3.json changes", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTempDir({ git: true });
+        const path = yield* Path.Path;
+        yield* writeTextFile(cwd, "t3.json", '{"repositories":{"paths":["projects/app"]}}');
+        yield* writeTextFile(cwd, ".gitignore", "projects/\n");
+        yield* writeTextFile(cwd, "projects/app/target.txt");
+        yield* git(path.join(cwd, "projects/app"), ["init"]);
+        yield* writeTextFile(cwd, "projects/other/other.txt");
+        yield* git(path.join(cwd, "projects/other"), ["init"]);
+        const vcs = yield* VcsProcess.VcsProcess;
+        const calls = vi.spyOn(vcs, "run");
+        const discoveries = () =>
+          calls.mock.calls.filter(([input]) => input.operation === "WorkspaceRepositories.members")
+            .length;
+        const entries = yield* WorkspaceEntries.WorkspaceEntries;
+        expect(
+          (yield* entries.search({ cwd, query: "target.txt", limit: 10, kind: "file" })).entries,
+        ).toEqual([{ path: "projects/app/target.txt", kind: "file" }]);
+        const first = discoveries();
+        expect(first).toBeGreaterThan(0);
+        yield* entries.search({ cwd, query: "target", limit: 10 });
+        yield* entries.list({ cwd });
+        expect(discoveries()).toBe(first);
+        yield* writeTextFile(
+          cwd,
+          "t3.json",
+          '{"repositories":{"paths":["projects/app","projects/other"]}}',
+        );
+        expect(
+          (yield* entries.search({ cwd, query: "other.txt", limit: 10, kind: "file" })).entries,
+        ).toEqual([{ path: "projects/other/other.txt", kind: "file" }]);
+        expect(discoveries()).toBeGreaterThan(first);
+      }),
     );
     it.effect(
       "includes linked worktrees, rejects symlink escapes, and reports uninitialized submodules",

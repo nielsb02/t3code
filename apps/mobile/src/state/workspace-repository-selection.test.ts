@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
   resolveWorkspaceRepositoryFilter,
+  resolveWorkspaceRepositoryPath,
   updateWorkspaceRepositorySelection,
   resolveWorkspaceGitCwd,
 } from "./workspace-repository-selection";
@@ -15,6 +16,22 @@ describe("workspace Git target", () => {
     expect(resolveWorkspaceGitCwd("/workspace", "projects/api", repositories)).toBe(
       "/workspace/projects/api",
     );
+  });
+  it("defaults to the first repository only when the workspace is not one", () => {
+    const plainFolder = [
+      { path: ".", cwd: "/workspace", available: false },
+      { path: "projects/api", cwd: "/workspace/projects/api", available: false },
+      { path: "projects/web", cwd: "/workspace/projects/web", available: true },
+    ];
+    expect(resolveWorkspaceRepositoryPath(null, plainFolder)).toBe("projects/web");
+    expect(resolveWorkspaceGitCwd("/workspace", null, plainFolder)).toBe("/workspace/projects/web");
+    expect(resolveWorkspaceRepositoryPath(null, repositories)).toBe(".");
+  });
+  it("keeps Git on the workspace while repositories load or fail, unless a child was chosen", () => {
+    expect(resolveWorkspaceRepositoryPath(null, [])).toBe(".");
+    expect(resolveWorkspaceGitCwd("/workspace", null, [])).toBe("/workspace");
+    expect(resolveWorkspaceGitCwd("/workspace", ".", [])).toBe("/workspace");
+    expect(resolveWorkspaceGitCwd("/workspace", "projects/api", [])).toBeNull();
   });
   it("does not redirect a removed or unavailable child's actions to the wrapper", () => {
     expect(resolveWorkspaceGitCwd("/workspace", "projects/missing", repositories)).toBeNull();

@@ -8,6 +8,7 @@ import { useThreadSelection } from "./use-thread-selection";
 import { useSelectedThreadWorktree } from "./use-selected-thread-worktree";
 import {
   resolveWorkspaceRepositoryFilter,
+  resolveWorkspaceRepositoryPath,
   updateWorkspaceRepositorySelection,
   type WorkspaceRepositorySelection,
   resolveWorkspaceGitCwd,
@@ -47,20 +48,20 @@ export function useWorkspaceRepositories() {
     [selectionAtom],
   );
   const repositories = query.data?.repositories ?? EMPTY_REPOSITORIES;
-  const selectedThreadCwd = resolveWorkspaceGitCwd(
-    workspaceCwd,
-    supported ? selectedPath : null,
-    repositories,
-  );
+  const chosenPath = supported ? selectedPath : null;
+  // A failed list leaves Git actions on the workspace unless a repository was chosen; only the
+  // picker reports the failure.
+  const gitRepositories = query.error ? EMPTY_REPOSITORIES : repositories;
+  const gitPath = resolveWorkspaceRepositoryPath(chosenPath, gitRepositories);
   return {
     repositories,
     repositoryFilter: resolveWorkspaceRepositoryFilter(selection.diffPath, repositories),
-    selectedPath: selectedPath ?? ".",
+    selectedPath: gitPath,
     selectRepository,
-    selectedThreadCwd: query.error ? null : selectedThreadCwd,
+    selectedThreadCwd: resolveWorkspaceGitCwd(workspaceCwd, chosenPath, gitRepositories),
     selectedThreadWorktreePath,
     workspaceCwd,
-    isChildRepository: supported && selectedPath !== null && selectedPath !== ".",
+    isChildRepository: gitPath !== ".",
     refreshRepositories: query.refresh,
     repositoryError: query.error,
   };

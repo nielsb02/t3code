@@ -67,6 +67,17 @@ describe("RPC authorization scopes", () => {
     }
   });
 
+  it("guards repository discovery like the workspace file reads beside it", () => {
+    for (const method of [
+      WS_METHODS.projectsListRepositories,
+      WS_METHODS.projectsListEntries,
+      WS_METHODS.projectsSearchEntries,
+      WS_METHODS.projectsSearchContents,
+    ]) {
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthFilesystemReadScope);
+    }
+  });
+
   it("allows relay status reads without granting relay installation access", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.cloudGetRelayClientStatus)).toBe(
       AuthRelayReadScope,

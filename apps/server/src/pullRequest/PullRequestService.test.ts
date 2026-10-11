@@ -498,7 +498,7 @@ function makeService(input: {
         Layer.mock(ServerSettingsService.ServerSettingsService)({
           getSettings: Effect.succeed(input.settings ?? DEFAULT_SERVER_SETTINGS),
         }),
-        Layer.succeed(WorkspaceRepositories, {
+        Layer.mock(WorkspaceRepositories)({
           list:
             input.repositoryDiscovery ?? ((cwd) => Effect.succeed(input.repositories?.(cwd) ?? [])),
         }),

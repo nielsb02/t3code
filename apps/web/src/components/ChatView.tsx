@@ -4142,11 +4142,7 @@ export default function ChatView(props: ChatViewProps) {
   const hasWorkspaceRepositories = workspaceRepositories.repositories.length > 1;
   const selectedGitRepository = workspaceRepositories.selectedRepository;
   // Git actions target the selected repository; the agent and terminals stay in the checkout.
-  const selectedGitCwd = workspaceRepositories.error
-    ? null
-    : supportsWorkspaceRepositories
-      ? (selectedGitRepository?.cwd ?? gitCwd)
-      : gitCwd;
+  const selectedGitCwd = supportsWorkspaceRepositories ? workspaceRepositories.gitCwd : gitCwd;
   const gitStatusCwd = activeThread?.worktreePath ?? gitCwd;
   const gitStatusQuery = useEnvironmentQuery(
     gitStatusCwd === null
@@ -11286,7 +11282,8 @@ export default function ChatView(props: ChatViewProps) {
     showOpenInPicker,
     gitCwd,
     gitActionsCwd: selectedGitCwd,
-    syncThreadBranch: !supportsWorkspaceRepositories || selectedGitRepository?.path === ".",
+    syncThreadBranch:
+      !supportsWorkspaceRepositories || workspaceRepositories.gitRepositoryPath === ".",
     gitRepositorySelector: workspaceRepositories.error ? (
       <Tooltip>
         <TooltipTrigger

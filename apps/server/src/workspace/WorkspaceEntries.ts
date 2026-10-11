@@ -14,7 +14,6 @@ import type {
   FilesystemBrowseResult,
   ProjectListRepositoriesInput,
   ProjectListRepositoriesResult,
-  WorkspaceRepository,
   ProjectEntry,
   ProjectListEntriesInput,
   ProjectListEntriesResult,
@@ -165,14 +164,14 @@ export const make = Effect.gen(function* () {
   });
 
   const members = Effect.fn("WorkspaceEntries.members")(function* (cwd: string) {
-    const result = yield* repositories.list(yield* normalizeWorkspaceRoot(cwd), {
-      includeIdentity: false,
-    });
-    return result.filter((repository) => repository.kind === "root" || repository.available);
+    return yield* repositories.members(yield* normalizeWorkspaceRoot(cwd));
   });
-  const prefix = (repository: WorkspaceRepository, relative: string) =>
+  const prefix = (repository: WorkspaceRepositories.WorkspaceMember, relative: string) =>
     repository.path === "." ? relative : `${repository.path}/${relative}`;
-  const ownership = (repository: WorkspaceRepository, all: ReadonlyArray<WorkspaceRepository>) => {
+  const ownership = (
+    repository: WorkspaceRepositories.WorkspaceMember,
+    all: ReadonlyArray<WorkspaceRepositories.WorkspaceMember>,
+  ) => {
     const descendants = all
       .filter(
         (child) =>
@@ -194,14 +193,7 @@ export const make = Effect.gen(function* () {
         Effect.flatMap((root) => fileSystem.realPath(root)),
         Effect.orElseSucceed(() => cwd),
       );
-      const currentMembers = yield* members(normalizedCwd).pipe(
-        Effect.catch((cause) =>
-          Effect.logWarning("Failed to discover repositories for index refresh", {
-            cwd,
-            cause,
-          }).pipe(Effect.as([])),
-        ),
-      );
+      const currentMembers = yield* repositories.members(normalizedCwd);
       for (const memberCwd of new Set([
         normalizedCwd,
         ...currentMembers.map((member) => member.cwd),
