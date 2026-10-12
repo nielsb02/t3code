@@ -146,3 +146,7 @@ Orchestration V2:
   the fork's `runOnThreadSettle`.
 - **Side chat context transfers.** Side chats are upstream forks. The fork keeps
   only the additions described in [side chats](../user/thread-sidebar.md#side-chats).
+  Side chats from earlier builds are imported like any V1 thread: the transcript
+  and worktree carry over, but not the link to the parent thread, so they appear
+  as ordinary threads and cannot be merged back. Archive the ones still open
+  before upgrading if they are no longer needed.
