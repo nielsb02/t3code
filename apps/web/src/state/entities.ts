@@ -123,6 +123,13 @@ export function useChildThreadInputs(ref: ScopedThreadRef | null) {
   );
 }
 
+/** Micro fork: the open side chats shown inside this thread, oldest first. */
+export function useSideChats(ref: ScopedThreadRef | null) {
+  return useAtomValue(
+    ref === null ? EMPTY_THREAD_SHELLS_ATOM : environmentThreadShells.sideChatsAtom(ref),
+  );
+}
+
 export function useThreadProjection(ref: ScopedThreadRef | null): EnvironmentThread | null {
   return useAtomValue(
     ref === null ? EMPTY_THREAD_PROJECTION_ATOM : environmentThreadDetails.threadAtom(ref),

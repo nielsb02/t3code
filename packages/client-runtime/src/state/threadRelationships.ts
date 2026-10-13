@@ -63,12 +63,17 @@ export function deriveThreadRelationshipGraph(input: {
     threads.map((thread) => [thread.id, { threadId: thread.id, thread, missing: false }]),
   );
   const edgesByKey = new Map<string, ThreadRelationshipEdge>();
+  // Micro fork: side chats show as tabs inside their thread, not in its lineage.
+  const sideChatIds = new Set(
+    threads.filter((thread) => thread.sideChat === true).map((thread) => thread.id),
+  );
   const ensureNode = (threadId: ThreadId) => {
     if (!nodes.has(threadId)) {
       nodes.set(threadId, { threadId, thread: null, missing: true });
     }
   };
   const addEdge = (edge: ThreadRelationshipEdge) => {
+    if (sideChatIds.has(edge.sourceThreadId) || sideChatIds.has(edge.targetThreadId)) return;
     ensureNode(edge.sourceThreadId);
     ensureNode(edge.targetThreadId);
     edgesByKey.set(

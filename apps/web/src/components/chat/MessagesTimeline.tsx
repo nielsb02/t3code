@@ -133,6 +133,7 @@ import {
   DownloadIcon,
   EyeIcon,
   GitForkIcon,
+  MessagesSquareIcon,
   GlobeIcon,
   type LucideIcon,
   MessageCircleIcon,
@@ -345,6 +346,9 @@ interface TimelineRowSharedState {
     readonly sourceThreadId: ThreadId;
     readonly runId: RunId;
   }) => Promise<void>;
+  /** Micro fork: answers of this thread offer a side chat; null where side chats are not offered. */
+  sideChatSourceThreadId?: ThreadId | null;
+  onSideChatFromRun?: ((runId: RunId) => Promise<void>) | undefined;
   onRollbackCheckpoint: (input: {
     readonly checkpointId: string;
     readonly scopeId: string;
@@ -490,6 +494,9 @@ interface MessagesTimelineProps {
     readonly sourceThreadId: ThreadId;
     readonly runId: RunId;
   }) => Promise<void>;
+  /** Micro fork: answers of this thread offer a side chat; null where side chats are not offered. */
+  sideChatSourceThreadId?: ThreadId | null;
+  onSideChatFromRun?: ((runId: RunId) => Promise<void>) | undefined;
   onRollbackCheckpoint: (input: {
     readonly checkpointId: string;
     readonly scopeId: string;
@@ -598,6 +605,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onOpenThread,
   parentThreadLink = null,
   onForkFromRun,
+  sideChatSourceThreadId = null,
+  onSideChatFromRun,
   onRollbackCheckpoint,
   supportsConversationRollback,
   onRevertToTurnCount,
@@ -1356,6 +1365,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
       onOpenTurnDiff,
       onOpenThread,
       onForkFromRun,
+      sideChatSourceThreadId,
+      onSideChatFromRun,
       onRollbackCheckpoint,
       onToggleTurnFold,
       onToggleAttemptFold,
@@ -1394,6 +1405,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
       onOpenTurnDiff,
       onOpenThread,
       onForkFromRun,
+      sideChatSourceThreadId,
+      onSideChatFromRun,
       onRollbackCheckpoint,
       onToggleTurnFold,
       onToggleAttemptFold,
@@ -2877,6 +2890,59 @@ function AssistantForkButton({
   );
 }
 
+/** Micro fork: opens a side chat that knows the conversation up to this answer. */
+function AssistantSideChatButton({
+  projectedItem,
+}: {
+  readonly projectedItem: NonNullable<Extract<TimelineRow, { kind: "message" }>["projectedItem"]>;
+}) {
+  const ctx = use(TimelineRowCtx);
+  const [busy, setBusy] = useState(false);
+  const support = useV2ItemSupport({
+    environmentId: ctx.activeThreadEnvironmentId,
+    sourceThreadId: projectedItem.sourceThreadId,
+    sourceItemId: projectedItem.sourceItemId,
+  });
+  const canFork = canForkProjectedAssistantItem({
+    projectedItem,
+    capabilities: support.providerSession?.capabilities,
+  });
+  const onSideChatFromRun = ctx.onSideChatFromRun;
+  // Rows inherited from a parent thread belong to that thread, not this one.
+  if (
+    !canFork ||
+    onSideChatFromRun === undefined ||
+    ctx.sideChatSourceThreadId !== projectedItem.sourceThreadId ||
+    projectedItem.item.runId === null
+  ) {
+    return null;
+  }
+  const runId = projectedItem.item.runId;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              void onSideChatFromRun(runId).finally(() => setBusy(false));
+            }}
+            aria-label="Side chat from this response"
+          />
+        }
+      >
+        <MessagesSquareIcon className={cn("size-3", busy && "animate-pulse")} />
+      </TooltipTrigger>
+      <TooltipPopup side="top">Side chat from this response</TooltipPopup>
+    </Tooltip>
+  );
+}
+
 function AssistantMetaTimelineRow({
   row,
 }: {
@@ -2934,7 +3000,10 @@ function AssistantMessageMeta({
         streaming={copyStreaming}
       />
       {projectedItem?.item.type === "assistant_message" ? (
-        <AssistantForkButton projectedItem={projectedItem} />
+        <>
+          <AssistantForkButton projectedItem={projectedItem} />
+          <AssistantSideChatButton projectedItem={projectedItem} />
+        </>
       ) : null}
       {!message.streaming && (
         <Tooltip>

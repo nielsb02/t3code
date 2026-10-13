@@ -47,6 +47,30 @@ describe("thread relationships", () => {
     ).toBe(childStatus);
   });
 
+  it("leaves side chats out of their thread's lineage", () => {
+    const parent = ThreadId.make("parent");
+    const fork = ThreadId.make("fork");
+    const sideChat = ThreadId.make("side-chat");
+    const graph = deriveThreadRelationshipGraph({
+      threads: [
+        { id: parent, status: "idle", lineage: { parentThreadId: null } },
+        {
+          id: fork,
+          status: "idle",
+          lineage: { parentThreadId: parent, relationshipToParent: "fork" },
+        },
+        {
+          id: sideChat,
+          status: "idle",
+          sideChat: true,
+          lineage: { parentThreadId: parent, relationshipToParent: "fork" },
+        },
+      ] as never,
+      projection: null,
+    });
+    expect(immediateThreadRelationships(graph, parent).map((row) => row.threadId)).toEqual([fork]);
+  });
+
   it("does not label a missing parent with its child's running status", () => {
     const parent = ThreadId.make("missing-parent");
     const child = ThreadId.make("child");

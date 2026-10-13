@@ -143,6 +143,9 @@ export async function reopenClosedView(
     case "pull-request":
       panels.openPullRequest(ref, surface);
       break;
+    // Closing a side chat archives it; its archive notice offers the undo.
+    case "side-chat":
+      return false;
     default:
       panels.open(ref, surface.kind);
   }

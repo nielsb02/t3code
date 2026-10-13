@@ -19,7 +19,7 @@ import type {
 import * as Option from "effect/Option";
 import { Atom } from "effect/reactivity";
 
-import { isSidebarSubagentThread, resolveSidebarThreadStatus } from "./components/Sidebar.logic";
+import { isSidebarNestedThread, resolveSidebarThreadStatus } from "./components/Sidebar.logic";
 
 export type DesktopSidebarOrder = Pick<
   DesktopAppSessionListSuccess,
@@ -73,7 +73,7 @@ export function isDesktopSidebarThread(
 ): boolean {
   return (
     thread.archivedAt === null &&
-    !isSidebarSubagentThread(thread) &&
+    !isSidebarNestedThread(thread) &&
     !(capabilities?.threadSnooze === true && effectiveSnoozed(thread, { now })) &&
     !(capabilities?.threadSettlement === true && thread.settledOverride === "settled")
   );
@@ -96,8 +96,8 @@ export function buildDesktopSessionSnapshot(input: {
     const sessions: DesktopSessionSummary[] = [];
     for (const source of snapshot?.threads ?? []) {
       const thread = presentThreadShell(environmentId, source);
-      // Subagent threads live inside their parent's chat, not in the session list.
-      if (thread.archivedAt !== null || isSidebarSubagentThread(thread)) continue;
+      // Subagents and side chats live inside their parent's chat, not in the session list.
+      if (thread.archivedAt !== null || isSidebarNestedThread(thread)) continue;
       available.add(scopedThreadKey({ environmentId, threadId: thread.id }));
       sessions.push({
         threadId: thread.id,

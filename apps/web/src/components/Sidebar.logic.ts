@@ -567,8 +567,15 @@ export function isSidebarSubagentThread(thread: Pick<SidebarThreadSummary, "line
   return thread.lineage.relationshipToParent === "subagent";
 }
 
+/** Subagents and side chats (Micro fork) live inside their parent thread, not the sidebar. */
+export function isSidebarNestedThread(
+  thread: Pick<SidebarThreadSummary, "lineage" | "sideChat">,
+): boolean {
+  return isSidebarSubagentThread(thread) || thread.sideChat === true;
+}
+
 export function filterSidebarV2VisibleThreads<
-  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage"> & {
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "lineage" | "sideChat"> & {
     environmentId: string;
     projectId: string;
   },
@@ -576,7 +583,7 @@ export function filterSidebarV2VisibleThreads<
   return threads.filter(
     (thread) =>
       thread.archivedAt === null &&
-      !isSidebarSubagentThread(thread) &&
+      !isSidebarNestedThread(thread) &&
       (scopedProjectKeys === null ||
         scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
   );

@@ -33,6 +33,7 @@ import {
   FileDiff,
   Files,
   Globe2,
+  MessagesSquare,
   Plus,
   TerminalSquare,
 } from "lucide-react";
@@ -121,6 +122,8 @@ interface RightPanelTabsProps {
    */
   previewRuntimeTabId?: ((tabId: string) => string) | undefined;
   terminalLabelsById: ReadonlyMap<string, string>;
+  /** Micro fork: side chat titles by thread id. */
+  sideChatTitlesById?: ReadonlyMap<string, string> | undefined;
   onActivate: (surface: RightPanelSurface) => void;
   onRenameDevice?: (surfaceId: string, title: string) => void;
   onCloseSurface: (surface: RightPanelSurface) => void;
@@ -599,8 +602,11 @@ function surfaceTitle(
   surface: RightPanelSurface,
   sessions: Readonly<Record<string, PreviewSessionSnapshot>>,
   terminalLabelsById: ReadonlyMap<string, string>,
+  sideChatTitlesById?: ReadonlyMap<string, string>,
 ): string {
   switch (surface.kind) {
+    case "side-chat":
+      return sideChatTitlesById?.get(surface.threadId) ?? "Side chat";
     case "diff":
       return "Diff";
     case "files":
@@ -705,6 +711,8 @@ function SurfaceIcon({
       return <PullRequestGlyph.link className="size-3 shrink-0" />;
     case "workspace-pull-requests":
       return <PullRequestGlyph.pullRequest className="size-3 shrink-0" />;
+    case "side-chat":
+      return <MessagesSquare className="size-3 shrink-0" />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
@@ -1200,6 +1208,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                   surface,
                   props.previewSessions,
                   props.terminalLabelsById,
+                  props.sideChatTitlesById,
                 );
                 const previewTabId = previewTabIdOf(surface, props.previewSessions);
                 // Desktop state is keyed by the session id, but desktop actions

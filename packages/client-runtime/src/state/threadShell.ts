@@ -183,6 +183,34 @@ export function createEnvironmentThreadShellAtoms(input: {
     }).pipe(Atom.withLabel(`environment-child-thread-inputs:${key}`));
   });
 
+  // Micro fork: the open side chats shown inside a thread, oldest first.
+  const sideChatsAtomFamily = Atom.family((key: string) => {
+    const ref = parseThreadKey(key);
+    let previous: ReadonlyArray<EnvironmentThreadShell> = [];
+    return Atom.make((get) => {
+      const next = get(environmentThreadsAtom(ref.environmentId))
+        .filter(
+          (thread) =>
+            thread.sideChat === true &&
+            thread.lineage.parentThreadId === ref.threadId &&
+            thread.archivedAt === null,
+        )
+        .map((thread) => scopedThread(ref.environmentId, thread))
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+      // Tabs read only ids and titles, so other shell updates keep the old array.
+      if (
+        previous.length === next.length &&
+        previous.every(
+          (thread, index) => thread.id === next[index]?.id && thread.title === next[index]?.title,
+        )
+      ) {
+        return previous;
+      }
+      previous = next;
+      return next;
+    }).pipe(Atom.withLabel(`environment-side-chats:${key}`));
+  });
+
   const threadShellsForProjectRefsAtomFamily = Atom.family((key: string) => {
     const projectRefs = parseProjectRefCollectionKey(key);
     let previous: ReadonlyArray<EnvironmentThreadShell> = [];
@@ -249,7 +277,11 @@ export function createEnvironmentThreadShellAtoms(input: {
     const next: EnvironmentThreadShell[] = [];
     for (const environmentId of enabledEnvironmentIds(get(input.catalogValueAtom))) {
       for (const thread of get(environmentThreadsAtom(environmentId))) {
-        if (thread.archivedAt !== null || thread.lineage.relationshipToParent === "subagent")
+        if (
+          thread.archivedAt !== null ||
+          thread.lineage.relationshipToParent === "subagent" ||
+          thread.sideChat === true
+        )
           continue;
         next.push(scopedThread(environmentId, thread));
       }
@@ -271,5 +303,6 @@ export function createEnvironmentThreadShellAtoms(input: {
       threadShellsForProjectRefsAtomFamily(projectRefCollectionKey(refs)),
     threadShellAtom: (ref: ScopedThreadRef) => threadShellAtomFamily(threadKey(ref)),
     childThreadInputsAtom: (ref: ScopedThreadRef) => childThreadInputsAtomFamily(threadKey(ref)),
+    sideChatsAtom: (ref: ScopedThreadRef) => sideChatsAtomFamily(threadKey(ref)),
   };
 }
