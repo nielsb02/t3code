@@ -567,6 +567,7 @@ import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerHandleContext } from "../composerHandleContext";
 import { ChatPaneScope, ownsChatPaneInput, useChatPaneActive } from "../chatPaneScope";
 import { requestSideChatStart, subscribeSideChatStart } from "./chat/sideChatActionBus";
+import { SideChatMenuItems } from "./chat/SideChatMenu";
 import {
   awaitAttachmentUploads,
   getUploadedAttachments,
@@ -8894,6 +8895,15 @@ function ChatViewContent(props: ChatViewProps) {
     if (embedded) return;
     return subscribeSideChatStart(() => void onStartSideChat(null));
   }, [embedded, onStartSideChat]);
+  const sideChatShortcutLabel = shortcutLabelForCommand(keybindings, "thread.sideChat");
+  const sideChatMenuItems =
+    !embedded && isServerThread && activeThreadRef ? (
+      <SideChatMenuItems
+        parentRef={activeThreadRef}
+        shortcutLabel={sideChatShortcutLabel ?? null}
+        onNewSideChat={() => void onStartSideChat(null)}
+      />
+    ) : null;
   const onCompactContext = () => {
     if (compactDisabled) return;
     void sendStandaloneCommand("/compact", "Failed to compact context.");
@@ -12301,6 +12311,7 @@ function ChatViewContent(props: ChatViewProps) {
           previewRuntimeTabId={resolvePreviewRuntimeTabId}
           terminalLabelsById={activeTerminalLabelsById}
           sideChatTitlesById={sideChatTitlesById}
+          addMenuExtras={sideChatMenuItems}
           onActivate={activateRightPanelSurface}
           onCloseSurface={closeRightPanelSurface}
           onRenameDevice={(surfaceId, title) => {
@@ -12361,6 +12372,7 @@ function ChatViewContent(props: ChatViewProps) {
             previewRuntimeTabId={resolvePreviewRuntimeTabId}
             terminalLabelsById={activeTerminalLabelsById}
             sideChatTitlesById={sideChatTitlesById}
+            addMenuExtras={sideChatMenuItems}
             onActivate={activateRightPanelSurface}
             onCloseSurface={closeRightPanelSurface}
             onRenameDevice={(surfaceId, title) => {

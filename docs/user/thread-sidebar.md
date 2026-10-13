@@ -249,9 +249,12 @@ starts one, or merges the side chat so the thread receives it with your next
 message there. It reports back on its own only when a finding clearly changes the
 thread's current work.
 
-Close a side chat by closing its tab; the archive notice offers Undo. Settling,
-archiving or deleting the thread closes all of its side chats. Side chats do not
-appear in the sidebar.
+Close a side chat by closing its tab; the notice offers Undo. Settling or
+archiving the thread, including automatic settlement, closes all of its side
+chats. Closed side chats stay listed under **+ → Closed side chats** in the
+thread's right panel, where you can reopen or delete them. They are never deleted
+automatically, except that deleting the thread deletes its side chats too. Side
+chats do not appear in the sidebar or under Settings → Archived.
 
 **Fork from this response** is separate: it starts an ordinary thread that
 continues from that answer. While another active thread still uses a worktree,

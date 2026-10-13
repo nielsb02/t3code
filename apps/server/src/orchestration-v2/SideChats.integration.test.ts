@@ -29,6 +29,7 @@ import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Schedule from "effect/Schedule";
 import type * as Scope from "effect/Scope";
 import type * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
@@ -492,6 +493,56 @@ it.live("closes open side chats when their main thread settles, and their own wh
       assert.isNotNull((yield* orchestrator.getThreadShell(sideChatThreadId))?.archivedAt);
       // Native forks are ordinary threads and stay open.
       assert.isNull((yield* orchestrator.getThreadShell(nativeForkThreadId))?.archivedAt);
+    }),
+  ),
+);
+
+it.live("deletes a main thread's side chats with it, closed ones included, but not its forks", () =>
+  sideChatTest("side-chats-delete", ({ cwd }) =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      yield* (yield* SideChatReactor.make).start();
+      const sourceRun = yield* createParentAndSideChat(cwd);
+      const closedThreadId = ThreadId.make("thread:side-chats:closed");
+      yield* fork({
+        targetThreadId: closedThreadId,
+        sourcePoint: { type: "run", runId: sourceRun.id },
+        sideChat: true,
+      });
+      yield* fork({
+        targetThreadId: nativeForkThreadId,
+        sourcePoint: { type: "run", runId: sourceRun.id },
+        sideChat: false,
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("command:side-chats:close"),
+        threadId: closedThreadId,
+      });
+
+      yield* orchestrator.dispatch({
+        type: "thread.delete",
+        commandId: CommandId.make("command:side-chats:delete-parent"),
+        threadId: parentThreadId,
+      });
+      // The reactor deletes them after the parent's event; deleted threads leave the shell.
+      const remaining = orchestrator
+        .getThreadShell(sideChatThreadId)
+        .pipe(
+          Effect.zipWith(orchestrator.getThreadShell(closedThreadId), (open, closed) =>
+            [open, closed].filter((shell) => shell !== null),
+          ),
+        );
+      yield* remaining.pipe(
+        Effect.repeat({
+          schedule: Schedule.spaced("100 millis"),
+          until: (left) => left.length === 0,
+        }),
+        Effect.timeout("20 seconds"),
+      );
+      const nativeFork = yield* orchestrator.getThreadShell(nativeForkThreadId);
+      assert.isNotNull(nativeFork);
+      assert.isNull(nativeFork?.deletedAt ?? null);
     }),
   ),
 );

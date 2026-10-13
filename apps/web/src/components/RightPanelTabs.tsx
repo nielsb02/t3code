@@ -124,6 +124,8 @@ interface RightPanelTabsProps {
   terminalLabelsById: ReadonlyMap<string, string>;
   /** Micro fork: side chat titles by thread id. */
   sideChatTitlesById?: ReadonlyMap<string, string> | undefined;
+  /** Micro fork: extra entries at the end of the add-surface menu (side chats). */
+  addMenuExtras?: ReactNode;
   onActivate: (surface: RightPanelSurface) => void;
   onRenameDevice?: (surfaceId: string, title: string) => void;
   onCloseSurface: (surface: RightPanelSurface) => void;
@@ -1423,6 +1425,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                       </SurfaceMenuItem>
                     );
                   })}
+                  {props.addMenuExtras}
                 </MenuPopup>
               </Menu>
             ) : null}
