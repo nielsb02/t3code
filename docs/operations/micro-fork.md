@@ -1,7 +1,7 @@
 # Maintaining the Micro Manager fork
 
 The `main` branch contains upstream T3 Code plus desktop session opening,
-Micro controls, multi-repository workspaces, and fork additions to side chats.
+Micro controls, multi-repository workspaces, and side chats.
 The fork's GitHub Actions workflow runs daily at 04:37 UTC, on pushes to `main`,
 and manually from **Actions → Micro desktop release**.
 
@@ -144,9 +144,10 @@ Orchestration V2:
   removed rather than kept as a second renderer.
 - **Settlement cleanup actions.** Upstream's `runOnSettle` project action replaces
   the fork's `runOnThreadSettle`.
-- **Side chat context transfers.** Side chats are upstream forks. The fork keeps
-  only the additions described in [side chats](../user/thread-sidebar.md#side-chats).
-  Side chats from earlier builds are imported like any V1 thread: the transcript
+- **Side chat context transfers.** Side chats are upstream forks marked `sideChat`
+  on the thread, shown as tabs inside it; see
+  [side chats](../user/thread-sidebar.md#side-chats). Upstream's fork button and
+  forks are unchanged. Side chats from earlier builds are imported like any V1 thread: the transcript
   and worktree carry over, but not the link to the parent thread, so they appear
   as ordinary threads and cannot be merged back. Archive the ones still open
   before upgrading if they are no longer needed.

@@ -62,6 +62,8 @@ export interface ThreadForkServiceV2Shape {
     readonly transferId: ContextTransferId;
     readonly targetThreadId: ThreadId;
     readonly title?: string;
+    /** Show the fork inside its parent thread (Micro fork). */
+    readonly sideChat?: boolean;
     readonly createdBy: OrchestrationV2Actor;
     readonly creationSource: OrchestrationV2CreationSource;
     readonly createdAt: DateTime.Utc;
@@ -85,8 +87,11 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
             cause: forkableSourceRunStatusError(input.sourceRun),
           });
         }
+        // A side chat's own forks are ordinary forks unless asked otherwise.
+        const { sideChat: _sourceSideChat, ...sourceThread } = input.sourceProjection.thread;
         const targetThread: OrchestrationV2AppThread = {
-          ...input.sourceProjection.thread,
+          ...sourceThread,
+          ...(input.sideChat === true ? { sideChat: true } : {}),
           createdBy: input.createdBy,
           creationSource: input.creationSource,
           id: input.targetThreadId,

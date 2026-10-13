@@ -27,13 +27,18 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
+import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Schedule from "effect/Schedule";
 import type * as Scope from "effect/Scope";
+import type * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
+import * as SideChatReactor from "./SideChatReactor.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
 
@@ -47,7 +52,8 @@ const capabilities: OrchestrationV2ProviderCapabilities = {
 };
 const projectId = ProjectId.make("project:side-chats");
 const parentThreadId = ThreadId.make("thread:side-chats:parent");
-const forkThreadId = ThreadId.make("thread:side-chats:fork");
+const sideChatThreadId = ThreadId.make("thread:side-chats:side-chat");
+const nativeForkThreadId = ThreadId.make("thread:side-chats:native-fork");
 
 interface CapturedTurn {
   readonly threadId: ThreadId;
@@ -228,7 +234,10 @@ const sideChatTest = <A, E>(
   }) => Effect.Effect<
     A,
     E,
-    Orchestrator.OrchestratorV2 | ThreadManagementService.ThreadManagementService | Scope.Scope
+    | Orchestrator.OrchestratorV2
+    | ThreadManagementService.ThreadManagementService
+    | SqlClient.SqlClient
+    | Scope.Scope
   >,
 ) =>
   Effect.scoped(
@@ -236,13 +245,17 @@ const sideChatTest = <A, E>(
       const cwd = yield* checkpointWorkspace(name);
       const captured = yield* Ref.make<ReadonlyArray<CapturedTurn>>([]);
       const gates = new Map<string, Deferred.Deferred<void>>();
+      // Shared with the reactor, which reads side chats straight from the projections.
+      const layerDatabase = SqlitePersistence.layerMemory;
       const layerOrchestrator = ProviderReplayHarness.layerWithRegistry(
         { name },
         ProviderAdapterRegistry.layerSingle(makeAdapter({ captured, gates })),
+        { databaseLayer: layerDatabase },
       );
       return yield* body({ cwd, captured, gates }).pipe(
         Effect.provide(
-          Layer.merge(
+          Layer.mergeAll(
+            layerDatabase,
             layerOrchestrator,
             ThreadManagementService.layer.pipe(Layer.provide(layerOrchestrator)),
           ),
@@ -284,7 +297,8 @@ const sendAndWait = (threadId: ThreadId, text: string) =>
     return run;
   });
 
-const createParentAndFork = (cwd: string) =>
+/** Creates the main thread and returns its first, completed run. */
+const createParent = (cwd: string) =>
   Effect.gen(function* () {
     const orchestrator = yield* Orchestrator.OrchestratorV2;
     yield* orchestrator.dispatch({
@@ -301,16 +315,40 @@ const createParentAndFork = (cwd: string) =>
       branch: null,
       worktreePath: cwd,
     });
-    const sourceRun = yield* sendAndWait(parentThreadId, "parent one");
+    return yield* sendAndWait(parentThreadId, "parent one");
+  });
+
+const fork = (input: {
+  readonly sourceThreadId?: ThreadId;
+  readonly targetThreadId: ThreadId;
+  readonly sourcePoint:
+    | { readonly type: "latest_stable" }
+    | { readonly type: "run"; readonly runId: RunId };
+  readonly sideChat: boolean;
+}) =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
     yield* orchestrator.dispatch({
       type: "thread.fork",
       createdBy: "user",
       creationSource: "web",
-      commandId: CommandId.make("command:side-chats:fork"),
-      sourceThreadId: parentThreadId,
-      targetThreadId: forkThreadId,
-      sourcePoint: { type: "run", runId: sourceRun.id },
+      commandId: CommandId.make(`command:side-chats:fork:${input.targetThreadId}`),
+      sourceThreadId: input.sourceThreadId ?? parentThreadId,
+      targetThreadId: input.targetThreadId,
+      sourcePoint: input.sourcePoint,
+      ...(input.sideChat ? { sideChat: true } : {}),
     });
+  });
+
+const createParentAndSideChat = (cwd: string) =>
+  Effect.gen(function* () {
+    const sourceRun = yield* createParent(cwd);
+    yield* fork({
+      targetThreadId: sideChatThreadId,
+      sourcePoint: { type: "run", runId: sourceRun.id },
+      sideChat: true,
+    });
+    return sourceRun;
   });
 
 /** Sends `text` and returns once its provider turn is running. */
@@ -352,47 +390,159 @@ const awaitEventAfter = <A, E, R>(
     return yield* Fiber.join(next);
   });
 
-it.live("tells a fork how to report back and points it at parent runs it has not seen", () =>
-  sideChatTest("side-chats-notice", ({ cwd, captured }) =>
+it.live(
+  "briefs a side chat on its first turn only, and never a native fork or the main thread",
+  () =>
+    sideChatTest("side-chats-brief", ({ cwd, captured }) =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const sourceRun = yield* createParentAndSideChat(cwd);
+        yield* fork({
+          targetThreadId: nativeForkThreadId,
+          sourcePoint: { type: "run", runId: sourceRun.id },
+          sideChat: false,
+        });
+        assert.isTrue((yield* orchestrator.getThreadShell(sideChatThreadId))?.sideChat);
+        assert.isUndefined((yield* orchestrator.getThreadShell(nativeForkThreadId))?.sideChat);
+
+        const first = yield* sendAndWait(sideChatThreadId, "side one");
+        const firstText = turnText(yield* Ref.get(captured), first.id);
+        assert.include(firstText, `Side chat: this thread is a side chat of "Parent work"`);
+        assert.include(firstText, "forked after its run 1.");
+        assert.isTrue(firstText.endsWith("User message:\nside one"));
+
+        // The brief is already in this conversation.
+        const second = yield* sendAndWait(sideChatThreadId, "side two");
+        assert.equal(turnText(yield* Ref.get(captured), second.id), "side two");
+
+        const native = yield* sendAndWait(nativeForkThreadId, "native one");
+        assert.notInclude(turnText(yield* Ref.get(captured), native.id), "Side chat:");
+        const parentTurns = (yield* Ref.get(captured)).filter(
+          (turn) => turn.threadId === parentThreadId,
+        );
+        assert.isTrue(parentTurns.every((turn) => !turn.text.includes("Side chat:")));
+      }),
+    ),
+);
+
+it.live("starts a side chat from the latest finished run while the main thread keeps running", () =>
+  sideChatTest("side-chats-while-running", ({ cwd, gates }) =>
     Effect.gen(function* () {
-      const service = yield* threads;
-      yield* createParentAndFork(cwd);
-      const parentTwo = yield* sendAndWait(parentThreadId, "parent two");
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const sourceRun = yield* createParent(cwd);
+      const gate = yield* Deferred.make<void>();
+      gates.set("parent two", gate);
+      const running = yield* sendWhileRunning(parentThreadId, "parent two");
 
-      const forkOne = yield* sendAndWait(forkThreadId, "fork one");
-      const first = turnText(yield* Ref.get(captured), forkOne.id);
-      assert.include(first, `Side chat: this thread is a fork of "Parent work"`);
-      assert.include(first, "at its run 1.");
-      // The parent runs in a worktree, which t3_worktree_handoff cannot move a thread out of.
-      assert.include(first, "shares the parent's worktree");
-      assert.include(first, "completed 1 run you have not seen (run 2)");
-      // A pointer only: the parent's output is read through t3_thread_read.
-      assert.notInclude(first, "answer:parent two");
-      assert.isTrue(first.endsWith("User message:\nfork one"));
-      const afterPosition = Number(/"afterPosition":(\d+)/.exec(first)?.[1]);
-      const catchUp = yield* service.getTimelinePage(parentThreadId, {
-        afterPosition,
-        view: "messages",
-        limit: 1,
+      yield* fork({
+        targetThreadId: sideChatThreadId,
+        sourcePoint: { type: "latest_stable" },
+        sideChat: true,
       });
-      assert.equal(catchUp.items[0]?.item.runId, parentTwo.id);
+      assert.deepStrictEqual((yield* orchestrator.getThreadShell(sideChatThreadId))?.forkedFrom, {
+        type: "run",
+        threadId: parentThreadId,
+        runId: sourceRun.id,
+      });
+      yield* sendAndWait(sideChatThreadId, "side question");
+      assert.equal((yield* orchestrator.getThreadShell(parentThreadId))?.activeRunId, running.id);
 
-      // Nothing new on the parent, and the instructions are already in this conversation.
-      const forkTwo = yield* sendAndWait(forkThreadId, "fork two");
-      assert.equal(turnText(yield* Ref.get(captured), forkTwo.id), "fork two");
+      yield* Deferred.succeed(gate, undefined);
+      const waited = yield* (yield* threads).waitForThread({
+        projectId,
+        threadId: parentThreadId,
+        runId: running.id,
+        timeoutMs: 60_000,
+      });
+      assert.equal(waited.run?.status, "completed");
+    }),
+  ),
+);
 
-      yield* sendAndWait(parentThreadId, "parent three");
-      const forkThree = yield* sendAndWait(forkThreadId, "fork three");
-      const third = turnText(yield* Ref.get(captured), forkThree.id);
-      assert.notInclude(third, "Side chat:");
-      assert.include(third, "completed 1 run you have not seen (run 3)");
-      assert.notInclude(third, "run 2");
+it.live("closes open side chats when their main thread settles, and their own when archived", () =>
+  sideChatTest("side-chats-close", ({ cwd }) =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      yield* (yield* SideChatReactor.make).start();
+      const sourceRun = yield* createParentAndSideChat(cwd);
+      yield* fork({
+        targetThreadId: nativeForkThreadId,
+        sourcePoint: { type: "run", runId: sourceRun.id },
+        sideChat: false,
+      });
+      // A side chat of the side chat closes when the side chat is archived.
+      yield* sendAndWait(sideChatThreadId, "side one");
+      const nestedThreadId = ThreadId.make("thread:side-chats:nested");
+      yield* fork({
+        sourceThreadId: sideChatThreadId,
+        targetThreadId: nestedThreadId,
+        sourcePoint: { type: "latest_stable" },
+        sideChat: true,
+      });
 
-      // The parent itself is not a fork.
-      const parentRuns = (yield* Ref.get(captured)).filter(
-        (turn) => turn.threadId === parentThreadId,
+      const nestedArchived = yield* awaitEventAfter(
+        nestedThreadId,
+        (event) => event.type === "thread.archived",
+        orchestrator.dispatch({
+          type: "thread.settle",
+          commandId: CommandId.make("command:side-chats:settle"),
+          threadId: parentThreadId,
+        }),
       );
-      assert.isTrue(parentRuns.every((turn) => !turn.text.includes("Side chat:")));
+      assert.isTrue(Option.isSome(nestedArchived));
+      assert.isNotNull((yield* orchestrator.getThreadShell(sideChatThreadId))?.archivedAt);
+      // Native forks are ordinary threads and stay open.
+      assert.isNull((yield* orchestrator.getThreadShell(nativeForkThreadId))?.archivedAt);
+    }),
+  ),
+);
+
+it.live("deletes a main thread's side chats with it, closed ones included, but not its forks", () =>
+  sideChatTest("side-chats-delete", ({ cwd }) =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      yield* (yield* SideChatReactor.make).start();
+      const sourceRun = yield* createParentAndSideChat(cwd);
+      const closedThreadId = ThreadId.make("thread:side-chats:closed");
+      yield* fork({
+        targetThreadId: closedThreadId,
+        sourcePoint: { type: "run", runId: sourceRun.id },
+        sideChat: true,
+      });
+      yield* fork({
+        targetThreadId: nativeForkThreadId,
+        sourcePoint: { type: "run", runId: sourceRun.id },
+        sideChat: false,
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("command:side-chats:close"),
+        threadId: closedThreadId,
+      });
+
+      yield* orchestrator.dispatch({
+        type: "thread.delete",
+        commandId: CommandId.make("command:side-chats:delete-parent"),
+        threadId: parentThreadId,
+      });
+      // The reactor deletes them after the parent's event; deleted threads leave the shell.
+      const remaining = orchestrator
+        .getThreadShell(sideChatThreadId)
+        .pipe(
+          Effect.zipWith(orchestrator.getThreadShell(closedThreadId), (open, closed) =>
+            [open, closed].filter((shell) => shell !== null),
+          ),
+        );
+      yield* remaining.pipe(
+        Effect.repeat({
+          schedule: Schedule.spaced("100 millis"),
+          until: (left) => left.length === 0,
+        }),
+        Effect.timeout("20 seconds"),
+      );
+      const nativeFork = yield* orchestrator.getThreadShell(nativeForkThreadId);
+      assert.isNotNull(nativeFork);
+      assert.isNull(nativeFork?.deletedAt ?? null);
     }),
   ),
 );
@@ -401,12 +551,12 @@ it.live("merges a fork's own turn back only once that turn completes", () =>
   sideChatTest("side-chats-deferred-merge", ({ cwd, gates }) =>
     Effect.gen(function* () {
       const service = yield* threads;
-      yield* createParentAndFork(cwd);
-      yield* sendAndWait(forkThreadId, "fork one");
+      yield* createParentAndSideChat(cwd);
+      yield* sendAndWait(sideChatThreadId, "fork one");
       const mergeBack = (commandName: string) =>
         service.mergeBack({
           commandId: CommandId.make(`command:side-chats:${commandName}`),
-          sourceThreadId: forkThreadId,
+          sourceThreadId: sideChatThreadId,
           targetThreadId: parentThreadId,
           byOwnAgent: true,
           createdBy: "agent",
@@ -421,7 +571,7 @@ it.live("merges a fork's own turn back only once that turn completes", () =>
 
       // An interrupted turn merges nothing.
       gates.set("fork interrupted", yield* Deferred.make<void>());
-      const interrupted = yield* sendWhileRunning(forkThreadId, "fork interrupted");
+      const interrupted = yield* sendWhileRunning(sideChatThreadId, "fork interrupted");
       assert.deepStrictEqual(yield* mergeBack("merge-interrupted"), {
         mergesWhenTurnEnds: true,
         sourceRunId: interrupted.id,
@@ -429,12 +579,12 @@ it.live("merges a fork's own turn back only once that turn completes", () =>
       yield* service.interruptThread({
         projectId,
         commandId: CommandId.make("command:side-chats:interrupt"),
-        threadId: forkThreadId,
+        threadId: sideChatThreadId,
         runId: interrupted.id,
       });
       const interruptedRun = yield* service.waitForThread({
         projectId,
-        threadId: forkThreadId,
+        threadId: sideChatThreadId,
         runId: interrupted.id,
         timeoutMs: 60_000,
       });
@@ -442,7 +592,7 @@ it.live("merges a fork's own turn back only once that turn completes", () =>
 
       const gate = yield* Deferred.make<void>();
       gates.set("fork report", gate);
-      const report = yield* sendWhileRunning(forkThreadId, "fork report");
+      const report = yield* sendWhileRunning(sideChatThreadId, "fork report");
       assert.deepStrictEqual(yield* mergeBack("merge-report"), {
         mergesWhenTurnEnds: true,
         sourceRunId: report.id,
@@ -465,58 +615,13 @@ it.live("merges a fork's own turn back only once that turn completes", () =>
         service.mergeBack({
           commandId: CommandId.make("command:side-chats:merge-wrong-target"),
           sourceThreadId: parentThreadId,
-          targetThreadId: forkThreadId,
+          targetThreadId: sideChatThreadId,
           byOwnAgent: false,
           createdBy: "agent",
           creationSource: "mcp",
         }),
       );
       assert.equal(notParent._tag, "OrchestratorDispatchError");
-    }),
-  ),
-);
-
-it.live("cancels a pending merge-back so the parent's next turn does not receive it", () =>
-  sideChatTest("side-chats-cancel-merge", ({ cwd, captured }) =>
-    Effect.gen(function* () {
-      const service = yield* threads;
-      yield* createParentAndFork(cwd);
-      yield* sendAndWait(forkThreadId, "fork one");
-      yield* service.mergeBack({
-        commandId: CommandId.make("command:side-chats:merge"),
-        sourceThreadId: forkThreadId,
-        targetThreadId: parentThreadId,
-        byOwnAgent: false,
-        createdBy: "user",
-        creationSource: "web",
-      });
-      const pendingTransfer = (yield* service.getThreadRecords(parentThreadId, [
-        "contextTransfers",
-      ])).contextTransfers.find((transfer) => transfer.type === "merge_back");
-      assert.equal(pendingTransfer?.status, "pending");
-      const cancel = (commandName: string) =>
-        service.dispatch({
-          type: "thread.merge_back.cancel",
-          commandId: CommandId.make(`command:side-chats:${commandName}`),
-          threadId: parentThreadId,
-          transferId: pendingTransfer!.id,
-        });
-
-      yield* cancel("cancel");
-      const cancelled = (yield* service.getThreadRecords(parentThreadId, [
-        "contextTransfers",
-      ])).contextTransfers.find((transfer) => transfer.id === pendingTransfer!.id);
-      assert.equal(cancelled?.status, "superseded");
-      assert.equal(cancelled?.error, Orchestrator.MERGE_BACK_CANCELLED_ERROR);
-      const again = yield* Effect.flip(cancel("cancel-again"));
-      assert.equal(again._tag, "OrchestratorDispatchError");
-
-      const next = yield* sendAndWait(parentThreadId, "parent two");
-      assert.equal(turnText(yield* Ref.get(captured), next.id), "parent two");
-      const { contextHandoffs } = yield* service.getThreadRecords(parentThreadId, [
-        "contextHandoffs",
-      ]);
-      assert.isTrue(contextHandoffs.every((handoff) => handoff.transferId !== pendingTransfer!.id));
     }),
   ),
 );

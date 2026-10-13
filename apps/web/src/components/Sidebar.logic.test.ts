@@ -427,6 +427,17 @@ describe("sidebar thread lineage helpers", () => {
         relationshipToParent: "fork",
       },
     });
+    const sideChat = makeThreadFixture({
+      id: ThreadId.make("thread-side-chat"),
+      environmentId,
+      projectId,
+      lineage: {
+        rootThreadId: parentId,
+        parentThreadId: parentId,
+        relationshipToParent: "fork",
+      },
+      sideChat: true,
+    });
     const archived = makeThreadFixture({
       id: ThreadId.make("thread-archived"),
       environmentId,
@@ -441,7 +452,7 @@ describe("sidebar thread lineage helpers", () => {
 
     expect(
       filterSidebarV2VisibleThreads(
-        [root, subagent, fork, archived, otherProject],
+        [root, subagent, fork, sideChat, archived, otherProject],
         new Set([`${environmentId}:${projectId}`]),
       ).map((thread) => thread.id),
     ).toEqual([parentId, fork.id]);

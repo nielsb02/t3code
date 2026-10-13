@@ -30,6 +30,45 @@ beforeEach(() => {
 });
 
 describe("rightPanelStore", () => {
+  it("keeps one side chat tab per open side chat without opening the panel", () => {
+    const store = useRightPanelStore.getState();
+    const first = ThreadId.make("side-chat-1");
+    const second = ThreadId.make("side-chat-2");
+    store.openFile(refA, "src/app.ts");
+    store.close(refA);
+
+    store.reconcileSideChatSurfaces(refA, [first, second]);
+    let state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.isOpen).toBe(false);
+    expect(state.surfaces.map((surface) => surface.id)).toEqual([
+      "file:src/app.ts",
+      `side-chat:${first}`,
+      `side-chat:${second}`,
+    ]);
+
+    store.openSideChat(refA, second);
+    state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.isOpen).toBe(true);
+    expect(state.activeSurfaceId).toBe(`side-chat:${second}`);
+
+    // Settling the main thread closed the active side chat on the server.
+    store.reconcileSideChatSurfaces(refA, [first]);
+    state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.surfaces.map((surface) => surface.id)).toEqual([
+      "file:src/app.ts",
+      `side-chat:${first}`,
+    ]);
+    expect(state.activeSurfaceId).toBe(`side-chat:${first}`);
+  });
+
+  it("does not offer a closed side chat tab for reopening", () => {
+    const store = useRightPanelStore.getState();
+    const sideChat = ThreadId.make("side-chat-1");
+    store.openSideChat(refA, sideChat);
+    store.closeSurface(refA, `side-chat:${sideChat}`);
+    expect(useClosedViewStore.getState().entries).toEqual([]);
+  });
+
   it("records single and bulk tab closes, newest first", () => {
     const store = useRightPanelStore.getState();
     const pr = pullRequestSurface({

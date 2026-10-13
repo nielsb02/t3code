@@ -488,8 +488,6 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
       return command.parentThreadId;
     case "secret_request.record":
       return command.threadId;
-    case "thread.merge_back.cancel":
-      return command.threadId;
     case "thread.fork":
     case "thread.merge_back":
       return command.targetThreadId;
@@ -703,8 +701,6 @@ function pendingForkTransferForThread(
       transfer.status === "pending",
   );
 }
-
-export const MERGE_BACK_CANCELLED_ERROR = "Merge-back cancelled by the user.";
 
 function pendingMergeBackTransfersForThread(
   projection: Pick<OrchestrationV2ThreadProjection, "contextTransfers" | "thread">,
@@ -3589,6 +3585,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         transferId,
         targetThreadId: command.targetThreadId,
         ...(command.title === undefined ? {} : { title: command.title }),
+        ...(command.sideChat === true ? { sideChat: true } : {}),
         createdBy: command.createdBy,
         creationSource: command.creationSource,
         createdAt: now,
@@ -3756,55 +3753,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       payload: transfer,
     });
   });
-
-  // Reuses `superseded` so clients that predate cancellation still decode
-  // the transfer; the error says who withdrew it.
-  const dispatchThreadMergeBackCancel = Effect.fn("orchestrationV2.dispatch.threadMergeBackCancel")(
-    function* (
-      command: Extract<OrchestrationV2Command, { readonly type: "thread.merge_back.cancel" }>,
-      events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
-    ) {
-      const projection = yield* loadProjectionForCommand(command, ["contextTransfers"]);
-      const transfer = projection.contextTransfers.find(
-        (candidate) =>
-          candidate.id === command.transferId &&
-          candidate.type === "merge_back" &&
-          candidate.targetThreadId === command.threadId,
-      );
-      if (transfer === undefined) {
-        return yield* new OrchestratorDispatchError({
-          commandId: command.commandId,
-          commandType: command.type,
-          cause: `Thread ${command.threadId} has no merge-back transfer ${command.transferId}.`,
-        });
-      }
-      if (transfer.status !== "pending") {
-        return yield* new OrchestratorDispatchError({
-          commandId: command.commandId,
-          commandType: command.type,
-          cause: `Merge-back transfer ${transfer.id} is ${transfer.status}; only a pending merge-back can be cancelled.`,
-        });
-      }
-      const now = yield* DateTime.now;
-      yield* emit(
-        events,
-        command,
-      )({
-        type: "context-transfer.updated",
-        threadId: command.threadId,
-        ...(transfer.sourceProviderInstanceId === null
-          ? {}
-          : { providerInstanceId: transfer.sourceProviderInstanceId }),
-        occurredAt: now,
-        payload: {
-          ...transfer,
-          status: "superseded",
-          error: MERGE_BACK_CANCELLED_ERROR,
-          updatedAt: now,
-        },
-      });
-    },
-  );
 
   const dispatchSteerIntoRun = (input: {
     readonly command: Extract<
@@ -10888,9 +10836,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       case "thread.merge_back":
         yield* dispatchThreadMergeBack(command, events);
-        break;
-      case "thread.merge_back.cancel":
-        yield* dispatchThreadMergeBackCancel(command, events);
         break;
       case "delegated_task.request":
         yield* dispatchDelegatedTaskRequest(command, events, effects);

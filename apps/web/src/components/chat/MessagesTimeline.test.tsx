@@ -1658,6 +1658,65 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('aria-label="Fork from this response"');
   });
 
+  it("offers a side chat only on the open thread's own completed answers", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const render = (sideChatSourceThreadId: string | null) =>
+      renderToStaticMarkup(
+        <MessagesTimeline
+          {...buildProps()}
+          sideChatSourceThreadId={sideChatSourceThreadId as never}
+          onSideChatFromRun={async () => {}}
+          timelineEntries={[
+            {
+              id: "assistant-message-1",
+              kind: "message",
+              createdAt: MESSAGE_CREATED_AT,
+              projectedItem: {
+                position: 0,
+                visibility: "local",
+                sourceThreadId: "thread-1",
+                sourceItemId: "assistant-item-1",
+                item: {
+                  id: "assistant-item-1",
+                  threadId: "thread-1",
+                  runId: "run-1",
+                  nodeId: null,
+                  providerThreadId: null,
+                  providerTurnId: null,
+                  nativeItemRef: null,
+                  parentItemId: null,
+                  ordinal: 0,
+                  status: "completed",
+                  title: null,
+                  startedAt: null,
+                  completedAt: null,
+                  updatedAt: {},
+                  type: "assistant_message",
+                  messageId: "assistant-message-1",
+                  text: "Done",
+                  streaming: false,
+                },
+              } as never,
+              message: {
+                id: MessageId.make("assistant-message-1"),
+                role: "assistant",
+                text: "Done",
+                runId: RunId.make("run-1"),
+                createdAt: MESSAGE_CREATED_AT,
+                updatedAt: MESSAGE_CREATED_AT,
+                streaming: false,
+              },
+            },
+          ]}
+        />,
+      );
+
+    expect(render("thread-1")).toContain('aria-label="Side chat from this response"');
+    // Inherited from a parent thread, or inside a side chat: no side chat here.
+    expect(render("thread-2")).not.toContain('aria-label="Side chat from this response"');
+    expect(render(null)).not.toContain('aria-label="Side chat from this response"');
+  });
+
   it("renders inline terminal labels with the composer chip UI", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(

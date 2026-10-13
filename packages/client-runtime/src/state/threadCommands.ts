@@ -28,8 +28,8 @@ import {
   type InterruptThreadTurnInput,
   type MarkThreadUnreadInput,
   type ForkThreadFromRunInput,
+  type StartSideChatInput,
   type MergeThreadBackInput,
-  type CancelMergeBackInput,
   type PromoteQueuedRunInput,
   type ReorderQueuedRunInput,
   type LinkThreadPullRequestInput,
@@ -62,9 +62,9 @@ import {
   editQueuedRun,
   interruptThreadTurn,
   forkThreadFromRun,
+  startSideChat,
   markThreadUnread,
   mergeThreadBack,
-  cancelMergeBack,
   promoteQueuedRun,
   reorderQueuedRun,
   resumeThreadQueue,
@@ -112,7 +112,6 @@ export type {
   MarkThreadUnreadInput,
   ForkThreadFromRunInput,
   MergeThreadBackInput,
-  CancelMergeBackInput,
   PromoteQueuedRunInput,
   ReorderQueuedRunInput,
   LinkThreadPullRequestInput,
@@ -329,6 +328,15 @@ export function createThreadEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) => JSON.stringify([environmentId, input.sourceThreadId]),
       },
     }),
+    startSideChat: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:start-side-chat",
+      execute: (input: StartSideChatInput) => startSideChat(input),
+      scheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.sourceThreadId]),
+      },
+    }),
     mergeBack: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:merge-back",
       execute: (input: MergeThreadBackInput) => mergeThreadBack(input),
@@ -338,12 +346,6 @@ export function createThreadEnvironmentAtoms<R, E>(
         key: ({ environmentId, input }) =>
           JSON.stringify([environmentId, input.sourceThreadId, input.targetThreadId]),
       },
-    }),
-    cancelMergeBack: createEnvironmentCommand(runtime, {
-      label: "environment-data:commands:thread:cancel-merge-back",
-      execute: (input: CancelMergeBackInput) => cancelMergeBack(input),
-      scheduler,
-      concurrency,
     }),
     resumeThreadQueue: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:resume-queue",

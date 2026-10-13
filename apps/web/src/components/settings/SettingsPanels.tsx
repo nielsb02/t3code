@@ -3436,8 +3436,11 @@ export function ArchivedThreadsPanel() {
           ),
       ),
     );
+    // Micro fork: closed side chats are listed in their thread's add-surface menu instead.
     const threads = archivedSnapshots.flatMap(({ environmentId, snapshot }) =>
-      snapshot.threads.map((thread) => presentThreadShell(environmentId, thread)),
+      snapshot.threads
+        .filter((thread) => thread.sideChat !== true)
+        .map((thread) => presentThreadShell(environmentId, thread)),
     );
 
     const archivedProjects = Array.from(projectsByEnvironmentAndId.values());

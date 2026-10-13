@@ -27,7 +27,6 @@ import {
   THREAD_FORK_NATIVE_SOURCE_PROMPT,
   THREAD_FORK_NATIVE_TARGET_PROMPT,
 } from "./fixtures/shared.ts";
-import { materializeReplayTranscriptForkInstructions } from "./ForkTurnNoteReplay.ts";
 import { runOrchestratorV2ProviderReplayScenario } from "./ProviderReplayHarness.ts";
 import {
   decodeProviderReplayNdjson,
@@ -151,6 +150,9 @@ describe("orchestration V2 thread fork", () => {
             Effect.orDie,
           ),
         );
+        const transcript = yield* CodexOrchestratorReplayHarness.decodeTranscript(
+          materializeReplayTranscriptWorkspace(rawTranscript, cwd),
+        );
 
         const materialized = yield* Effect.gen(function* () {
           const ids = yield* IdAllocator.IdAllocatorV2;
@@ -238,22 +240,10 @@ describe("orchestration V2 thread fork", () => {
           };
         }).pipe(Effect.provide(IdAllocator.layer), provideDeterministicTestRuntime);
 
-        // Recorded before forks received instructions on their first turn.
-        const forkTranscript = yield* CodexOrchestratorReplayHarness.decodeTranscript(
-          materializeReplayTranscriptForkInstructions(
-            materializeReplayTranscriptWorkspace(rawTranscript, cwd),
-            {
-              prompt: THREAD_FORK_NATIVE_TARGET_PROMPT,
-              parentThreadId: materialized.sourceThreadId,
-              parentTitle: "Source thread",
-              sourceRunOrdinal: 1,
-            },
-          ),
-        );
         const result = yield* runOrchestratorV2ProviderReplayScenario(
           {
             name: "thread_fork_native/codex",
-            transcript: forkTranscript,
+            transcript,
             commands: materialized.commands,
             steps: [
               { type: "dispatch", command: materialized.commands[0]!, await: true },
@@ -416,19 +406,10 @@ describe("orchestration V2 thread fork", () => {
           };
         }).pipe(Effect.provide(IdAllocator.layer), provideDeterministicTestRuntime);
 
-        // Recorded before forks received instructions on their first turn.
-        const forkTranscript = yield* ClaudeOrchestratorReplayHarness.decodeTranscript(
-          materializeReplayTranscriptForkInstructions(rawTranscript, {
-            prompt: THREAD_FORK_NATIVE_TARGET_PROMPT,
-            parentThreadId: materialized.sourceThreadId,
-            parentTitle: "Source thread",
-            sourceRunOrdinal: 1,
-          }),
-        );
         const result = yield* runOrchestratorV2ProviderReplayScenario(
           {
             name: "thread_fork_native/claude",
-            transcript: forkTranscript,
+            transcript,
             commands: materialized.commands,
             steps: [
               { type: "dispatch", command: materialized.commands[0]!, await: true },
@@ -482,6 +463,9 @@ describe("orchestration V2 thread fork", () => {
           Effect.flatMap((fs) => fs.remove(directory, { recursive: true, force: true })),
           Effect.orDie,
         ),
+      );
+      const transcript = yield* CodexOrchestratorReplayHarness.decodeTranscript(
+        materializeReplayTranscriptWorkspace(rawTranscript, cwd),
       );
 
       const materialized = yield* Effect.gen(function* () {
@@ -578,22 +562,10 @@ describe("orchestration V2 thread fork", () => {
         };
       }).pipe(Effect.provide(IdAllocator.layer), provideDeterministicTestRuntime);
 
-      // Recorded before forks received instructions on their first turn.
-      const forkTranscript = yield* CodexOrchestratorReplayHarness.decodeTranscript(
-        materializeReplayTranscriptForkInstructions(
-          materializeReplayTranscriptWorkspace(rawTranscript, cwd),
-          {
-            prompt: THREAD_FORK_NATIVE_PRIOR_TURN_REPEAT_PROMPT,
-            parentThreadId: materialized.sourceThreadId,
-            parentTitle: "Source thread",
-            sourceRunOrdinal: 1,
-          },
-        ),
-      );
       const result = yield* runOrchestratorV2ProviderReplayScenario(
         {
           name: "thread_fork_native_prior_turn/codex",
-          transcript: forkTranscript,
+          transcript,
           commands: materialized.commands,
           steps: [
             { type: "dispatch", command: materialized.commands[0]!, await: true },
@@ -769,19 +741,10 @@ describe("orchestration V2 thread fork", () => {
         };
       }).pipe(Effect.provide(IdAllocator.layer), provideDeterministicTestRuntime);
 
-      // Recorded before forks received instructions on their first turn.
-      const forkTranscript = yield* ClaudeOrchestratorReplayHarness.decodeTranscript(
-        materializeReplayTranscriptForkInstructions(rawTranscript, {
-          prompt: THREAD_FORK_NATIVE_PRIOR_TURN_REPEAT_PROMPT,
-          parentThreadId: materialized.sourceThreadId,
-          parentTitle: "Source thread",
-          sourceRunOrdinal: 1,
-        }),
-      );
       const result = yield* runOrchestratorV2ProviderReplayScenario(
         {
           name: "thread_fork_native_prior_turn/claude",
-          transcript: forkTranscript,
+          transcript,
           commands: materialized.commands,
           steps: [
             { type: "dispatch", command: materialized.commands[0]!, await: true },
@@ -957,19 +920,10 @@ describe("orchestration V2 thread fork", () => {
         };
       }).pipe(Effect.provide(IdAllocator.layer), provideDeterministicTestRuntime);
 
-      // Recorded before forks received instructions on their first turn.
-      const forkTranscript = yield* ClaudeOrchestratorReplayHarness.decodeTranscript(
-        materializeReplayTranscriptForkInstructions(rawTranscript, {
-          prompt: THREAD_FORK_NATIVE_PRIOR_TURN_REPEAT_PROMPT,
-          parentThreadId: materialized.sourceThreadId,
-          parentTitle: "Source thread",
-          sourceRunOrdinal: 1,
-        }),
-      );
       const result = yield* runOrchestratorV2ProviderReplayScenario(
         {
           name: "thread_fork_native_prior_turn_source_rollback/claude",
-          transcript: forkTranscript,
+          transcript,
           commands: materialized.commands,
           steps: [
             { type: "dispatch", command: materialized.commands[0]!, await: true },
@@ -1183,19 +1137,10 @@ describe("orchestration V2 thread fork", () => {
         };
       }).pipe(Effect.provide(IdAllocator.layer), provideDeterministicTestRuntime);
 
-      // Recorded before forks received instructions on their first turn.
-      const forkTranscript = yield* ClaudeOrchestratorReplayHarness.decodeTranscript(
-        materializeReplayTranscriptForkInstructions(rawTranscript, {
-          prompt: forkFirstPrompt,
-          parentThreadId: materialized.sourceThreadId,
-          parentTitle: "Source thread",
-          sourceRunOrdinal: 1,
-        }),
-      );
       const result = yield* runOrchestratorV2ProviderReplayScenario(
         {
           name: "thread_fork_native_fork_local_rollback/claude",
-          transcript: forkTranscript,
+          transcript,
           commands: materialized.commands,
           steps: [
             { type: "dispatch", command: materialized.commands[0]!, await: true },

@@ -1,5 +1,4 @@
 import type {
-  OrchestrationV2ContextTransfer,
   OrchestrationV2ThreadProjection,
   OrchestrationV2ThreadShell,
   ThreadId,
@@ -42,26 +41,6 @@ export function resolveMergeBackTargetThreadId(
     : projection.thread.lineage.parentThreadId;
 }
 
-/**
- * Merge-backs waiting for this thread's next run, keyed by the fork that sent
- * them. Until that run starts, the user can still cancel one.
- */
-export function pendingMergeBacksBySourceThread(
-  projection: Pick<OrchestrationV2ThreadProjection, "thread" | "contextTransfers"> | null,
-): ReadonlyMap<ThreadId, OrchestrationV2ContextTransfer> {
-  const pending = new Map<ThreadId, OrchestrationV2ContextTransfer>();
-  for (const transfer of projection?.contextTransfers ?? []) {
-    if (
-      transfer.type === "merge_back" &&
-      transfer.status === "pending" &&
-      transfer.targetThreadId === projection?.thread.id
-    ) {
-      pending.set(transfer.sourceThreadId, transfer);
-    }
-  }
-  return pending;
-}
-
 function edgeKey(edge: ThreadRelationshipEdge): string {
   return `${edge.sourceThreadId}\u001f${edge.targetThreadId}\u001f${edge.kind}`;
 }
@@ -84,12 +63,17 @@ export function deriveThreadRelationshipGraph(input: {
     threads.map((thread) => [thread.id, { threadId: thread.id, thread, missing: false }]),
   );
   const edgesByKey = new Map<string, ThreadRelationshipEdge>();
+  // Micro fork: side chats show as tabs inside their thread, not in its lineage.
+  const sideChatIds = new Set(
+    threads.filter((thread) => thread.sideChat === true).map((thread) => thread.id),
+  );
   const ensureNode = (threadId: ThreadId) => {
     if (!nodes.has(threadId)) {
       nodes.set(threadId, { threadId, thread: null, missing: true });
     }
   };
   const addEdge = (edge: ThreadRelationshipEdge) => {
+    if (sideChatIds.has(edge.sourceThreadId) || sideChatIds.has(edge.targetThreadId)) return;
     ensureNode(edge.sourceThreadId);
     ensureNode(edge.targetThreadId);
     edgesByKey.set(

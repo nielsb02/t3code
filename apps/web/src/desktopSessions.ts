@@ -19,7 +19,7 @@ import type {
 import * as Option from "effect/Option";
 import { Atom } from "effect/reactivity";
 
-import { isSidebarSubagentThread, resolveSidebarThreadStatus } from "./components/Sidebar.logic";
+import { isSidebarNestedThread, resolveSidebarThreadStatus } from "./components/Sidebar.logic";
 
 export type DesktopSidebarOrder = Pick<
   DesktopAppSessionListSuccess,
@@ -63,6 +63,28 @@ export function desktopSessionStatus(
   return thread.latestRun?.status === "completed" ? "done" : "idle";
 }
 
+const SIDE_CHAT_LIFT_RANK: Partial<Record<DesktopSessionSummary["status"], number>> = {
+  working: 1,
+  blocked: 2,
+};
+
+/**
+ * Micro fork: a thread's session shows its own status unless one of its open side chats is
+ * working or needs the user, which lifts it. Needs you outranks working, which outranks the
+ * thread's own status.
+ */
+export function withSideChatStatus(
+  status: DesktopSessionSummary["status"],
+  sideChatStatuses: Iterable<DesktopSessionSummary["status"]>,
+): DesktopSessionSummary["status"] {
+  const rank = (value: DesktopSessionSummary["status"]) => SIDE_CHAT_LIFT_RANK[value] ?? 0;
+  let lifted = status;
+  for (const sideChatStatus of sideChatStatuses) {
+    if (rank(sideChatStatus) > rank(lifted)) lifted = sideChatStatus;
+  }
+  return lifted;
+}
+
 /** Whether the thread belongs in the sidebar's pinned and active lists. */
 export function isDesktopSidebarThread(
   thread: EnvironmentThreadShell,
@@ -73,7 +95,7 @@ export function isDesktopSidebarThread(
 ): boolean {
   return (
     thread.archivedAt === null &&
-    !isSidebarSubagentThread(thread) &&
+    !isSidebarNestedThread(thread) &&
     !(capabilities?.threadSnooze === true && effectiveSnoozed(thread, { now })) &&
     !(capabilities?.threadSettlement === true && thread.settledOverride === "settled")
   );
@@ -94,15 +116,30 @@ export function buildDesktopSessionSnapshot(input: {
       snapshot?.projects.map((project) => [project.id, project.workspaceRoot]),
     );
     const sessions: DesktopSessionSummary[] = [];
-    for (const source of snapshot?.threads ?? []) {
-      const thread = presentThreadShell(environmentId, source);
-      // Subagent threads live inside their parent's chat, not in the session list.
-      if (thread.archivedAt !== null || isSidebarSubagentThread(thread)) continue;
+    const threads = (snapshot?.threads ?? []).map((source) =>
+      presentThreadShell(environmentId, source),
+    );
+    const sideChatStatuses = new Map<string, DesktopSessionSummary["status"][]>();
+    for (const thread of threads) {
+      const parentThreadId = thread.lineage.parentThreadId;
+      if (thread.sideChat !== true || thread.archivedAt !== null || parentThreadId === null) {
+        continue;
+      }
+      const statuses = sideChatStatuses.get(parentThreadId) ?? [];
+      statuses.push(desktopSessionStatus(thread));
+      sideChatStatuses.set(parentThreadId, statuses);
+    }
+    for (const thread of threads) {
+      // Subagents and side chats live inside their parent's chat, not in the session list.
+      if (thread.archivedAt !== null || isSidebarNestedThread(thread)) continue;
       available.add(scopedThreadKey({ environmentId, threadId: thread.id }));
       sessions.push({
         threadId: thread.id,
         title: thread.title,
-        status: desktopSessionStatus(thread),
+        status: withSideChatStatus(
+          desktopSessionStatus(thread),
+          sideChatStatuses.get(thread.id) ?? [],
+        ),
         updatedAt: thread.latestUserMessageAt ?? thread.latestRun?.requestedAt ?? thread.updatedAt,
         isPinned: thread.pinnedAt != null,
         completionId: thread.latestRun?.runId ?? thread.latestRun?.completedAt ?? null,

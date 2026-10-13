@@ -69,6 +69,7 @@ import {
   MessageSquareDashedIcon,
   LinkIcon,
   MessageSquareIcon,
+  MessagesSquareIcon,
   MonitorIcon,
   MoonIcon,
   PaletteIcon,
@@ -79,6 +80,8 @@ import {
   TextSearchIcon,
 } from "lucide-react";
 import { requestThreadFindOpen } from "./chat/threadFindActionBus";
+import { requestSideChatStart } from "./chat/sideChatActionBus";
+import { activeChatPaneComposer } from "../chatPaneScope";
 import {
   useCallback,
   useDeferredValue,
@@ -563,7 +566,8 @@ function CommandPaletteDialog(props: {
       data-palette-mode={props.mode}
       data-testid="command-palette"
       finalFocus={() => {
-        composerHandleRef?.current?.focusAtEnd();
+        // A focused side chat keeps focus; otherwise the main chat's composer.
+        (activeChatPaneComposer() ?? composerHandleRef)?.current?.focusAtEnd();
         return false;
       }}
       onBackdropPointerDown={() => {
@@ -1869,6 +1873,21 @@ function OpenCommandPaletteDialog(props: {
       icon: <LinkIcon className={ITEM_ICON_CLASS} />,
       shortcutCommand: "thread.copyReference",
       run: copyActiveThreadReference,
+    });
+  }
+
+  if (activeThread !== null) {
+    actionItems.push({
+      kind: "action",
+      value: "action:new-side-chat",
+      searchTerms: ["side chat", "fork", "question", "aside"],
+      title: "New side chat",
+      description: "Ask about this thread without interrupting it",
+      icon: <MessagesSquareIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "thread.sideChat",
+      run: async () => {
+        requestSideChatStart();
+      },
     });
   }
 

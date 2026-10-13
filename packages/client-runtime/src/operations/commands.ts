@@ -8,7 +8,6 @@ import {
   OrchestrationV2CheckpointUnavailableError,
   WS_METHODS,
   type ChatAttachment,
-  type ContextTransferId,
   type MessageId,
   type ModelSelection,
   type NodeId,
@@ -223,15 +222,19 @@ export interface ForkThreadFromRunInput extends CommandMetadata {
   readonly title?: string;
 }
 
+/** Micro fork: a fork shown inside its parent thread. */
+export interface StartSideChatInput extends CommandMetadata {
+  readonly sourceThreadId: ThreadId;
+  readonly targetThreadId: ThreadId;
+  /** Fork after this run; null forks after the latest finished run. */
+  readonly runId: RunId | null;
+  readonly title?: string;
+}
+
 export interface MergeThreadBackInput extends CommandMetadata {
   readonly sourceThreadId: ThreadId;
   readonly targetThreadId: ThreadId;
   readonly runId: RunId;
-}
-
-/** `threadId` is the merge target that would otherwise receive the transfer. */
-export interface CancelMergeBackInput extends ThreadCommandInput {
-  readonly transferId: ContextTransferId;
 }
 
 export interface ReorderQueuedRunInput extends ThreadCommandInput {
@@ -972,6 +975,23 @@ export const forkThreadFromRun = Effect.fn("EnvironmentCommands.forkThreadFromRu
   });
 });
 
+export const startSideChat = Effect.fn("EnvironmentCommands.startSideChat")(function* (
+  input: StartSideChatInput,
+) {
+  return yield* dispatch({
+    type: "thread.fork",
+    commandId: yield* allocateCommandId(input),
+    createdBy: "user",
+    creationSource: input.creationSource ?? "web",
+    sourceThreadId: input.sourceThreadId,
+    targetThreadId: input.targetThreadId,
+    sourcePoint:
+      input.runId === null ? { type: "latest_stable" } : { type: "run", runId: input.runId },
+    sideChat: true,
+    ...(input.title === undefined ? {} : { title: input.title }),
+  });
+});
+
 export const mergeThreadBack = Effect.fn("EnvironmentCommands.mergeThreadBack")(function* (
   input: MergeThreadBackInput,
 ) {
@@ -983,17 +1003,6 @@ export const mergeThreadBack = Effect.fn("EnvironmentCommands.mergeThreadBack")(
     sourceThreadId: input.sourceThreadId,
     targetThreadId: input.targetThreadId,
     sourcePoint: { type: "run", runId: input.runId },
-  });
-});
-
-export const cancelMergeBack = Effect.fn("EnvironmentCommands.cancelMergeBack")(function* (
-  input: CancelMergeBackInput,
-) {
-  return yield* dispatch({
-    type: "thread.merge_back.cancel",
-    commandId: yield* allocateCommandId(input),
-    threadId: input.threadId,
-    transferId: input.transferId,
   });
 });
 

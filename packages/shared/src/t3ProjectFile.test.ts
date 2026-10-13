@@ -35,6 +35,8 @@ describe("buildT3ProjectFileJsonSchema", () => {
       "$schema",
       "defaultThreadEnvMode",
       "iconPath",
+      // Micro fork: workspace repositories (feat(repos), 0e8eaa8504).
+      "repositories",
       "scripts",
       "worktreeSubmodules",
     ]);
