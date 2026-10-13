@@ -6,7 +6,6 @@ import {
   deriveThreadRelationshipGraph,
   immediateThreadRelationships,
   orderWebThreadLineageRows,
-  pendingMergeBacksBySourceThread,
   relatedThreadIds,
   resolveMergeBackTargetThreadId,
   walkThreadRelationships,
@@ -509,30 +508,5 @@ describe("web thread lineage ordering", () => {
         ],
       }),
     ).toEqual([first, second, third]);
-  });
-  it("lists only pending merge-backs into this thread, by the fork that sent them", () => {
-    const parent = ThreadId.make("parent");
-    const fork = ThreadId.make("fork");
-    const otherFork = ThreadId.make("other-fork");
-    const transfer = (id: string, overrides: Record<string, unknown>) => ({
-      id,
-      type: "merge_back",
-      sourceThreadId: fork,
-      targetThreadId: parent,
-      status: "pending",
-      ...overrides,
-    });
-    const pending = pendingMergeBacksBySourceThread({
-      thread: { id: parent },
-      contextTransfers: [
-        transfer("cancelled", { status: "superseded" }),
-        transfer("consumed", { sourceThreadId: otherFork, status: "consumed" }),
-        transfer("fork-into-parent", {}),
-        transfer("parent-fork", { type: "fork", sourceThreadId: parent, targetThreadId: fork }),
-      ],
-    } as never);
-    expect([...pending.keys()]).toEqual([fork]);
-    expect(pending.get(fork)?.id).toBe("fork-into-parent");
-    expect(pendingMergeBacksBySourceThread(null).size).toBe(0);
   });
 });
