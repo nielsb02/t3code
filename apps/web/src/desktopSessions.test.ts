@@ -327,6 +327,53 @@ describe("desktop session snapshot", () => {
     ]);
   });
 
+  it("lifts a thread's status with its open side chats but keeps them out of the list", () => {
+    const sideChat = (id: string, extra: Partial<OrchestrationV2ThreadShell>) =>
+      ({
+        ...thread,
+        id: ThreadId.make(id),
+        sideChat: true,
+        lineage: {
+          rootThreadId: thread.id,
+          parentThreadId: thread.id,
+          relationshipToParent: "fork",
+        },
+        ...extra,
+      }) as OrchestrationV2ThreadShell;
+    const statusWith = (...sideChats: OrchestrationV2ThreadShell[]) =>
+      buildDesktopSessionSnapshot({
+        catalog: catalog([local]),
+        readShell: () => shell([{ ...thread, ...completed }, ...sideChats]),
+        isConnected: () => true,
+        sidebar: { sidebarOrder: [], sidebarOrderReady: false },
+      })?.environments[0]?.sessions.map((session) => [session.threadId, session.status]);
+
+    expect(statusWith()).toEqual([[thread.id, "done"]]);
+    expect(
+      statusWith(
+        sideChat("side-working", { latestRunId: runId, activeRunId: runId, status: "running" }),
+      ),
+    ).toEqual([[thread.id, "working"]]);
+    expect(
+      statusWith(
+        sideChat("side-working", { latestRunId: runId, activeRunId: runId, status: "running" }),
+        sideChat("side-asking", { pendingRuntimeRequest: pendingRequest("user_input") }),
+      ),
+    ).toEqual([[thread.id, "blocked"]]);
+    // Closed side chats and finished ones leave the thread's own status alone.
+    expect(
+      statusWith(
+        sideChat("side-closed", {
+          latestRunId: runId,
+          activeRunId: runId,
+          status: "running",
+          archivedAt: at,
+        }),
+        sideChat("side-done", completed),
+      ),
+    ).toEqual([[thread.id, "done"]]);
+  });
+
   it("keeps local and remote identical thread ids separate, includes filtered pins, and reports cached freshness", () => {
     const result = buildDesktopSessionSnapshot({
       catalog: catalog([local, remote]),
