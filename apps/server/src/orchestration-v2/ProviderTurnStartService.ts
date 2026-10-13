@@ -37,7 +37,7 @@ import {
   latestNativeContextUsage,
 } from "@t3tools/provider-core/server/handoffBudget";
 import { deliverContextHandoffs } from "./ContextHandoffDelivery.ts";
-import { forkTurnNote } from "./ForkTurnNote.ts";
+import { sideChatTurnNote } from "./SideChatNote.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -1087,12 +1087,9 @@ export const layer: Layer.Layer<
         (legacyInputRunIds.size > 0 &&
           sameNativeThread &&
           !acceptedAttempts.some((source) => source.nativeThreadId !== undefined));
-      const forkNote = yield* forkTurnNote({
+      const sideChatNote = yield* sideChatTurnNote({
         projectionStore,
         thread: projection.thread,
-        runs: projection.runs,
-        providerTurns: projection.providerTurns,
-        run,
         userText,
         firstTurnInNativeConversation: !nativeThreadHasTurns,
       });
@@ -1144,7 +1141,7 @@ export const layer: Layer.Layer<
                 tokenCap,
                 modelContextWindow,
                 // Notes are sent with the user text, so they spend the same allowance.
-                userText: [restartNote, forkNote, userText]
+                userText: [restartNote, sideChatNote, userText]
                   .filter((part) => part !== "")
                   .join("\n\n"),
                 attachments: message.attachments,
@@ -1187,7 +1184,7 @@ export const layer: Layer.Layer<
           });
           if (!(yield* isCurrentAttemptInStatus("running"))) return;
           const start = compact ? session.compactThread! : session.startTurn;
-          const context = [delivery.context, restartNote, forkNote]
+          const context = [delivery.context, restartNote, sideChatNote]
             .filter((part) => part !== "")
             .join("\n\n");
           // A note continuation has no turn to resume; its text is the prompt.
@@ -1240,7 +1237,7 @@ export const layer: Layer.Layer<
         effectiveHandoffs.length === 0 &&
         missedItems.length === 0 &&
         restartNote === "" &&
-        forkNote === "" &&
+        sideChatNote === "" &&
         !noteContinuation
           ? session
           : makeDeliverySession(session, startWithHandoffs);

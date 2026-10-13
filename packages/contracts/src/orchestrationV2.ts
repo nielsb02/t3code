@@ -392,6 +392,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
       }),
     ]),
   ),
+  /** A fork shown inside its parent thread instead of the sidebar (Micro fork). */
+  sideChat: Schema.optional(Schema.Boolean),
   createdAt: Schema.DateTimeUtc,
   updatedAt: Schema.DateTimeUtc,
   archivedAt: Schema.NullOr(Schema.DateTimeUtc),
@@ -1942,6 +1944,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   lineage: OrchestrationV2AppThreadLineage,
   forkedFrom: Schema.NullOr(OrchestrationV2AppThread.fields.forkedFrom),
+  sideChat: OrchestrationV2AppThread.fields.sideChat,
   activeProviderThreadId: Schema.NullOr(ProviderThreadId),
   historyOrigin: Schema.optional(OrchestrationV2ThreadHistoryOrigin),
   latestRunId: Schema.NullOr(RunId),
@@ -3087,6 +3090,7 @@ export const OrchestrationV2Command = Schema.Union([
     targetThreadId: ThreadId,
     sourcePoint: OrchestrationV2ThreadForkSourcePoint,
     title: Schema.optional(TrimmedNonEmptyString),
+    sideChat: OrchestrationV2AppThread.fields.sideChat,
     createdAt: Schema.optional(Schema.DateTimeUtc),
   }),
   Schema.Struct({

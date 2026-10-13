@@ -222,6 +222,15 @@ export interface ForkThreadFromRunInput extends CommandMetadata {
   readonly title?: string;
 }
 
+/** Micro fork: a fork shown inside its parent thread. */
+export interface StartSideChatInput extends CommandMetadata {
+  readonly sourceThreadId: ThreadId;
+  readonly targetThreadId: ThreadId;
+  /** Fork after this run; null forks after the latest finished run. */
+  readonly runId: RunId | null;
+  readonly title?: string;
+}
+
 export interface MergeThreadBackInput extends CommandMetadata {
   readonly sourceThreadId: ThreadId;
   readonly targetThreadId: ThreadId;
@@ -962,6 +971,23 @@ export const forkThreadFromRun = Effect.fn("EnvironmentCommands.forkThreadFromRu
     sourceThreadId: input.sourceThreadId,
     targetThreadId: input.targetThreadId,
     sourcePoint: { type: "run", runId: input.runId },
+    ...(input.title === undefined ? {} : { title: input.title }),
+  });
+});
+
+export const startSideChat = Effect.fn("EnvironmentCommands.startSideChat")(function* (
+  input: StartSideChatInput,
+) {
+  return yield* dispatch({
+    type: "thread.fork",
+    commandId: yield* allocateCommandId(input),
+    createdBy: "user",
+    creationSource: input.creationSource ?? "web",
+    sourceThreadId: input.sourceThreadId,
+    targetThreadId: input.targetThreadId,
+    sourcePoint:
+      input.runId === null ? { type: "latest_stable" } : { type: "run", runId: input.runId },
+    sideChat: true,
     ...(input.title === undefined ? {} : { title: input.title }),
   });
 });
