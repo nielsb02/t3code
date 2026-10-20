@@ -9,7 +9,7 @@ const reactTests = [
   "src/features/threads/use-visible-second-clock.test.tsx",
   "src/features/threads/useThreadHeaderOptions.test.tsx",
   "src/native/NativeHeaderToolbar.test.tsx",
-  "src/state/use-selected-thread-git-actions.react.test.tsx",
+  "src/state/use-selected-thread-git-actions.test.tsx",
 ];
 
 export default defineConfig({

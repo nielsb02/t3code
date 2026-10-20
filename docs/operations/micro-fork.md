@@ -105,8 +105,8 @@ python3 .github/scripts/micro_sync_test.py
 python3 .github/scripts/micro_sync.py check-migrations <upstream-tag>
 vp test run apps/server/src/persistence/reconcileV2PreviewMigration.test.ts \
   $(python3 .github/scripts/micro_sync.py fork-tests <upstream-tag>)
-mobile_react="$(python3 .github/scripts/micro_sync.py fork-tests --mobile-react <upstream-tag>)"
-(cd apps/mobile && vp test run --project react $mobile_react)
+mobile="$(python3 .github/scripts/micro_sync.py fork-tests --mobile <upstream-tag>)"
+(cd apps/mobile && vp test run $mobile)
 ```
 
 plus the type checks listed in the workflow's verification step.
