@@ -92,7 +92,7 @@ vi.mock("../hooks/useSettings", () => ({
 vi.mock("../state/environments", () => ({ usePrimaryEnvironmentId: () => environmentId }));
 vi.mock(import("@tanstack/react-router"), async (original) => ({
   ...(await original()),
-  useNavigate: () => () => undefined,
+  useNavigate: () => async () => {},
 }));
 vi.mock("../browser/useOpenLink", () => ({ useOpenLink: () => () => Promise.resolve() }));
 vi.mock("../state/projects", () => ({
