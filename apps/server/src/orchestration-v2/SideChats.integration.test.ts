@@ -24,7 +24,6 @@ import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Option from "effect/Option";
@@ -263,7 +262,9 @@ const sideChatTest = <A, E>(
               Layer.provide(
                 Layer.mergeAll(
                   layerOrchestrator,
-                  ServerSettings.layerTest({}),
+                  ServerSettings.layerTest({
+                    providerInstances: { [instanceId]: { driver: "codex", enabled: true } },
+                  }),
                   CommandReceiptStore.layer.pipe(Layer.provide(layerDatabase)),
                 ),
               ),
@@ -365,25 +366,24 @@ const createParentAndSideChat = (cwd: string) =>
 const sendWhileRunning = (threadId: ThreadId, text: string) =>
   Effect.gen(function* () {
     const orchestrator = yield* Orchestrator.OrchestratorV2;
-    const running = yield* orchestrator.streamDomainEvents.pipe(
-      Stream.filter(
-        (event) =>
-          event.threadId === threadId &&
-          event.type === "provider-turn.updated" &&
-          event.payload.status === "running",
-      ),
-      Stream.runHead,
-      Effect.forkScoped,
-    );
+    const afterSequence = yield* orchestrator.getThreadEventSequence(threadId);
     const run = yield* send(threadId, text);
-    yield* Fiber.join(running);
+    yield* orchestrator
+      .streamStoredEventsFrom({ threadId, afterSequence, eventType: "provider-turn.updated" })
+      .pipe(
+        Stream.filter(
+          ({ event }) =>
+            event.type === "provider-turn.updated" && event.payload.status === "running",
+        ),
+        Stream.runHead,
+      );
     return run;
   });
 
 const turnText = (captured: ReadonlyArray<CapturedTurn>, runId: RunId) =>
   captured.find((turn) => turn.runId === runId)?.text ?? "";
 
-/** Waits for the next event on `threadId` matching `predicate`, subscribed before `trigger` runs. */
+/** Reads from the pre-trigger cursor so synchronous cascades cannot outrun the subscription. */
 const awaitEventAfter = <A, E, R>(
   threadId: ThreadId,
   predicate: (event: OrchestrationV2DomainEvent) => boolean,
@@ -391,13 +391,13 @@ const awaitEventAfter = <A, E, R>(
 ) =>
   Effect.gen(function* () {
     const orchestrator = yield* Orchestrator.OrchestratorV2;
-    const next = yield* orchestrator.streamDomainEvents.pipe(
-      Stream.filter((event) => event.threadId === threadId && predicate(event)),
-      Stream.runHead,
-      Effect.forkScoped,
-    );
+    const afterSequence = yield* orchestrator.getThreadEventSequence(threadId);
     yield* trigger;
-    return yield* Fiber.join(next);
+    return yield* orchestrator.streamStoredEventsFrom({ threadId, afterSequence }).pipe(
+      Stream.map((stored) => stored.event),
+      Stream.filter(predicate),
+      Stream.runHead,
+    );
   });
 
 it.live(
