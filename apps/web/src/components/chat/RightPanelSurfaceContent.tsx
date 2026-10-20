@@ -25,7 +25,9 @@ import { ThreadPullRequestsPanel } from "../pullRequest/ThreadPullRequestsPanel"
 import { WorkspacePullRequestsPanel } from "../pullRequest/WorkspacePullRequestsPanel";
 import type { useWorkspaceRepositories } from "../../hooks/useWorkspaceRepositories";
 
-const SideChatPanel = lazy(() => import("./SideChatPanel"));
+// Keep composer creation in the opening commit. A lazy Suspense retry can yield
+// past Tiptap's unmounted-editor disposal timer before its layout effects run.
+import SideChatPanel from "./SideChatPanel";
 
 const PreviewPanel = lazy(() =>
   import("../preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
@@ -90,13 +92,12 @@ export function RightPanelSurfaceContent(props: {
   switch (surface.kind) {
     case "side-chat":
       return (
-        <Suspense fallback={null}>
-          <SideChatPanel
-            parentRef={threadRef}
-            threadId={surface.threadId}
-            onClose={() => props.onCloseSurface(surface)}
-          />
-        </Suspense>
+        <SideChatPanel
+          key={surface.threadId}
+          parentRef={threadRef}
+          threadId={surface.threadId}
+          onClose={() => props.onCloseSurface(surface)}
+        />
       );
     case "workspace-pull-requests": {
       const workspace = props.workspaceRepositories;
