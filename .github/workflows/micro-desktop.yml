@@ -169,8 +169,12 @@ jobs:
           set -euo pipefail
           unpacked="$RUNNER_TEMP/micro-package-check"
           ditto -x -k "release/T3-Code-$BUILD_VERSION-arm64.zip" "$unpacked"
-          codesign --verify --deep --strict --verbose=2 "$unpacked/T3 Code (Alpha).app"
-          node --input-type=module - "$unpacked/T3 Code (Alpha).app/Contents/Resources/app-update.yml" <<'JS'
+          # The bundle is named after upstream's product label, such as "T3 Code (Beta)".
+          apps=("$unpacked"/*.app)
+          [[ ${#apps[@]} -eq 1 && -d "${apps[0]}" ]] || { echo "Expected one app bundle in the ZIP" >&2; exit 1; }
+          app="${apps[0]}"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          node --input-type=module - "$app/Contents/Resources/app-update.yml" <<'JS'
           import fs from "node:fs";
           import assert from "node:assert/strict";
           import { createRequire } from "node:module";
