@@ -80,13 +80,20 @@ vi.mock("../state/entities", () => ({
     ref.threadId === currentThread.id ? currentThread : null,
   useServerConfigs: () => configs,
 }));
+vi.mock("../state/server", () => ({
+  environmentServerConfigsAtom: Atom.make(() => configs),
+  serverEnvironment: {},
+}));
 vi.mock("../rpc/atomRegistry", () => ({ appAtomRegistry: { get: () => configs } }));
 vi.mock("../hooks/useSettings", () => ({
   useClientSettings: (select: (settings: { pullRequestLinksOpenInApp: boolean }) => unknown) =>
     select({ pullRequestLinksOpenInApp: true }),
 }));
 vi.mock("../state/environments", () => ({ usePrimaryEnvironmentId: () => environmentId }));
-vi.mock("@tanstack/react-router", () => ({ useNavigate: () => () => undefined }));
+vi.mock(import("@tanstack/react-router"), async (original) => ({
+  ...(await original()),
+  useNavigate: () => () => undefined,
+}));
 vi.mock("../browser/useOpenLink", () => ({ useOpenLink: () => () => Promise.resolve() }));
 vi.mock("../state/projects", () => ({
   projectEnvironment: {

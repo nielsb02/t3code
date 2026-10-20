@@ -188,6 +188,7 @@ export function RightPanelSurfaceContent(props: {
             });
           }}
           threadRef={threadRef}
+          {...(surface.url ? { browserUrl: surface.url } : {})}
           reference={{
             projectId: surface.projectId as ProjectId,
             ...(props.workspacePullRequestLinks &&

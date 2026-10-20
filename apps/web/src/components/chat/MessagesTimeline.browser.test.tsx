@@ -842,7 +842,7 @@ describe("MessagesTimeline messages", () => {
   it.each(["thread-1", "thread-2", null])(
     "opens side chats only for the current thread's completed answer (%s)",
     async (sourceThreadId) => {
-      const onSideChatFromRun = vi.fn();
+      const onSideChatFromRun = vi.fn(async () => {});
       await renderTimeline(
         [
           {

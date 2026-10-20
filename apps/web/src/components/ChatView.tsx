@@ -8127,7 +8127,7 @@ function ChatViewContent(props: ChatViewProps) {
     <RightPanelSurfaceContent
       surface={renderedRightPanelSurface}
       inputActive={inputActive}
-      workspaceRepositories={hasWorkspaceRepositories ? workspaceRepositories : null}
+      workspaceRepositories={supportsWorkspaceRepositories ? workspaceRepositories : null}
       workspacePullRequestLinks={
         serverConfig?.environment.capabilities.workspacePullRequestLinks === true
       }
