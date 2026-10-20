@@ -420,7 +420,7 @@ export const make = Effect.gen(function* () {
                   relativePath: directoryPath,
                 })
                 .pipe(Effect.mapError(toError));
-        const { entries, throughSymlink } = yield* Effect.tryPromise({
+        const { entries, throughSymlink, realRoot } = yield* Effect.tryPromise({
           try: async () => {
             const root = await NodeFSP.realpath(normalizedCwd);
             const directory = await NodeFSP.realpath(target.absolutePath);
@@ -447,12 +447,15 @@ export const make = Effect.gen(function* () {
               }),
               // Git refuses to classify paths beyond a symbolic link.
               throughSymlink: relative !== target.relativePath.split("/").join(path.sep),
+              realRoot: root,
             };
           },
           catch: toError,
         });
         // Use stdin so large directories cannot exceed the command-line argument limit.
         // Ignore classification is optional in non-git workspaces or when git is unavailable.
+        // Git reports its top level with symlinks resolved (macOS's /var is /private/var), so
+        // paths are related through the resolved workspace root.
         const gitRoot = yield* vcsProcess
           .run({
             operation: "WorkspaceEntries.list",
@@ -463,8 +466,13 @@ export const make = Effect.gen(function* () {
             timeoutMs: 10_000,
           })
           .pipe(
-            Effect.map((result) => (result.exitCode === 0 ? result.stdout.trim() : normalizedCwd)),
-            Effect.orElseSucceed(() => normalizedCwd),
+            Effect.map((result) => (result.exitCode === 0 ? result.stdout.trim() : realRoot)),
+            Effect.orElseSucceed(() => realRoot),
+            Effect.flatMap((root) =>
+              Effect.tryPromise(() => NodeFSP.realpath(root)).pipe(
+                Effect.orElseSucceed(() => root),
+              ),
+            ),
           );
         const checkIgnore = (paths: ReadonlyArray<string>) =>
           vcsProcess
@@ -473,7 +481,7 @@ export const make = Effect.gen(function* () {
               command: "git",
               args: ["-c", "core.fsmonitor=false", "check-ignore", "-z", "--stdin"],
               cwd: gitRoot,
-              stdin: `${paths.map((relative) => path.relative(gitRoot, path.join(normalizedCwd, relative)) || ".").join("\0")}\0`,
+              stdin: `${paths.map((relative) => path.relative(gitRoot, path.join(realRoot, relative)) || ".").join("\0")}\0`,
               allowNonZeroExit: true,
               timeoutMs: 10_000,
               maxOutputBytes: 16 * 1024 * 1024,
@@ -507,10 +515,7 @@ export const make = Effect.gen(function* () {
           for (const ignoredPath of result.stdout.split("\0")) {
             if (!ignoredPath) continue;
             ignored.add(
-              path
-                .relative(normalizedCwd, path.join(gitRoot, ignoredPath))
-                .split(path.sep)
-                .join("/"),
+              path.relative(realRoot, path.join(gitRoot, ignoredPath)).split(path.sep).join("/"),
             );
           }
         }
