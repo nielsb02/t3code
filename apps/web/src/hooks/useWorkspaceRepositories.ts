@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, WorkspaceRepository } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { projectEnvironment } from "../state/projects";
 import { vcsEnvironment } from "../state/vcs";
 import { useEnvironmentQuery, formatEnvironmentQueryError } from "../state/query";
@@ -41,48 +41,39 @@ export function useWorkspaceRepositories(input: {
   // A failed list leaves Git actions on the workspace unless a repository was chosen; only the
   // picker reports the failure.
   const gitRepositories = query.error ? EMPTY_REPOSITORIES : repositories;
-  const selectRepository = useCallback(
-    (path: string | null) => {
-      setSelection((current) => ({
-        scope,
-        ...updateWorkspaceRepositorySelection(current?.scope === scope ? current : null, path),
-      }));
-    },
-    [scope],
-  );
-  const statusTargets = useMemo(
-    () =>
-      environmentId === null
-        ? []
-        : repositories
-            .filter((repository) => repository.available)
-            .map((repository) => ({
-              repository,
-              atom: vcsEnvironment.status({ environmentId, input: { cwd: repository.cwd } }),
-            })),
-    [environmentId, repositories],
-  );
-  const statusesAtom = useMemo(
-    () =>
-      Atom.make((get) =>
-        statusTargets.map(({ repository, atom }) => {
-          const result = get(atom);
-          return {
+  const selectRepository = (path: string | null) => {
+    setSelection((current) => ({
+      scope,
+      ...updateWorkspaceRepositorySelection(current?.scope === scope ? current : null, path),
+    }));
+  };
+  const statusTargets = (() =>
+    environmentId === null
+      ? []
+      : repositories
+          .filter((repository) => repository.available)
+          .map((repository) => ({
             repository,
-            status: Option.getOrNull(AsyncResult.value(result)),
-            error: result._tag === "Failure" ? formatEnvironmentQueryError(result.cause) : null,
-            isPending: result.waiting,
-          };
-        }),
-      ),
-    [statusTargets],
-  );
+            atom: vcsEnvironment.status({ environmentId, input: { cwd: repository.cwd } }),
+          })))();
+  const statusesAtom = (() =>
+    Atom.make((get) =>
+      statusTargets.map(({ repository, atom }) => {
+        const result = get(atom);
+        return {
+          repository,
+          status: Option.getOrNull(AsyncResult.value(result)),
+          error: result._tag === "Failure" ? formatEnvironmentQueryError(result.cause) : null,
+          isPending: result.waiting,
+        };
+      }),
+    ))();
   const statuses = useAtomValue(statusesAtom);
   const refreshRepositories = query.refresh;
-  const refresh = useCallback(() => {
+  const refresh = () => {
     refreshRepositories();
     for (const { atom } of statusTargets) appAtomRegistry.refresh(atom);
-  }, [refreshRepositories, statusTargets]);
+  };
   useWorkspaceMutationRefresh({
     enabled: cwd !== null,
     mutationId,

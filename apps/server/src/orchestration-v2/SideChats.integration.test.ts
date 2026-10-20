@@ -34,6 +34,8 @@ import type * as Scope from "effect/Scope";
 import type * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 
+import * as ServerSettings from "../serverSettings.ts";
+import * as CommandReceiptStore from "./CommandReceiptStore.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as Orchestrator from "./Orchestrator.ts";
@@ -257,7 +259,15 @@ const sideChatTest = <A, E>(
           Layer.mergeAll(
             layerDatabase,
             layerOrchestrator,
-            ThreadManagementService.layer.pipe(Layer.provide(layerOrchestrator)),
+            ThreadManagementService.layer.pipe(
+              Layer.provide(
+                Layer.mergeAll(
+                  layerOrchestrator,
+                  ServerSettings.layerTest({}),
+                  CommandReceiptStore.layer.pipe(Layer.provide(layerDatabase)),
+                ),
+              ),
+            ),
           ),
         ),
       );

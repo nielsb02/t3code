@@ -16,13 +16,9 @@ import {
 } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
-import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
-import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
-import * as ServerSettings from "../serverSettings.ts";
-import { isFilesystemRoot, managedWorktreesDirectories } from "../worktreesDirectory.ts";
-import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as KnownWorkspaces from "../workspace/KnownWorkspaces.ts";
 
 export class ReviewService extends Context.Service<
   ReviewService,
@@ -43,9 +39,7 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const vcsRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const git = yield* GitVcsDriver.GitVcsDriver;
-  const settings = yield* ServerSettings.ServerSettingsService;
-  const projectStore = yield* ProjectStore.ProjectStoreV2;
-  const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+  const knownWorkspaces = yield* KnownWorkspaces.KnownWorkspaces;
 
   const canonicalizePath = (value: string) => {
     const resolvedPath = path.resolve(value);
@@ -66,73 +60,17 @@ export const make = Effect.gen(function* () {
     );
   };
 
-  const isWithinRoot = (candidate: string, root: string) => {
-    const relative = path.relative(root, candidate);
-    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-  };
-
   const assertWorkspaceBoundCwd = Effect.fn("ReviewService.assertWorkspaceBoundCwd")(function* (
     operation: "ReviewService.getDiffPreview" | "ReviewService.getDiffFileContents",
     cwd: string,
   ) {
-    const worktreesDirectories = yield* settings.getSettings.pipe(
-      Effect.orElseSucceed(() => ({ worktreesDirectory: "", previousWorktreesDirectories: [] })),
-    );
-    const home = yield* HostProcess.HomeDirectory;
-    const [candidate, workspaceRoot, worktreesRoots] = yield* Effect.all([
+    const [candidate, workspaceRoot] = yield* Effect.all([
       canonicalizePath(cwd),
       canonicalizePath(config.cwd),
-      // A managed root that cannot be resolved, or resolves to a filesystem
-      // root through a symlink, is skipped rather than failing every review.
-      Effect.forEach(
-        managedWorktreesDirectories(worktreesDirectories, config.worktreesDir, path, home),
-        (directory) => canonicalizePath(directory).pipe(Effect.orElseSucceed(() => null)),
-      ).pipe(
-        Effect.map((roots) =>
-          roots.filter((root): root is string => root !== null && !isFilesystemRoot(root, path)),
-        ),
-      ),
     ]);
-
     if (
-      isWithinRoot(candidate, workspaceRoot) ||
-      worktreesRoots.some((root) => isWithinRoot(candidate, root))
-    ) {
-      return;
-    }
-
-    // Registered projects can live outside the server cwd, which is the home
-    // directory in packaged desktop builds, e.g. a repository on another
-    // Windows drive. Unreadable or unresolvable project roots grant nothing.
-    const projects = yield* projectStore.listShells().pipe(Effect.orElseSucceed(() => []));
-    const isWithinAny = Effect.fn(function* (
-      roots: Iterable<string>,
-      grants: (root: string) => boolean = () => true,
-    ) {
-      for (const root of roots) {
-        const resolved = yield* canonicalizePath(root).pipe(Effect.orElseSucceed(() => null));
-        if (resolved !== null && grants(resolved) && isWithinRoot(candidate, resolved)) return true;
-      }
-      return false;
-    });
-    if (yield* isWithinAny(projects.map((project) => project.workspaceRoot))) return;
-
-    // Active thread checkouts outside the managed worktree directories are rare,
-    // so thread shells are read only when no project root matched.
-    const projectIds = new Set(projects.map((project) => project.id));
-    const threads = yield* projectionStore.getShellSnapshot({ location: "active" }).pipe(
-      Effect.map((snapshot) => snapshot.threads),
-      Effect.orElseSucceed(() => []),
-    );
-    const checkouts = threads.flatMap((thread) =>
-      projectIds.has(thread.projectId) && thread.archivedAt === null && thread.worktreePath
-        ? [thread.worktreePath]
-        : [],
-    );
-    // A checkout recorded as a filesystem root or the home directory grants nothing.
-    const homeRoot = path.resolve(home);
-    if (
-      yield* isWithinAny(checkouts, (root) => !isFilesystemRoot(root, path) && root !== homeRoot)
+      KnownWorkspaces.isWithinRoot(path, candidate, workspaceRoot) ||
+      (yield* knownWorkspaces.contains(candidate))
     ) {
       return;
     }
