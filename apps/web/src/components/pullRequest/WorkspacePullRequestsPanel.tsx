@@ -147,7 +147,7 @@ export function WorkspacePullRequestsPanel({
               <Tabs.Tab
                 key={entry.path}
                 value={entry.path}
-                className="shrink-0 border-b-2 border-transparent px-3 py-2 text-xs text-muted-foreground outline-none data-[active]:border-primary data-[active]:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                className="shrink-0 border-b-2 border-transparent px-3 py-2 text-xs text-muted-foreground outline-none data-[active]:border-primary data-[active]:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               >
                 {entry.name}
                 {entryPr ? ` #${entryPr.number}` : ""}

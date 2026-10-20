@@ -128,5 +128,20 @@ class ForkTestsTests(GitFixture):
         )
 
 
+    def test_lists_mobile_tests_for_their_own_config(self):
+        for path in ("apps/mobile/src/hook.ts", "apps/mobile/src/hook.test.ts", "apps/mobile/src/hook.test.tsx",
+                     "apps/web/a.ts", "apps/web/a.test.ts"):
+            self.write(path, "upstream\n")
+        self.commit("upstream mobile")
+        git(self.root, "branch", "-f", "upstream")
+        self.write("apps/mobile/src/hook.ts", "fork\n")
+        self.write("apps/web/a.ts", "fork\n")
+        self.commit("fork mobile")
+        self.assertEqual(fork_tests(self.root, "upstream"), ["apps/web/a.test.ts"])
+        self.assertEqual(
+            fork_tests(self.root, "upstream", mobile=True),
+            ["src/hook.test.ts", "src/hook.test.tsx"],
+        )
+
 if __name__ == "__main__":
     unittest.main()

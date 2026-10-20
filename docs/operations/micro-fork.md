@@ -61,8 +61,17 @@ from the included upstream tag. Keep fork state in files or settings, or add a
 separate ledger outside the upstream migrator.
 
 Releases up to `0.0.45-micro` recorded fork migrations as 50, 53 and 55.
-`reconcileForkMigrationLedger` repairs those databases before migrations run, so
-upstream's `OrchestrationV2` (55) is applied.
+`reconcileForkMigrationLedger` repairs those databases before preview reconciliation
+and upstream's migration-history checks, so upstream's `OrchestrationV2` (55) is
+applied. Keep that ordering when updating the migrator.
+
+The `v0.1.1-nightly.20261020.3399` upgrade adds upstream migrations 061–066 to
+the V2 database used by the previous fork. Migration 063 drops unused V1
+projections but retains the threads, messages and pull request links used by
+transcript import. Migration 064 also normalizes links in V2 source events.
+Back up the existing `statev2.sqlite` database before upgrading; an older V2
+build uses that same file, so downgrading the application does not undo these
+migrations.
 
 ## Installing a build
 
@@ -96,6 +105,8 @@ python3 .github/scripts/micro_sync_test.py
 python3 .github/scripts/micro_sync.py check-migrations <upstream-tag>
 vp test run apps/server/src/persistence/reconcileV2PreviewMigration.test.ts \
   $(python3 .github/scripts/micro_sync.py fork-tests <upstream-tag>)
+mobile="$(python3 .github/scripts/micro_sync.py fork-tests --mobile <upstream-tag>)"
+(cd apps/mobile && vp test run $mobile)
 ```
 
 plus the type checks listed in the workflow's verification step.
@@ -132,7 +143,17 @@ capabilities, so clients skip these paths against an upstream server. Upstream
 changes to these areas are the likeliest merge conflicts: `PullRequestService`,
 the pull request sync and watch reactors, `WorkspaceEntries`,
 `WorkspaceFileSystem`, `ReviewService`, the web chat view, thread details and
-diff panels, and the mobile review sections and Git actions.
+diff panels, and the mobile review sections and Git actions. Right-panel bodies
+now live in `components/chat/RightPanelSurfaceContent.tsx`, surface cleanup in
+`hooks/useRightPanelSurfaceClose.ts`, and keyboard handling in
+`components/chat/useChatShortcuts.ts`. Side-chat rendering, archive-on-close and
+pane input ownership must follow those upstream seams.
+
+Upstream's `KnownWorkspaces` now covers the fork's registered-project and thread
+worktree review access. Keep its verification: an external thread checkout must
+be listed by its project's Git worktrees unless it is under a managed worktree
+folder. Archived, undeleted thread checkouts can still be reviewed. Workspace
+repository selection and linked child pull requests remain fork extensions.
 
 ## Retired fork features
 

@@ -2,7 +2,6 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { presentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { HistoryIcon, MessagesSquareIcon, Trash2Icon } from "lucide-react";
-import { useMemo } from "react";
 
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { useClientSettings } from "../../hooks/useSettings";
@@ -55,28 +54,25 @@ export function SideChatMenuItems(props: {
 /** Mounted only while the submenu is open, so the archive is read on demand. */
 function ClosedSideChats(props: { readonly parentRef: ScopedThreadRef }) {
   const { parentRef } = props;
-  const environmentIds = useMemo(() => [parentRef.environmentId], [parentRef.environmentId]);
+  const environmentIds = (() => [parentRef.environmentId])();
   const { snapshots, isLoading, error } = useArchivedThreadSnapshots(environmentIds);
   const { unarchiveThread, deleteThread } = useThreadActions();
   const confirmThreadDelete = useClientSettings((settings) => settings.confirmThreadDelete);
-  const closed = useMemo(
-    () =>
-      snapshots
-        .flatMap(({ environmentId, snapshot }) =>
-          snapshot.threads
-            .filter(
-              (thread) =>
-                thread.sideChat === true &&
-                thread.deletedAt === null &&
-                thread.lineage.parentThreadId === parentRef.threadId,
-            )
-            .map((thread) => presentThreadShell(environmentId, thread)),
-        )
-        .sort((left, right) =>
-          (right.archivedAt ?? right.createdAt).localeCompare(left.archivedAt ?? left.createdAt),
-        ),
-    [parentRef.threadId, snapshots],
-  );
+  const closed = (() =>
+    snapshots
+      .flatMap(({ environmentId, snapshot }) =>
+        snapshot.threads
+          .filter(
+            (thread) =>
+              thread.sideChat === true &&
+              thread.deletedAt === null &&
+              thread.lineage.parentThreadId === parentRef.threadId,
+          )
+          .map((thread) => presentThreadShell(environmentId, thread)),
+      )
+      .sort((left, right) =>
+        (right.archivedAt ?? right.createdAt).localeCompare(left.archivedAt ?? left.createdAt),
+      ))();
 
   if (closed.length === 0) {
     return (

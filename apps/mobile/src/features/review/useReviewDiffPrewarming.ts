@@ -56,7 +56,6 @@ export function prewarmReviewDiffSection(input: {
   getCachedNativeReviewDiffData({ parsedDiff, comments: [] });
 }
 
-/** Selects nearby loaded sections that fit in the cache with the selected section. */
 export function getReviewDiffPrewarmSections(input: {
   readonly threadKey: string;
   readonly sections: ReadonlyArray<ReviewSectionItem>;
@@ -103,7 +102,6 @@ export function getReviewDiffPrewarmSections(input: {
   return pendingSections;
 }
 
-/** Warms one nearby section per idle period, after navigation animations finish. */
 export function useReviewDiffPrewarming(input: {
   readonly threadKey: string | null;
   readonly sections: ReadonlyArray<ReviewSectionItem>;

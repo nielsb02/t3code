@@ -2,17 +2,20 @@ import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 import { DesktopAppSessionListRequest, DesktopAppSessionListSuccess } from "./desktopSessions.js";
 
+const isSessionListRequest = Schema.is(DesktopAppSessionListRequest);
+const isSessionListSuccess = Schema.is(DesktopAppSessionListSuccess);
+
 describe("desktop session snapshots", () => {
   it("accepts a local read request and mixed-environment snapshot", () => {
     expect(
-      Schema.is(DesktopAppSessionListRequest)({
+      isSessionListRequest({
         version: 1,
         requestId: "poll",
         type: "list-sessions",
       }),
     ).toBe(true);
     expect(
-      Schema.is(DesktopAppSessionListSuccess)({
+      isSessionListSuccess({
         version: 1,
         requestId: "poll",
         ok: true,
@@ -43,7 +46,7 @@ describe("desktop session snapshots", () => {
   });
   it("rejects replies without freshness or a response kind", () => {
     expect(
-      Schema.is(DesktopAppSessionListSuccess)({
+      isSessionListSuccess({
         version: 1,
         requestId: "poll",
         ok: true,
@@ -53,7 +56,7 @@ describe("desktop session snapshots", () => {
       }),
     ).toBe(false);
     expect(
-      Schema.is(DesktopAppSessionListSuccess)({
+      isSessionListSuccess({
         version: 1,
         requestId: "poll",
         ok: true,

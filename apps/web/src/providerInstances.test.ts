@@ -1,4 +1,10 @@
-import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3tools/contracts";
+import {
+  DEFAULT_MODEL_BY_PROVIDER,
+  ProjectId,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type ServerProvider,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import {
   applyProviderInstanceSettings,
@@ -10,6 +16,7 @@ import {
   resolveDefaultProviderModelSelection,
   resolveProviderCatalogAvailability,
   resolveSelectableProviderInstance,
+  shouldShowInstanceBadge,
 } from "./providerInstances";
 
 function provider(input: {
@@ -136,14 +143,19 @@ describe("applyProviderInstanceSettings", () => {
     const entries = deriveProviderInstanceEntries([
       provider({ provider: ProviderDriverKind.make("codex"), instanceId: "codex" }),
     ]);
-    const [entry] = applyProviderInstanceSettings(entries, {
-      providerInstances: {
-        [ProviderInstanceId.make("codex")]: {
-          driver: ProviderDriverKind.make("codex"),
-          enabled: false,
+    const [entry] = applyProviderInstanceSettings(
+      entries,
+      {
+        providerInstances: {
+          [ProviderInstanceId.make("codex")]: {
+            driver: ProviderDriverKind.make("codex"),
+            enabled: false,
+          },
         },
+        projectSettingsOverrides: {},
       },
-    });
+      null,
+    );
 
     expect(entry?.enabled).toBe(false);
   });
@@ -155,9 +167,14 @@ describe("applyProviderInstanceSettings", () => {
         instanceId: "claude_work",
       }),
     ]);
-    const [entry] = applyProviderInstanceSettings(entries, {
-      providerInstances: {},
-    });
+    const [entry] = applyProviderInstanceSettings(
+      entries,
+      {
+        providerInstances: {},
+        projectSettingsOverrides: {},
+      },
+      null,
+    );
 
     expect(entry?.enabled).toBe(false);
   });
@@ -171,9 +188,14 @@ describe("applyProviderInstanceSettings", () => {
           instanceId,
         }),
       ]);
-      const [entry] = applyProviderInstanceSettings(entries, {
-        providerInstances: {},
-      });
+      const [entry] = applyProviderInstanceSettings(
+        entries,
+        {
+          providerInstances: {},
+          projectSettingsOverrides: {},
+        },
+        null,
+      );
 
       expect(entry?.enabled).toBe(false);
     },
@@ -187,14 +209,19 @@ describe("applyProviderInstanceSettings", () => {
         instanceId,
       }),
     ]);
-    const [entry] = applyProviderInstanceSettings(entries, {
-      providerInstances: {
-        [instanceId]: {
-          driver: ProviderDriverKind.make("claudeAgent"),
-          enabled: false,
+    const [entry] = applyProviderInstanceSettings(
+      entries,
+      {
+        providerInstances: {
+          [instanceId]: {
+            driver: ProviderDriverKind.make("claudeAgent"),
+            enabled: false,
+          },
         },
+        projectSettingsOverrides: {},
       },
-    });
+      null,
+    );
 
     expect(entry?.enabled).toBe(false);
   });
@@ -207,9 +234,14 @@ describe("applyProviderInstanceSettings", () => {
         instanceId: "constructor",
       }),
     ]);
-    const [entry] = applyProviderInstanceSettings(entries, {
-      providerInstances: {},
-    });
+    const [entry] = applyProviderInstanceSettings(
+      entries,
+      {
+        providerInstances: {},
+        projectSettingsOverrides: {},
+      },
+      null,
+    );
 
     expect(entry?.isDefault).toBe(true);
     expect(entry?.enabled).toBe(false);
@@ -220,9 +252,15 @@ describe("applyProviderInstanceSettings", () => {
       provider({ provider: ProviderDriverKind.make("codex"), instanceId: "codex", enabled: false }),
       provider({ provider: ProviderDriverKind.make("grok"), instanceId: "grok", enabled: true }),
     ]);
-    const [codex, grok] = applyProviderInstanceSettings(entries, { providerInstances: {} });
+    const [codex, grok] = applyProviderInstanceSettings(
+      entries,
+      {
+        providerInstances: {},
+        projectSettingsOverrides: {},
+      },
+      null,
+    );
 
-    // Settings decide over a stale probe: Codex starts on, Grok starts off.
     expect(codex?.enabled).toBe(true);
     expect(grok?.enabled).toBe(false);
   });
@@ -260,6 +298,7 @@ describe("deriveProviderEntriesByEnvironment", () => {
                   config: { agentId, registryIconUrl: `https://example.com/${agentId}.svg` },
                 },
               },
+              projectSettingsOverrides: {},
             },
           ] as const,
       ),
@@ -305,6 +344,33 @@ describe("deriveProviderEntriesByEnvironment", () => {
     expect(byEnvironment.get("remote")?.get("claude")?.accentColor).toBe("#445566");
   });
 
+  it("keeps an instance a project turns on as a sibling for the instance badge", () => {
+    const codex = ProviderDriverKind.make("codex");
+    const byEnvironment = deriveProviderEntriesByEnvironment([
+      [
+        "local",
+        [
+          provider({ provider: codex, instanceId: "codex" }),
+          provider({ provider: codex, instanceId: "codex_work" }),
+        ],
+        {
+          providerInstances: {
+            [ProviderInstanceId.make("codex_work")]: { driver: codex, enabled: false },
+          },
+          projectSettingsOverrides: {
+            [ProjectId.make("project-work")]: {
+              providerInstances: { [ProviderInstanceId.make("codex_work")]: { enabled: true } },
+            },
+          },
+        },
+      ],
+    ]);
+    const entries = byEnvironment.get("local");
+    const personal = entries?.get("codex");
+
+    expect(personal && shouldShowInstanceBadge(personal, entries?.values() ?? [])).toBe(true);
+  });
+
   it("never falls back to another environment's instances", () => {
     const byEnvironment = deriveProviderEntriesByEnvironment([
       ["local", [provider({ provider: ProviderDriverKind.make("codex"), instanceId: "codex" })]],
@@ -312,8 +378,6 @@ describe("deriveProviderEntriesByEnvironment", () => {
     ]);
 
     expect(byEnvironment.get("empty")?.get("codex")).toBeUndefined();
-    // Every environment gets its own bucket, so an absent lookup is a real
-    // "this environment has no such instance", not a missing key.
     expect(byEnvironment.get("empty")?.size).toBe(0);
   });
 });
@@ -457,8 +521,7 @@ describe("getDefaultProviderInstanceModel", () => {
       providers,
       ProviderInstanceId.make("claudeAgent"),
     );
-    expect(typeof resolved).toBe("string");
-    expect(resolved?.length).toBeGreaterThan(0);
+    expect(resolved).toBe(DEFAULT_MODEL_BY_PROVIDER[ProviderDriverKind.make("claudeAgent")]);
   });
 
   it("honors the instance's declared default before model-list order", () => {
@@ -618,29 +681,44 @@ describe("provider icon metadata", () => {
       { ...provider({ provider: driver, instanceId }), iconUrl },
     ]);
     const registryConfig = { agentId: "swe-agent", registryIconUrl: iconUrl };
-    const brandedEntries = applyProviderInstanceSettings(snapshots, {
-      providerInstances: { [instanceId]: { driver, enabled: true, config: registryConfig } },
-    });
+    const brandedEntries = applyProviderInstanceSettings(
+      snapshots,
+      {
+        providerInstances: { [instanceId]: { driver, enabled: true, config: registryConfig } },
+        projectSettingsOverrides: {},
+      },
+      null,
+    );
     expect(brandedEntries[0]?.acpRegistryAgentId).toBe("swe-agent");
     expect(brandedEntries[0]?.acpRegistryIconUrl).toBe(iconUrl);
 
-    const [localEntry] = applyProviderInstanceSettings(brandedEntries, {
-      providerInstances: {
-        [instanceId]: {
-          driver,
-          enabled: false,
-          config: { ...registryConfig, source: "local", commandPath: "dsh" },
+    const [localEntry] = applyProviderInstanceSettings(
+      brandedEntries,
+      {
+        providerInstances: {
+          [instanceId]: {
+            driver,
+            enabled: false,
+            config: { ...registryConfig, source: "local", commandPath: "dsh" },
+          },
         },
+        projectSettingsOverrides: {},
       },
-    });
+      null,
+    );
     expect(localEntry?.acpRegistryAgentId).toBeUndefined();
     expect(localEntry?.acpRegistryIconUrl).toBeUndefined();
     expect(localEntry?.enabled).toBe(false);
     expect(localEntry?.snapshot).toBe(snapshots[0]?.snapshot);
 
-    const [restoredEntry] = applyProviderInstanceSettings(localEntry ? [localEntry] : [], {
-      providerInstances: { [instanceId]: { driver, enabled: true, config: registryConfig } },
-    });
+    const [restoredEntry] = applyProviderInstanceSettings(
+      localEntry ? [localEntry] : [],
+      {
+        providerInstances: { [instanceId]: { driver, enabled: true, config: registryConfig } },
+        projectSettingsOverrides: {},
+      },
+      null,
+    );
     expect(restoredEntry?.acpRegistryAgentId).toBe("swe-agent");
     expect(restoredEntry?.acpRegistryIconUrl).toBe(iconUrl);
     expect(restoredEntry?.enabled).toBe(true);

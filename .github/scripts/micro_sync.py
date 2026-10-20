@@ -12,6 +12,8 @@ MIGRATIONS = "apps/server/src/persistence/Migrations"
 MANIFEST_ENTRY = re.compile(r'^\s*\[(\d+), "(\w+)", ', re.MULTILINE)
 TEST_FILE = re.compile(r"\.test\.tsx?$")
 SOURCE_FILE = re.compile(r"^(?:apps|packages|scripts)/.*(?<!\.d)\.tsx?$")
+# Mobile's own Vitest config runs some tests in jsdom; the root runner uses Node only.
+MOBILE = "apps/mobile/"
 
 
 def git(root, *args, check=True):
@@ -79,10 +81,13 @@ def migration_drift(root: Path, upstream: str) -> list[str]:
     return drift + [f"file {path}" for path in files]
 
 
-def fork_tests(root: Path, upstream: str) -> list[str]:
+def fork_tests(root: Path, upstream: str, mobile: bool = False) -> list[str]:
     """Tests the fork adds or changes, and the tests beside sources it changes.
 
-    Browser tests need a separate runner, so they are left out.
+    Browser tests need a separate runner, so they are left out. Mobile tests are
+    listed separately, relative to apps/mobile, to run under its own config.
+    Vitest treats paths as substring filters, so `x.test.ts` also selects
+    `x.test.tsx`; only mobile's config puts each in the right environment.
     """
     changed = git(root, "diff", "--name-only", "--diff-filter=d", upstream, "HEAD").stdout.split()
     candidates = set()
@@ -92,7 +97,10 @@ def fork_tests(root: Path, upstream: str) -> list[str]:
         elif SOURCE_FILE.match(path):
             stem = path.rsplit(".", 1)[0]
             candidates.update({f"{stem}.test.ts", f"{stem}.test.tsx"})
-    return sorted(p for p in candidates if ".browser.test." not in p and (root / p).is_file())
+    tests = sorted(p for p in candidates if ".browser.test." not in p and (root / p).is_file())
+    if mobile:
+        return [p.removeprefix(MOBILE) for p in tests if p.startswith(MOBILE)]
+    return [p for p in tests if not p.startswith(MOBILE)]
 
 
 if __name__ == "__main__":
@@ -105,7 +113,9 @@ if __name__ == "__main__":
     version.add_argument("tag")
     version.add_argument("run_number", type=int)
     commands.add_parser("check-migrations").add_argument("reference")
-    commands.add_parser("fork-tests").add_argument("reference")
+    tests = commands.add_parser("fork-tests")
+    tests.add_argument("reference")
+    tests.add_argument("--mobile", action="store_true", help="List apps/mobile's tests, relative to it")
     args = parser.parse_args()
 
     if args.command == "version":
@@ -115,7 +125,7 @@ if __name__ == "__main__":
             raise SystemExit("Fork migrations diverge from upstream:\n" + "\n".join(drift))
         print("Migrations match upstream.")
     elif args.command == "fork-tests":
-        print("\n".join(fork_tests(Path.cwd(), args.reference)))
+        print("\n".join(fork_tests(Path.cwd(), args.reference, args.mobile)))
     else:
         changed = merge_release(Path.cwd(), args.reference, args.name)
         print("Merged upstream release." if changed else "Latest upstream release is already included.")

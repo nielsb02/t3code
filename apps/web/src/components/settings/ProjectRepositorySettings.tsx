@@ -90,24 +90,29 @@ export function ProjectRepositorySettings({
           expectedContents: fresh._tag === "Success" ? freshContents : null,
         },
       });
-      if (written._tag !== "Success") throw squashAtomCommandFailure(written);
-      appAtomRegistry.refresh(fileAtom);
-      await executeAtomQuery(appAtomRegistry, fileAtom, {
-        reportFailure: false,
-        reportDefect: false,
-      });
-      appAtomRegistry.refresh(
-        projectEnvironment.listRepositories({ environmentId, input: { cwd } }),
-      );
-      appAtomRegistry.refresh(projectEnvironment.listEntries({ environmentId, input: { cwd } }));
-      setPathsDraft(null);
-      setSubmodulesDraft(null);
-      setSaveMessage("Saved to this checkout’s t3.json.");
+      if (written._tag !== "Success") {
+        const error = squashAtomCommandFailure(written);
+        setSaveError(
+          error instanceof Error ? error.message : "Could not save repository settings.",
+        );
+      } else {
+        appAtomRegistry.refresh(fileAtom);
+        await executeAtomQuery(appAtomRegistry, fileAtom, {
+          reportFailure: false,
+          reportDefect: false,
+        });
+        appAtomRegistry.refresh(
+          projectEnvironment.listRepositories({ environmentId, input: { cwd } }),
+        );
+        appAtomRegistry.refresh(projectEnvironment.listEntries({ environmentId, input: { cwd } }));
+        setPathsDraft(null);
+        setSubmodulesDraft(null);
+        setSaveMessage("Saved to this checkout’s t3.json.");
+      }
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "Could not save repository settings.");
-    } finally {
-      setSaving(false);
     }
+    setSaving(false);
   };
   return (
     <>
