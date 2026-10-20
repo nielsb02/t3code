@@ -134,6 +134,11 @@ jobs:
           # Paths have no spaces, so the unquoted list splits safely.
           tests="$(python3 .github/scripts/micro_sync.py fork-tests refs/remotes/upstream/included)"
           vp test run apps/server/src/persistence/reconcileV2PreviewMigration.test.ts $tests
+          # Mobile's React tests need its jsdom project, which the root runner lacks.
+          mobile_react="$(python3 .github/scripts/micro_sync.py fork-tests --mobile-react refs/remotes/upstream/included)"
+          if [[ -n "$mobile_react" ]]; then
+            (cd apps/mobile && vp test run --project react $mobile_react)
+          fi
           vp run --filter @t3tools/contracts --filter @t3tools/shared --filter @t3tools/client-runtime --filter @t3tools/web --filter @t3tools/desktop --filter @t3tools/mobile --filter t3 typecheck
 
       - name: Setup Rust

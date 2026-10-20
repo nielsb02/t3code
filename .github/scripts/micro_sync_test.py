@@ -128,5 +128,16 @@ class ForkTestsTests(GitFixture):
         )
 
 
+    def test_lists_mobile_react_tests_for_their_own_project(self):
+        for path in ("apps/mobile/src/hook.ts", "apps/mobile/src/hook.test.ts", "apps/mobile/src/hook.test.tsx"):
+            self.write(path, "upstream\n")
+        self.write("apps/mobile/vite.config.ts", 'const reactTests = [\n  "src/hook.test.tsx",\n];\n')
+        self.commit("upstream mobile")
+        git(self.root, "branch", "-f", "upstream")
+        self.write("apps/mobile/src/hook.ts", "fork\n")
+        self.commit("fork mobile")
+        self.assertEqual(fork_tests(self.root, "upstream"), ["apps/mobile/src/hook.test.ts"])
+        self.assertEqual(fork_tests(self.root, "upstream", mobile_react=True), ["src/hook.test.tsx"])
+
 if __name__ == "__main__":
     unittest.main()

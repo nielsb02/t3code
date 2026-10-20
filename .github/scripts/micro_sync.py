@@ -12,6 +12,9 @@ MIGRATIONS = "apps/server/src/persistence/Migrations"
 MANIFEST_ENTRY = re.compile(r'^\s*\[(\d+), "(\w+)", ', re.MULTILINE)
 TEST_FILE = re.compile(r"\.test\.tsx?$")
 SOURCE_FILE = re.compile(r"^(?:apps|packages|scripts)/.*(?<!\.d)\.tsx?$")
+# Mobile renders these through jsdom in its own "react" Vitest project; the root runner uses Node.
+MOBILE_CONFIG = "apps/mobile/vite.config.ts"
+MOBILE_REACT_TEST = re.compile(r'^\s*"(src/[^"]+\.test\.tsx)",?$', re.MULTILINE)
 
 
 def git(root, *args, check=True):
@@ -79,10 +82,18 @@ def migration_drift(root: Path, upstream: str) -> list[str]:
     return drift + [f"file {path}" for path in files]
 
 
-def fork_tests(root: Path, upstream: str) -> list[str]:
+def mobile_react_tests(root: Path) -> set[str]:
+    config = root / MOBILE_CONFIG
+    if not config.is_file():
+        return set()
+    return {f"apps/mobile/{path}" for path in MOBILE_REACT_TEST.findall(config.read_text())}
+
+
+def fork_tests(root: Path, upstream: str, mobile_react: bool = False) -> list[str]:
     """Tests the fork adds or changes, and the tests beside sources it changes.
 
-    Browser tests need a separate runner, so they are left out.
+    Browser tests need a separate runner, so they are left out. Mobile's React
+    tests are listed separately, relative to apps/mobile, for its jsdom project.
     """
     changed = git(root, "diff", "--name-only", "--diff-filter=d", upstream, "HEAD").stdout.split()
     candidates = set()
@@ -92,7 +103,11 @@ def fork_tests(root: Path, upstream: str) -> list[str]:
         elif SOURCE_FILE.match(path):
             stem = path.rsplit(".", 1)[0]
             candidates.update({f"{stem}.test.ts", f"{stem}.test.tsx"})
-    return sorted(p for p in candidates if ".browser.test." not in p and (root / p).is_file())
+    tests = sorted(p for p in candidates if ".browser.test." not in p and (root / p).is_file())
+    react = mobile_react_tests(root)
+    if mobile_react:
+        return [p.removeprefix("apps/mobile/") for p in tests if p in react]
+    return [p for p in tests if p not in react]
 
 
 if __name__ == "__main__":
@@ -105,7 +120,9 @@ if __name__ == "__main__":
     version.add_argument("tag")
     version.add_argument("run_number", type=int)
     commands.add_parser("check-migrations").add_argument("reference")
-    commands.add_parser("fork-tests").add_argument("reference")
+    tests = commands.add_parser("fork-tests")
+    tests.add_argument("reference")
+    tests.add_argument("--mobile-react", action="store_true", help="List apps/mobile's jsdom tests instead")
     args = parser.parse_args()
 
     if args.command == "version":
@@ -115,7 +132,7 @@ if __name__ == "__main__":
             raise SystemExit("Fork migrations diverge from upstream:\n" + "\n".join(drift))
         print("Migrations match upstream.")
     elif args.command == "fork-tests":
-        print("\n".join(fork_tests(Path.cwd(), args.reference)))
+        print("\n".join(fork_tests(Path.cwd(), args.reference, args.mobile_react)))
     else:
         changed = merge_release(Path.cwd(), args.reference, args.name)
         print("Merged upstream release." if changed else "Latest upstream release is already included.")
