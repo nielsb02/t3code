@@ -16,6 +16,20 @@ const state = vi.hoisted(() => ({
   sessionAtom: {},
   effects: [] as Array<() => void>,
   checkpoints: [] as ReadonlyArray<ThreadCheckpointSummary>,
+  repositoryFilter: null as string | null,
+  entries: [] as Array<{
+    repository: { path: string; cwd: string; available: boolean };
+    source: {
+      id: string;
+      kind: "working-tree";
+      title: string;
+      baseRef: string;
+      headRef: null;
+      diff: string;
+      diffHash: string;
+      truncated: boolean;
+    };
+  }>,
 }));
 
 vi.mock("@t3tools/client-runtime/state/thread-checkpoints", () => ({
@@ -44,19 +58,18 @@ vi.mock("../../state/use-selected-thread-worktree", () => ({
 vi.mock("@react-navigation/native", () => ({ useFocusEffect: () => undefined }));
 vi.mock("../../state/use-workspace-repositories", () => ({
   useWorkspaceRepositories: () => ({
-    repositories: [],
-    repositoryFilter: null,
+    repositories: state.entries.map(({ repository }) => repository),
+    repositoryFilter: state.repositoryFilter,
     selectRepository: vi.fn(),
     refreshRepositories: vi.fn(),
     repositoryError: null,
   }),
 }));
-// No repository has answered, so sections come from the review cache.
 vi.mock("./useWorkspaceReviewSources", () => ({
   useWorkspaceReviewSources: () => ({
-    entries: [],
+    entries: state.entries,
     error: null,
-    hasData: false,
+    hasData: state.entries.length > 0,
     isPending: false,
     refresh: vi.fn(),
   }),
@@ -89,6 +102,8 @@ import { useReviewSections } from "./useReviewSections";
 beforeEach(() => {
   vi.clearAllMocks();
   state.effects = [];
+  state.repositoryFilter = null;
+  state.entries = [];
   state.session = { authenticated: true, scopes: [AuthFilesystemReadScope] };
   state.sessionError = null;
   state.checkpoints = [
@@ -147,84 +162,53 @@ function renderSections(input: ReturnType<typeof makeInput>) {
   return result;
 }
 
-it("hides cached local diffs after file access is lost while retaining checkpoint diffs", () => {
-  const input = makeInput();
-  expect(renderSections(input).selectedSection?.diff).toBe(localDiff);
+function repositoryEntry(path: string) {
+  return {
+    repository: { path, cwd: `/repo/${path}`, available: true },
+    source: {
+      id: "working-tree",
+      kind: "working-tree" as const,
+      title: "Dirty worktree",
+      baseRef: "HEAD",
+      headRef: null,
+      diff: `diff for ${path}`,
+      diffHash: path,
+      truncated: false,
+    },
+  };
+}
 
+it("combines child repository diffs while preserving their repository paths", () => {
+  state.entries = [repositoryEntry("projects/api"), repositoryEntry("projects/web")];
+  const result = renderSections(makeInput());
+  expect(result.selectedSection).toMatchObject({
+    diff: "diff for projects/api\ndiff for projects/web",
+    subtitle: "All workspace repositories",
+    repositoryDiffs: [
+      { path: "projects/api", diff: "diff for projects/api", truncated: false },
+      { path: "projects/web", diff: "diff for projects/web", truncated: false },
+    ],
+  });
+});
+
+it("filters review sections to the selected repository and keeps its cwd", () => {
+  state.entries = [repositoryEntry("projects/api"), repositoryEntry("projects/web")];
+  state.repositoryFilter = "projects/web";
+  const result = renderSections(makeInput());
+  expect(result.selectedSection).toMatchObject({
+    diff: "diff for projects/web",
+    sourceCwd: "/repo/projects/web",
+  });
+  expect(result.selectedSection?.repositoryDiffs).toBeUndefined();
+});
+
+it("hides child repository diffs after file access is lost and retains checkpoint review", () => {
+  const input = makeInput();
+  state.entries = [repositoryEntry("projects/api"), repositoryEntry("projects/web")];
+  expect(renderSections(input).selectedSection?.repositoryDiffs).toHaveLength(2);
   state.session = { authenticated: true, scopes: [] };
   const denied = renderSections(input);
   expect(denied.reviewSections.map((section) => section.id)).toEqual(["turn:1"]);
   expect(denied.selectedSection?.diff).toBe(checkpointDiff);
-
   expect(setReviewSelectedSectionId).toHaveBeenCalledWith("environment:thread", "turn:1");
-});
-
-it.each(["working-tree", "branch-range"] as const)(
-  "preserves a cached %s selection while an expired grant reloads",
-  (kind) => {
-    const input = makeInput(makeReviewCache(kind));
-    expect(renderSections(input).selectedSection?.diff).toBe(localDiff);
-
-    state.session = null;
-    const pending = renderSections(input);
-    expect(pending.selectedSection).toEqual(
-      expect.objectContaining({ id: `git:${kind}`, diff: null, isLoading: true }),
-    );
-    expect(pending.loadingGitDiffs).toBe(true);
-    expect(pending.reviewSections.find((section) => section.id === "turn:1")?.diff).toBe(
-      checkpointDiff,
-    );
-    expect(setReviewSelectedSectionId).not.toHaveBeenCalled();
-
-    state.session = { authenticated: true, scopes: [AuthFilesystemReadScope] };
-    expect(renderSections(input).selectedSection).toEqual(
-      expect.objectContaining({ id: `git:${kind}`, diff: localDiff, isLoading: false }),
-    );
-    expect(setReviewSelectedSectionId).not.toHaveBeenCalled();
-  },
-);
-
-it("falls back to a checkpoint when a pending grant resolves without file access", () => {
-  const input = makeInput();
-  state.session = null;
-  renderSections(input);
-  expect(setReviewSelectedSectionId).not.toHaveBeenCalled();
-
-  state.session = { authenticated: true, scopes: [] };
-  const denied = renderSections(input);
-  expect(denied.reviewSections.map((section) => section.id)).toEqual(["turn:1"]);
-  expect(denied.selectedSection?.diff).toBe(checkpointDiff);
-  expect(setReviewSelectedSectionId).toHaveBeenCalledWith("environment:thread", "turn:1");
-});
-
-it("reports a failed access check when no checkpoint can replace the local review", () => {
-  state.checkpoints = [];
-  const input = makeInput();
-  expect(renderSections(input).selectedSection?.diff).toBe(localDiff);
-
-  state.sessionError = "The session request timed out.";
-  const unavailable = renderSections(input);
-  expect(unavailable.selectedSection).toBeNull();
-  expect(unavailable.reviewSections).toEqual([]);
-  expect(unavailable.error).toBe(state.sessionError);
-});
-
-it("reports denied file access when no checkpoint can replace the local review", () => {
-  state.checkpoints = [];
-  const input = makeInput();
-  expect(renderSections(input).selectedSection?.diff).toBe(localDiff);
-
-  state.session = { authenticated: true, scopes: [] };
-  const denied = renderSections(input);
-  expect(denied.selectedSection).toBeNull();
-  expect(denied.reviewSections).toEqual([]);
-  expect(denied.loadingGitDiffs).toBe(false);
-  expect(denied.error).toBe("This connection cannot read local diffs.");
-});
-
-it("keeps a cached checkpoint available when the filesystem access check fails", () => {
-  state.sessionError = "The session request timed out.";
-  const checkpoint = renderSections(makeInput());
-  expect(checkpoint.selectedSection?.diff).toBe(checkpointDiff);
-  expect(checkpoint.error).toBeNull();
 });

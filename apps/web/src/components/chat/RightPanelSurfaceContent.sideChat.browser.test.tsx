@@ -1,9 +1,9 @@
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { act, createRef, useState } from "react";
+import { createRef, useState } from "react";
+import { act, render } from "../../../test/render";
 import { flushSync } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
 import { ChatPaneScope, useChatPaneFocusStore } from "../../chatPaneScope";
@@ -21,8 +21,6 @@ vi.mock("../../state/entities", async (importOriginal) => ({
 const environmentId = EnvironmentId.make("side-chat-test");
 const parentRef = scopeThreadRef(environmentId, ThreadId.make("parent"));
 const noop = () => {};
-let root: Root;
-let container: HTMLDivElement;
 
 function PaneComposer({ threadId }: { threadId: ThreadId }) {
   const [value, setValue] = useState("");
@@ -105,25 +103,14 @@ function Workspace({ child }: { child: string | null }) {
   );
 }
 
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  useChatPaneFocusStore.setState({ panes: [], activeKey: null });
-  container = document.body.appendChild(document.createElement("div"));
-  root = createRoot(container);
-});
-
-afterEach(async () => {
-  await act(() => root.unmount());
-  container.remove();
-  vi.unstubAllGlobals();
-});
-
 it.each([null, "first"])(
   "mounts usable independent editors when opening or restoring a side chat (initial %s)",
   async (initial) => {
-    await act(() => flushSync(() => root.render(<Workspace child={initial} />)));
+    useChatPaneFocusStore.setState({ panes: [], activeKey: null });
+    await using screen = await render(<Workspace child={initial} />, { router: false });
+    const { container } = screen;
     await act(() => {
-      flushSync(() => root.render(<Workspace child="first" />));
+      flushSync(() => void screen.rerender(<Workspace child="first" />));
       // A lazy retry starts a concurrent render: Tiptap can dispose an editor
       // before that render commits. Both inputs must be ready in this commit.
       expect(container.querySelectorAll(".tiptap")).toHaveLength(2);
@@ -138,9 +125,9 @@ it.each([null, "first"])(
     );
     expect(container.querySelector('[aria-label="parent"]')?.textContent).toBe("main draft");
     expect(container.querySelector('[aria-label="first"]')?.textContent).toBe("side draft");
-    await act(() => flushSync(() => root.render(<Workspace child="second" />)));
+    await act(() => flushSync(() => void screen.rerender(<Workspace child="second" />)));
     expect(container.querySelector('[aria-label="second"]')?.textContent).toBe("");
-    await act(() => flushSync(() => root.render(<Workspace child={null} />)));
+    await act(() => flushSync(() => void screen.rerender(<Workspace child={null} />)));
     expect(container.querySelectorAll(".tiptap")).toHaveLength(1);
     expect(container.querySelector('[aria-label="parent"]')?.textContent).toBe("main draft");
   },

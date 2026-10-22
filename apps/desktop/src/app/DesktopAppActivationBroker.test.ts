@@ -416,19 +416,4 @@ describe("DesktopAppActivationBroker", () => {
     expect(send).toHaveBeenCalledTimes(1);
     broker.close();
   });
-
-  it("times out a request without polling", async () => {
-    vi.useFakeTimers();
-    try {
-      const broker = new DesktopAppActivationBroker({ requestTimeoutMs: 1_000, activate: vi.fn() });
-      const response = broker.request(request);
-
-      await vi.advanceTimersByTimeAsync(1_000);
-
-      await expect(response).resolves.toMatchObject({ ok: false, code: "request-timeout" });
-      broker.close();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
 });

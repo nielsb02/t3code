@@ -28,7 +28,6 @@ import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
-import * as Schedule from "effect/Schedule";
 import type * as Scope from "effect/Scope";
 import type * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
@@ -530,26 +529,22 @@ it.live("deletes a main thread's side chats with it, closed ones included, but n
         threadId: closedThreadId,
       });
 
-      yield* orchestrator.dispatch({
-        type: "thread.delete",
-        commandId: CommandId.make("command:side-chats:delete-parent"),
-        threadId: parentThreadId,
-      });
-      // The reactor deletes them after the parent's event; deleted threads leave the shell.
-      const remaining = orchestrator
-        .getThreadShell(sideChatThreadId)
-        .pipe(
-          Effect.zipWith(orchestrator.getThreadShell(closedThreadId), (open, closed) =>
-            [open, closed].filter((shell) => shell !== null),
-          ),
-        );
-      yield* remaining.pipe(
-        Effect.repeat({
-          schedule: Schedule.spaced("100 millis"),
-          until: (left) => left.length === 0,
-        }),
-        Effect.timeout("20 seconds"),
+      const closedDeleted = yield* awaitEventAfter(
+        closedThreadId,
+        (event) => event.type === "thread.deleted",
+        awaitEventAfter(
+          sideChatThreadId,
+          (event) => event.type === "thread.deleted",
+          orchestrator.dispatch({
+            type: "thread.delete",
+            commandId: CommandId.make("command:side-chats:delete-parent"),
+            threadId: parentThreadId,
+          }),
+        ),
       );
+      assert.isTrue(Option.isSome(closedDeleted));
+      assert.isNull(yield* orchestrator.getThreadShell(sideChatThreadId));
+      assert.isNull(yield* orchestrator.getThreadShell(closedThreadId));
       const nativeFork = yield* orchestrator.getThreadShell(nativeForkThreadId);
       assert.isNotNull(nativeFork);
       assert.isNull(nativeFork?.deletedAt ?? null);

@@ -6,7 +6,9 @@ const state = vi.hoisted(() => ({
   fieldIndex: 0,
   canChangeThreadBranch: true,
   navigations: 0,
-  result: Promise.resolve(null) as Promise<unknown>,
+  child: false,
+  status: null as unknown,
+  branches: [{ name: "main", current: true, isDefault: true, worktreePath: "/repo/projects/app" }],
 }));
 
 vi.mock("react", async (importOriginal) => ({
@@ -33,25 +35,33 @@ vi.mock("react-native-safe-area-context", () => ({
 vi.mock("../../../components/ui/AndroidScreenHeader", () => ({
   AndroidSheetHeader: "AndroidSheetHeader",
 }));
+vi.mock("../../../components/ui/SheetHeader", () => ({ SheetHeader: "SheetHeader" }));
+vi.mock("../../../components/ui/ScreenContent", () => ({ ScreenContent: "ScreenContent" }));
+vi.mock("../../../native/StackHeader", () => ({
+  NativeStackScreenOptions: "NativeStackScreenOptions",
+}));
 vi.mock("../../../components/ui/AppText", () => ({ AppText: "Text", AppTextInput: "TextInput" }));
 vi.mock("./gitSheetComponents", () => ({ SheetActionButton: "SheetActionButton" }));
 vi.mock("../../../state/query", () => ({
-  useEnvironmentQuery: () => ({ data: { refName: "main" } }),
+  useEnvironmentQuery: (input: unknown) => {
+    state.status = input;
+    return { data: { refName: "main" } };
+  },
 }));
-vi.mock("../../../state/vcs", () => ({ vcsEnvironment: { status: () => null } }));
+vi.mock("../../../state/vcs", () => ({ vcsEnvironment: { status: (input: unknown) => input } }));
 vi.mock("../../../state/use-thread-selection", () => ({
   useThreadSelection: () => ({ selectedThread: { environmentId: "environment", branch: "main" } }),
 }));
 vi.mock("../../../state/use-workspace-repositories", () => ({
   useWorkspaceRepositories: () => ({
-    selectedThreadCwd: "/repo",
+    selectedThreadCwd: state.child ? "/repo/projects/app" : "/repo",
     selectedThreadWorktreePath: null,
-    isChildRepository: false,
+    isChildRepository: state.child,
   }),
 }));
 vi.mock("../../../state/use-selected-thread-git-state", () => ({
   useSelectedThreadGitState: () => ({
-    selectedThreadBranches: [{ name: "main", current: true, isDefault: true, worktreePath: null }],
+    selectedThreadBranches: state.branches,
     selectedThreadBranchesLoading: false,
     gitOperationLabel: null,
   }),
@@ -59,9 +69,9 @@ vi.mock("../../../state/use-selected-thread-git-state", () => ({
 vi.mock("../../../state/use-selected-thread-git-actions", () => ({
   useSelectedThreadGitActions: () => ({
     canChangeThreadBranch: state.canChangeThreadBranch,
-    onCreateSelectedThreadBranch: () => state.result,
-    onCreateSelectedThreadWorktree: () => state.result,
-    onCheckoutSelectedThreadBranch: () => state.result,
+    onCreateSelectedThreadBranch: () => Promise.resolve(null),
+    onCreateSelectedThreadWorktree: () => Promise.resolve(null),
+    onCheckoutSelectedThreadBranch: () => Promise.resolve(null),
   }),
 }));
 
@@ -74,6 +84,7 @@ type ControlProps = {
   onChangeText?: (value: string) => void;
   value?: string;
   children?: ReactNode;
+  disabled?: boolean;
 };
 
 function findControl(node: ReactNode, label: string): ControlProps | null {
@@ -105,69 +116,25 @@ function control(label: string) {
   return found;
 }
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((complete) => {
-    resolve = complete;
-  });
-  return { promise, resolve };
-}
-
-describe("branch sheet operation completion", () => {
+describe("repository-scoped branch sheet", () => {
   beforeEach(() => {
     state.fields = [];
     state.fieldIndex = 0;
-    state.canChangeThreadBranch = true;
-    state.navigations = 0;
-    control("feature/mobile-polish").onChangeText?.("feature/branch");
-    control("main").onChangeText?.("release");
-    control("feature/mobile-thread").onChangeText?.("feature/worktree");
+    state.child = false;
   });
 
-  it.each(["Create & checkout", "Create worktree", "checkout"])(
-    "keeps the sheet and its input when %s cannot complete",
-    async (operation) => {
-      const result = deferred<null>();
-      state.result = result.promise;
-      const press = control(operation).onPress;
-      if (!press) throw new Error("Missing operation handler");
-      state.canChangeThreadBranch = false;
-      const completion = press();
-      result.resolve(null);
-      await result.promise;
-      await completion;
+  it("queries the selected child repository and permits its current checkout", () => {
+    state.child = true;
+    expect(control("checkout").disabled).toBe(false);
+    expect(state.status).toEqual({
+      environmentId: "environment",
+      input: { cwd: "/repo/projects/app" },
+    });
+    expect(control("Create worktree").disabled).toBe(true);
+  });
 
-      expect(state.navigations).toBe(0);
-      expect(control("feature/mobile-polish").value).toBe("feature/branch");
-      expect(control("main").value).toBe("release");
-      expect(control("feature/mobile-thread").value).toBe("feature/worktree");
-    },
-  );
-
-  it.each(["Create & checkout", "Create worktree", "checkout"])(
-    "dismisses after accepted %s completion even if the source grant changes",
-    async (operation) => {
-      const result = deferred<unknown>();
-      state.result = result.promise;
-      const press = control(operation).onPress;
-      if (!press) throw new Error("Missing operation handler");
-      const completion = press();
-      state.canChangeThreadBranch = false;
-      result.resolve(
-        operation === "Create worktree"
-          ? { worktree: { path: "/repo-worktree", refName: "feature/worktree" } }
-          : { refName: operation === "checkout" ? "main" : "feature/branch" },
-      );
-      await result.promise;
-      await completion;
-
-      expect(state.navigations).toBe(1);
-      expect(control("feature/mobile-polish").value).toBe(
-        operation === "Create & checkout" ? "" : "feature/branch",
-      );
-      expect(control("feature/mobile-thread").value).toBe(
-        operation === "Create worktree" ? "" : "feature/worktree",
-      );
-    },
-  );
+  it("treats a child checkout as another worktree when selecting the workspace root", () => {
+    expect(control("checkout").disabled).toBe(true);
+    expect(state.status).toEqual({ environmentId: "environment", input: { cwd: "/repo" } });
+  });
 });

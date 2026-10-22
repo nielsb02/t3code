@@ -12,9 +12,9 @@ import {
   type ExecutionEnvironmentCapabilities,
 } from "@t3tools/contracts";
 import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
-import { act, useEffect } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { beforeEach, expect, it, vi } from "vite-plus/test";
+import { useEffect } from "react";
+import { act, render } from "../../test/render";
+import { expect, it, vi } from "vite-plus/test";
 
 import { usePullRequestLinking } from "../hooks/usePullRequestLinking";
 import { selectActiveRightPanelSurface, useRightPanelStore } from "../rightPanelStore";
@@ -92,7 +92,9 @@ vi.mock("../hooks/useSettings", () => ({
 vi.mock("../state/environments", () => ({ usePrimaryEnvironmentId: () => environmentId }));
 vi.mock(import("@tanstack/react-router"), async (original) => ({
   ...(await original()),
-  useNavigate: () => async () => {},
+  useNavigate: () => async () => {
+    resetState();
+  },
 }));
 vi.mock("../browser/useOpenLink", () => ({ useOpenLink: () => () => Promise.resolve() }));
 vi.mock("../state/projects", () => ({
@@ -115,13 +117,13 @@ vi.mock("../state/use-atom-command", () => ({
   },
 }));
 
-beforeEach(() => {
+function resetState() {
   configs.set(environmentId, { environment: { capabilities } });
   currentThread = thread;
   repositories = [child];
   mutations.length = 0;
   useRightPanelStore.setState({ byThreadKey: {}, userActionRevisionByThreadKey: {} });
-});
+}
 
 async function withHooks(
   check: (hooks: {
@@ -132,8 +134,6 @@ async function withHooks(
 ) {
   const registry = AtomRegistry.make();
   let hooks: Parameters<typeof check>[0] | undefined;
-  const container = document.body.appendChild(document.createElement("div"));
-  let renderer: Root | undefined;
   function Probe() {
     const open = useOpenChangeRequestLink(bindThread ? threadRef : undefined);
     const linking = usePullRequestLinking(environmentId);
@@ -142,28 +142,23 @@ async function withHooks(
     }, [open, linking]);
     return null;
   }
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   try {
-    await act(async () => {
-      renderer = createRoot(container);
-      renderer.render(
-        <RegistryContext.Provider value={registry}>
-          <Probe />
-        </RegistryContext.Provider>,
-      );
-    });
+    await using _screen = await render(
+      <RegistryContext.Provider value={registry}>
+        <Probe />
+      </RegistryContext.Provider>,
+      { router: false },
+    );
     if (!hooks) throw new Error("Hooks did not mount");
     const mountedHooks = hooks;
     await act(async () => check(mountedHooks));
   } finally {
-    await act(async () => renderer?.unmount());
-    container.remove();
     registry.dispose();
-    vi.unstubAllGlobals();
   }
 }
 
 it("opens a child PR beside the thread without a registered project for the child", async () => {
+  resetState();
   await withHooks(({ open }) => {
     expect(
       open(
@@ -183,6 +178,7 @@ it("opens a child PR beside the thread without a registered project for the chil
 });
 
 it("links a child PR to the wrapper's thread", async () => {
+  resetState();
   await withHooks(async ({ linking }) => {
     expect(linking.canLink("https://github.com/acme/api/pull/12")).toBe(true);
     await linking.changeLink(threadRef, "https://github.com/acme/api/pull/12", true);
@@ -205,6 +201,7 @@ it("links a child PR to the wrapper's thread", async () => {
 it.each(["https://github.other.test/acme/api/pull/12", "https://github.com/acme/other/pull/12"])(
   "does not route an unrelated PR through a child repository: %s",
   async (url) => {
+    resetState();
     await withHooks(({ open }) => {
       expect(
         open({ preventDefault() {}, stopPropagation() {}, metaKey: false, ctrlKey: false }, url),
@@ -214,6 +211,7 @@ it.each(["https://github.other.test/acme/api/pull/12", "https://github.com/acme/
 );
 
 it("does not route through an unavailable child repository", async () => {
+  resetState();
   repositories = [{ ...child, available: false }];
   await withHooks(({ open }) =>
     expect(
@@ -231,6 +229,7 @@ it.each([
   ["http://other.example:3000/git/team/repo/pulls/12", false],
   ["http://code.example:3000/other/team/repo/pulls/12", false],
 ])("matches the child's resolved Forgejo address: %s", async (url, expected) => {
+  resetState();
   repositories = [
     {
       ...child,
@@ -255,6 +254,7 @@ it.each([
 });
 
 it("keeps child links external on servers without workspace link routing", async () => {
+  resetState();
   configs.set(environmentId, {
     environment: {
       capabilities: {
@@ -274,6 +274,7 @@ it("keeps child links external on servers without workspace link routing", async
 });
 
 it("opens a saved child PR from a sidebar without mounting its workspace first", async () => {
+  resetState();
   currentThread = {
     ...thread,
     pullRequests: [

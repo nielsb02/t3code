@@ -1,6 +1,6 @@
-import { act, useLayoutEffect } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { useLayoutEffect } from "react";
+import { act, render } from "../test/render";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   ComposerHandleContext,
@@ -15,8 +15,6 @@ import {
   useChatPaneFocusStore,
 } from "./chatPaneScope";
 
-let renderer: Root | null = null;
-let container: HTMLDivElement;
 const observed = new Map<string, { composer: ComposerHandleRef | null; active: boolean }>();
 const parentComposer: ComposerHandleRef = { current: null };
 
@@ -44,45 +42,30 @@ function Workspace({ child }: { child: string | null }) {
   );
 }
 
-beforeEach(() => {
-  container = document.body.appendChild(document.createElement("div"));
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  useChatPaneFocusStore.setState({ panes: [], activeKey: null });
-  observed.clear();
-});
-afterEach(async () => {
-  await act(() => renderer?.unmount());
-  renderer = null;
-  container.remove();
-  vi.unstubAllGlobals();
-});
-
 describe("conversation pane input ownership", () => {
   it("gives a new side chat an independent composer and restores the parent when closed", async () => {
-    await act(() => {
-      renderer = createRoot(container);
-      renderer.render(<Workspace child={null} />);
-    });
+    observed.clear();
+    useChatPaneFocusStore.setState({ panes: [], activeKey: null });
+    await using screen = await render(<Workspace child={null} />, { router: false });
     expect(activeChatPaneComposer()).toBe(parentComposer);
-    await act(() => renderer!.render(<Workspace child="child" />));
+    await screen.rerender(<Workspace child="child" />);
     expect(observed.get("child")?.composer).not.toBe(parentComposer);
     expect(activeChatPaneComposer()).toBe(observed.get("child")?.composer);
     expect(ownsChatPaneInput("child")).toBe(true);
     expect(ownsChatPaneInput("parent")).toBe(false);
     expect(observed.get("parent")?.active).toBe(false);
-    await act(() => renderer!.render(<Workspace child={null} />));
+    await screen.rerender(<Workspace child={null} />);
     expect(activeChatPaneComposer()).toBe(parentComposer);
     expect(observed.get("parent")?.active).toBe(true);
     expect(useChatPaneFocusStore.getState().panes).toHaveLength(1);
   });
 
   it("keeps the selected child active when a saved workspace mounts and when tabs switch", async () => {
-    await act(() => {
-      renderer = createRoot(container);
-      renderer.render(<Workspace child="first" />);
-    });
+    observed.clear();
+    useChatPaneFocusStore.setState({ panes: [], activeKey: null });
+    await using screen = await render(<Workspace child="first" />, { router: false });
     expect(ownsChatPaneInput("first")).toBe(true);
-    await act(() => renderer!.render(<Workspace child="second" />));
+    await screen.rerender(<Workspace child="second" />);
     expect(ownsChatPaneInput("second")).toBe(true);
     expect(ownsChatPaneInput("first")).toBe(false);
     expect(
@@ -97,10 +80,9 @@ describe("conversation pane input ownership", () => {
   });
 
   it("routes events from an explicitly tagged pane or popup to that pane only", async () => {
-    await act(() => {
-      renderer = createRoot(container);
-      renderer.render(<Workspace child="child" />);
-    });
+    observed.clear();
+    useChatPaneFocusStore.setState({ panes: [], activeKey: null });
+    await using _screen = await render(<Workspace child="child" />, { router: false });
     const parentPopup = document.createElement("div");
     parentPopup.dataset.chatPaneId = "parent";
     expect(ownsChatPaneInput("parent", parentPopup)).toBe(true);
