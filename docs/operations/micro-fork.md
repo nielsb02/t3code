@@ -73,6 +73,19 @@ Back up the existing `statev2.sqlite` database before upgrading; an older V2
 build uses that same file, so downgrading the application does not undo these
 migrations.
 
+The `v0.1.2-nightly.20261022.3541` upgrade adds migration 067 (`WebhookDedupe`):
+a nullable webhook delivery id on scheduled tasks, replay and pending-delivery
+tables, and their indexes. It does not rewrite thread or message payloads. The
+migration ledger repair still runs before preview reconciliation. The automated
+upgrade test covers a V2 fork at migration 66, but does not measure migration time
+or disk use against a multi-gigabyte database.
+
+This nightly also reverts upstream's recovery of saved connections encrypted
+under the earlier Alpha app name on macOS and Linux. Keep a backup of the desktop
+connection catalog and confirm remote connections after replacing the app; old
+catalogs can fail to decrypt under the Beta name and may need to be paired again.
+This concerns desktop credentials, separately from the server's SQLite migrations.
+
 ## Installing a build
 
 Download the DMG or ZIP from this fork's latest release. Builds are currently
@@ -146,8 +159,16 @@ the pull request sync and watch reactors, `WorkspaceEntries`,
 diff panels, and the mobile review sections and Git actions. Right-panel bodies
 now live in `components/chat/RightPanelSurfaceContent.tsx`, surface cleanup in
 `hooks/useRightPanelSurfaceClose.ts`, and keyboard handling in
-`components/chat/useChatShortcuts.ts`. Side-chat rendering, archive-on-close and
-pane input ownership must follow those upstream seams.
+`components/chat/useChatShortcuts.ts`. After the 0.1.2 chat split, side-chat actions
+live in `components/chat/useSideChatActions.tsx` and response actions in
+`TimelineAssistantRows.tsx`. Pane input ownership also reaches the extracted paste,
+stash and timeline-follow hooks; Micro's runtime-mode attributes live in
+`ComposerFooterControls.tsx`. Pull request cache identity must keep workspace scope
+in the extracted `components/pullRequest/usePullRequestDetail.ts`.
+
+Keep `SideChatPanel` eagerly imported and keyed by thread id in
+`RightPanelSurfaceContent`. A lazy Suspense retry can let Tiptap dispose an editor
+before commit. Its browser regression test must exercise the real composer editor.
 
 Upstream's `KnownWorkspaces` now covers the fork's registered-project and thread
 worktree review access. Keep its verification: an external thread checkout must

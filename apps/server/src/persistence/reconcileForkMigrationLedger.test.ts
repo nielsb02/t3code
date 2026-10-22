@@ -150,6 +150,36 @@ describe("fork migration ledger", () => {
       }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 
+  it.effect("upgrades the previous nightly at migration 66 without rewriting fork payloads", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 66 });
+      const payload = JSON.stringify({
+        id: "side-chat",
+        sideChat: true,
+        lineage: { parentThreadId: "parent", relationshipToParent: "fork", rootThreadId: "parent" },
+        pullRequests: [{ host: "github.com", repository: "org/child", number: 42 }],
+      });
+      yield* sql`
+        INSERT INTO orchestration_v2_projection_threads (
+          thread_id, project_id, title, default_provider, runtime_mode, interaction_mode,
+          created_at, updated_at, payload_json
+        ) VALUES ('side-chat', 'workspace', 'Side chat', 'codex', 'full-access', 'default',
+          '2026-10-20', '2026-10-20', ${payload})
+      `;
+      assert.deepStrictEqual(yield* runMigrations(), [[67, "WebhookDedupe"]]);
+      assert.deepStrictEqual(yield* ledger, migrationManifest);
+      assert.deepStrictEqual(
+        yield* sql`SELECT payload_json FROM orchestration_v2_projection_threads WHERE thread_id = 'side-chat'`,
+        [{ payload_json: payload }],
+      );
+      assert.isTrue(yield* hasTable("scheduled_task_webhook_replay_keys"));
+      assert.isTrue(yield* hasTable("scheduled_task_webhook_pending"));
+      yield* sql`SELECT last_run_webhook_delivery_id FROM scheduled_tasks`;
+      assert.deepStrictEqual(yield* runMigrations(), []);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
+
   it.effect("leaves other ledgers alone", () =>
     Effect.gen(function* () {
       yield* runMigrations();
