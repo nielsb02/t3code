@@ -1,8 +1,8 @@
 import { RegistryContext } from "@effect/atom-react";
 import { EnvironmentId } from "@t3tools/contracts";
 import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
-import { act, useLayoutEffect } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { useLayoutEffect } from "react";
+import { render } from "../../test/render";
 import { expect, it, vi } from "vite-plus/test";
 import { useWorkspaceDiff } from "./useWorkspaceDiff";
 
@@ -26,34 +26,24 @@ it("keeps each repository's comparison base when switching between a filter and 
     }, [result.results]);
     return null;
   }
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  const container = document.body.appendChild(document.createElement("div"));
-  let renderer: Root | undefined;
   try {
-    await act(async () => {
-      renderer = createRoot(container);
-      renderer.render(
-        <RegistryContext.Provider value={registry}>
-          <Probe repositories={[one]} />
-        </RegistryContext.Provider>,
-      );
-    });
+    await using screen = await render(
+      <RegistryContext.Provider value={registry}>
+        <Probe repositories={[one]} />
+      </RegistryContext.Provider>,
+      { router: false },
+    );
     expect(data).toEqual([{ cwd: one.cwd, baseRef: "release/one" }]);
-    await act(async () => {
-      renderer?.render(
-        <RegistryContext.Provider value={registry}>
-          <Probe repositories={[one, two]} />
-        </RegistryContext.Provider>,
-      );
-    });
+    await screen.rerender(
+      <RegistryContext.Provider value={registry}>
+        <Probe repositories={[one, two]} />
+      </RegistryContext.Provider>,
+    );
     expect(data).toEqual([
       { cwd: one.cwd, baseRef: "release/one" },
       { cwd: two.cwd, baseRef: "release/two" },
     ]);
   } finally {
-    await act(async () => renderer?.unmount());
-    container.remove();
     registry.dispose();
-    vi.unstubAllGlobals();
   }
 });

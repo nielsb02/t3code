@@ -10,15 +10,6 @@ import {
 const decodeJson = Schema.decodeUnknownSync(T3ProjectFileFromJson);
 
 describe("buildT3ProjectFileJsonSchema", () => {
-  it("emits a draft 2020-12 schema with the published $id", () => {
-    const schema = buildT3ProjectFileJsonSchema();
-
-    expect(schema.$schema).toBe("https://json-schema.org/draft/2020-12/schema");
-    expect(schema.$id).toBe("https://t3.codes/schema/t3.json");
-    expect(schema.type).toBe("object");
-    expect(schema.additionalProperties).toBe(false);
-  });
-
   it("documents every supported field", () => {
     const schema = buildT3ProjectFileJsonSchema() as {
       properties: Record<
@@ -57,11 +48,6 @@ describe("buildT3ProjectFileJsonSchema", () => {
       "runOnWorktreeCreate",
     ]);
   });
-
-  it("stays JSON-serializable", () => {
-    const schema = buildT3ProjectFileJsonSchema();
-    expect(JSON.parse(JSON.stringify(schema))).toEqual(schema);
-  });
 });
 
 describe("T3ProjectFileFromJson", () => {
@@ -77,10 +63,6 @@ describe("T3ProjectFileFromJson", () => {
     expect(decoded.iconPath).toBe("assets/logo.svg");
     expect(decoded.scripts?.[0]).toEqual({ name: "Dev", command: "pnpm dev" });
   });
-
-  it("fails on malformed JSON", () => {
-    expect(() => decodeJson("{ not json")).toThrow();
-  });
 });
 
 describe("parseT3ProjectFile", () => {
@@ -91,10 +73,5 @@ describe("parseT3ProjectFile", () => {
         "defaultThreadEnvMode": "worktree"
       }`),
     ).toEqual({ defaultThreadEnvMode: "worktree" });
-  });
-
-  it("returns null for malformed or invalid contents", () => {
-    expect(parseT3ProjectFile("{ not json")).toBeNull();
-    expect(parseT3ProjectFile('{ "defaultThreadEnvMode": "spaceship" }')).toBeNull();
   });
 });

@@ -209,6 +209,7 @@ import {
 import { sortThreads } from "../lib/threadSort";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
+import { useIsMobile } from "~/hooks/useMediaQuery";
 import { CommandDialogTrigger } from "./ui/command";
 import { useClientSettings, updateClientSettings } from "~/hooks/useSettings";
 import { primaryServerKeybindingsAtom } from "../state/server";
@@ -227,6 +228,11 @@ import {
 } from "../sidebarProjectGrouping";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
+import {
+  completeSidebarRouteReveal,
+  pendingSidebarRouteReveal,
+  type SidebarRouteReveal,
+} from "./sidebar/routeReveal";
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
   created_at: "Created at",
@@ -424,7 +430,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     environmentId: thread.environmentId,
     threadId: thread.id,
   });
-  const { isMobile } = useSidebar();
+  const isMobile = useIsMobile();
   const discoveredPorts = useThreadDiscoveredPorts({
     environmentId: thread.environmentId,
     threadId: thread.id,
@@ -1203,20 +1209,26 @@ function useProjectThreadPanel(input: {
     (settings) => settings.sidebarThreadPreviewCount,
   );
   const activeThreadKey = activeRouteThreadKey ?? undefined;
-  const pinnedCollapsedThread =
-    !activeThreadKey || projectExpanded
-      ? null
-      : (visibleProjectThreads.find(
-          (thread) =>
-            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === activeThreadKey,
-        ) ?? null);
-  const hasOverflowingThreads = visibleProjectThreads.length > sidebarThreadPreviewCount;
+  const activeThread = activeThreadKey
+    ? (visibleProjectThreads.find(
+        (thread) =>
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === activeThreadKey,
+      ) ?? null)
+    : null;
+  const pinnedCollapsedThread = projectExpanded ? null : activeThread;
+  // The open thread stays listed past the preview cut, as it does in a
+  // collapsed project, so it alone does not overflow the preview.
+  const hasOverflowingThreads = visibleProjectThreads.some(
+    (thread, index) =>
+      index >= sidebarThreadPreviewCount &&
+      scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) !== activeThreadKey,
+  );
   const previewThreads =
     isThreadListExpanded || !hasOverflowingThreads
       ? visibleProjectThreads
       : visibleProjectThreads.slice(0, sidebarThreadPreviewCount);
   const visibleThreadKeys = new Set(
-    [...previewThreads, ...(pinnedCollapsedThread ? [pinnedCollapsedThread] : [])].map((thread) =>
+    [...previewThreads, ...(activeThread ? [activeThread] : [])].map((thread) =>
       scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
     ),
   );
@@ -3206,10 +3218,17 @@ function useLegacySidebarThreads(input: {
       isThreadListExpanded || !hasOverflowingThreads
         ? projectThreads
         : projectThreads.slice(0, sidebarThreadPreviewCount);
-    const renderedThreads = pinnedCollapsedThread ? [pinnedCollapsedThread] : previewThreads;
-    return renderedThreads.map((thread) =>
-      scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-    );
+    if (pinnedCollapsedThread) {
+      return [
+        scopedThreadKey(
+          scopeThreadRef(pinnedCollapsedThread.environmentId, pinnedCollapsedThread.id),
+        ),
+      ];
+    }
+    return projectThreads.flatMap((thread, index) => {
+      const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+      return index < previewThreads.length || threadKey === activeThreadKey ? [threadKey] : [];
+    });
   });
   const threadJumpCommandByKey = new Map<
     string,
@@ -3238,7 +3257,7 @@ function useLegacySidebarThreads(input: {
   };
 }
 
-export default function LegacySidebar() {
+export default function LegacySidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const navigate = useNavigate();
   const sidebarThreadSortOrder = useClientSettings((s) => s.sidebarThreadSortOrder);
@@ -3325,6 +3344,25 @@ export default function LegacySidebar() {
     );
   }, [visibleSidebarThreadKeys, sidebarThreadByKey, serverConfigs, shellsBootstrapped, nowMinute]);
 
+  // History and the command palette can open a thread scrolled out of view,
+  // and a remount starts the list at the top, so each route change and each
+  // mount scroll to the open thread once. Its row can mount after the route
+  // does, once its environment's shells arrive, so the reveal waits for it.
+  const mountRevealOwed = useRef(true);
+  const routeRowRendered =
+    routeThreadKey !== null && visibleSidebarThreadKeys.includes(routeThreadKey);
+  const revealRouteRow = useStableCallback(() => {
+    const pendingKey = pendingSidebarRouteReveal(routeReveal, routeThreadKey);
+    if (pendingKey === null && (!mountRevealOwed.current || routeThreadKey === null)) return;
+    const activeRow = document.querySelector(
+      '[data-sidebar="content"] [data-thread-item] [data-active="true"]',
+    );
+    if (!activeRow) return;
+    completeSidebarRouteReveal(routeReveal);
+    mountRevealOwed.current = false;
+    activeRow.scrollIntoView({ block: "nearest" });
+  });
+  useEffect(revealRouteRow, [revealRouteRow, routeThreadKey, routeRowRendered]);
   const newThreadShortcutLabelOptions = {
     platform,
     context: {
