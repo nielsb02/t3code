@@ -35,6 +35,11 @@ vi.mock("react-native-safe-area-context", () => ({
 vi.mock("../../../components/ui/AndroidScreenHeader", () => ({
   AndroidSheetHeader: "AndroidSheetHeader",
 }));
+vi.mock("../../../components/ui/SheetHeader", () => ({ SheetHeader: "SheetHeader" }));
+vi.mock("../../../components/ui/ScreenContent", () => ({ ScreenContent: "ScreenContent" }));
+vi.mock("../../../native/StackHeader", () => ({
+  NativeStackScreenOptions: "NativeStackScreenOptions",
+}));
 vi.mock("../../../components/ui/AppText", () => ({ AppText: "Text", AppTextInput: "TextInput" }));
 vi.mock("./gitSheetComponents", () => ({ SheetActionButton: "SheetActionButton" }));
 vi.mock("../../../state/query", () => ({
