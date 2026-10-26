@@ -701,7 +701,7 @@ export const make = Effect.gen(function* () {
   const readCache = yield* PullRequestReadCache.PullRequestReadCache;
   const clock = yield* Clock.Clock;
 
-  const resolveProviderKind = (input: Parameters<typeof sourceControlProviders.resolveHandle>[0]) =>
+  const resolveProviderKind: typeof sourceControlProviders.resolveHandle = (input) =>
     sourceControlProviders.resolveHandle(input);
 
   /**
@@ -713,7 +713,7 @@ export const make = Effect.gen(function* () {
   const resolveRemoteHosts = Effect.fn("PullRequestService.resolveRemoteHosts")(function* (
     projects: ReadonlyArray<OrchestrationProjectShell>,
     filter: Pick<PullRequestListInput, "projectId" | "host">,
-    resolveKind = resolveProviderKind,
+    resolveKind: typeof resolveProviderKind = resolveProviderKind,
   ) {
     type Candidate = {
       readonly project: OrchestrationProjectShell;
@@ -777,42 +777,39 @@ export const make = Effect.gen(function* () {
       readonly host: string | null;
       readonly baseUrl: string;
     };
-    const resolveCandidate = ({ project, context }: Candidate) =>
-      (context.provider.kind === "unknown"
-        ? resolveContext({ cwd: project.workspaceRoot, context }).pipe(
-            Effect.map((resolved) =>
-              resolved === null || resolved.provider.kind === "unknown"
-                ? null
-                : { context: resolved, discovered: true },
-            ),
-          )
-        : Effect.succeed({ context, discovered: false })
-      ).pipe(
-        Effect.flatMap((found) =>
-          found === null
-            ? Effect.succeed(null)
-            : sourceControlProviders.get(found.context.provider.kind).pipe(
-                Effect.flatMap(
-                  (provider) =>
-                    provider.resolveRemoteWebHost?.({
-                      cwd: project.workspaceRoot,
-                      context: found.context,
-                      // A remote discovery just placed is not looked up a second time.
-                      resolveContext: found.discovered
-                        ? () => Effect.succeed(found.context)
-                        : resolveContext,
-                    }) ?? Effect.succeed(null),
-                ),
-                Effect.orElseSucceed(() => null),
-                Effect.map((host): RemoteHost => ({
-                  kind: found.context.provider.kind,
-                  baseUrl: found.context.provider.baseUrl,
-                  host,
-                })),
-              ),
-        ),
-        Effect.orElseSucceed(() => null),
-      );
+    const resolveCandidate = Effect.fn("PullRequestService.resolveCandidate")(
+      function* ({ project, context }: Candidate) {
+        let resolvedContext = context;
+        const resolveForCandidate: typeof resolveContext = (input) =>
+          resolveContext(input).pipe(
+            Effect.map((resolved) => {
+              if (resolved !== null) resolvedContext = resolved;
+              return resolved;
+            }),
+          );
+        const discovered = context.provider.kind === "unknown";
+        if (discovered) {
+          const resolved = yield* resolveForCandidate({ cwd: project.workspaceRoot, context });
+          if (resolved === null || resolved.provider.kind === "unknown") return null;
+        }
+        const provider = yield* sourceControlProviders.get(resolvedContext.provider.kind);
+        const host = yield* (
+          provider.resolveRemoteWebHost?.({
+            cwd: project.workspaceRoot,
+            context: resolvedContext,
+            resolveContext: discovered
+              ? () => Effect.succeed(resolvedContext)
+              : resolveForCandidate,
+          }) ?? Effect.succeed(null)
+        ).pipe(Effect.orElseSucceed(() => null));
+        return {
+          kind: resolvedContext.provider.kind,
+          baseUrl: resolvedContext.provider.baseUrl,
+          host,
+        } satisfies RemoteHost;
+      },
+      Effect.orElseSucceed(() => null),
+    );
 
     // An SSH remote whose web host one checkout could not name may be named by the next; a
     // kind found without a host still stands if none can.
@@ -1034,7 +1031,7 @@ export const make = Effect.gen(function* () {
 
   const requireProject = Effect.fn("PullRequestService.requireProject")(function* (
     ref: PullRequestRef,
-    resolveKind = resolveProviderKind,
+    resolveKind: typeof resolveProviderKind = resolveProviderKind,
   ): Effect.fn.Return<SupportedProject, PullRequestError> {
     if (ref.workspace === undefined) return yield* requireHostProject(ref);
     const { repositoryPath, threadId } = ref.workspace;
@@ -1077,15 +1074,18 @@ export const make = Effect.gen(function* () {
               ),
         ),
       );
-    const repositoryKey = sourceControlDefinitions.canonicalRepositoryKey(`${requestedHost}/${requestedRepository}`);
+    const repositoryKey = sourceControlDefinitions.canonicalRepositoryKey(
+      `${requestedHost}/${requestedRepository}`,
+    );
     if (
       repositoryPath === undefined &&
       members.some(
         (member) =>
           !member.available &&
           member.repositoryIdentity != null &&
-          sourceControlDefinitions.canonicalRepositoryKey(member.repositoryIdentity.canonicalKey.toLowerCase()) ===
-            repositoryKey,
+          sourceControlDefinitions.canonicalRepositoryKey(
+            member.repositoryIdentity.canonicalKey.toLowerCase(),
+          ) === repositoryKey,
       )
     )
       return yield* invalid("The linked repository is not available in this workspace.");
@@ -1094,7 +1094,10 @@ export const make = Effect.gen(function* () {
       if (!member.available || !member.repositoryIdentity) return false;
       const identity = member.repositoryIdentity;
       if (identity.provider === "azure-devops")
-        return sourceControlDefinitions.canonicalRepositoryKey(identity.canonicalKey.toLowerCase()) === repositoryKey;
+        return (
+          sourceControlDefinitions.canonicalRepositoryKey(identity.canonicalKey.toLowerCase()) ===
+          repositoryKey
+        );
       const repository = sourceControlDefinitions.repositorySelector(identity)?.toLowerCase();
       return (
         repository !== undefined &&
@@ -1124,9 +1127,10 @@ export const make = Effect.gen(function* () {
       if (repositoryPath !== undefined && repository.toLowerCase() !== requestedRepository)
         return yield* invalid("The change request does not belong to the selected repository.");
       const recognized = sourceControlDefinitions.recognizeRemote(identity.locator.remoteUrl);
-      const refinedProvider = recognized === null
-        ? undefined
-        : refined.get(remoteHostKey(recognized, identity.locator.remoteUrl));
+      const refinedProvider =
+        recognized === null
+          ? undefined
+          : refined.get(remoteHostKey(recognized, identity.locator.remoteUrl));
       const kind = refinedProvider?.kind ?? identity.provider;
       if (kind === undefined) return yield* invalid("The selected repository has no provider.");
       if (repositoryPath === undefined && kind !== "azure-devops") {
@@ -1146,10 +1150,12 @@ export const make = Effect.gen(function* () {
         if (repositoryPath === undefined) continue;
         return yield* new PullRequestUnavailableError({ reason: "provider-unsupported" });
       }
-      const host = refinedProvider?.host ?? sourceControlDefinitions.changeRequestHost(identity, kind);
+      const host =
+        refinedProvider?.host ?? sourceControlDefinitions.changeRequestHost(identity, kind);
       const matchesHost =
         repositoryPath === undefined && kind === "azure-devops"
-          ? sourceControlDefinitions.canonicalRepositoryKey(identity.canonicalKey.toLowerCase()) === repositoryKey
+          ? sourceControlDefinitions.canonicalRepositoryKey(identity.canonicalKey.toLowerCase()) ===
+            repositoryKey
           : requestedHost === undefined || requestedHost === host;
       if (!matchesHost) {
         if (repositoryPath === undefined) continue;
@@ -1166,7 +1172,9 @@ export const make = Effect.gen(function* () {
         repository,
         host,
         api: withRateLimitBackoff(api, host, rateLimits),
-        remote: hostRepositoryKey ?? sourceControlDefinitions.repositoryKeyFromRemote(`https://${host}/${repository}`),
+        remote:
+          hostRepositoryKey ??
+          sourceControlDefinitions.repositoryKeyFromRemote(`https://${host}/${repository}`),
         repositoryKey:
           hostRepositoryKey === null
             ? null

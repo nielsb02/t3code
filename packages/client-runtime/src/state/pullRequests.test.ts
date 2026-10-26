@@ -967,7 +967,7 @@ it.live.each([
         ).toBe(true);
       }).pipe(
         Effect.provideService(EnvironmentRegistry.EnvironmentRegistry, environmentRegistry),
-        Effect.provideService(GitHubRoutingPermissions, trustedRouting),
+        Effect.provideService(PullRequestRoutingPermissions, trustedRouting),
         Effect.provideService(RpcPermissionGuard, { authorize: () => Effect.void }),
         Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
       );
@@ -1043,7 +1043,7 @@ it.live("invalidates every origin thread scope after a routed PR mutation", () =
           expect((yield* route(WS_METHODS.pullRequestsSummary, reference)).state).toBe("closed");
       }).pipe(
         Effect.provideService(EnvironmentRegistry.EnvironmentRegistry, environmentRegistry),
-        Effect.provideService(GitHubRoutingPermissions, trustedRouting),
+        Effect.provideService(PullRequestRoutingPermissions, trustedRouting),
         Effect.provideService(RpcPermissionGuard, { authorize: () => Effect.void }),
         Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
       );

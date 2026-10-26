@@ -1,24 +1,19 @@
-import type {
-  EnvironmentId,
-  WorkspaceRepository,
-  ScopedThreadRef,
-} from "@t3tools/contracts";
+import type { EnvironmentId, WorkspaceRepository, ScopedThreadRef } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import { type MouseEvent } from "react";
 
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
-import type { ChangeRequestLink } from "@t3tools/source-control-core/shared/definition";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import {
-  threadPullRequestKeysEqual,
-  visibleThreadPullRequests,
-} from "@t3tools/shared/threadPullRequests";
+import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import {
   findProjectForChangeRequest,
   resolveChangeRequestLinkTarget,
   resolvePullRequestPreviewTarget,
 } from "@t3tools/client-runtime/change-request-links";
+
+import { threadPullRequestKeysEqual } from "@t3tools/client-runtime/thread-pull-requests";
+type ChangeRequestLink = Parameters<typeof findProjectForChangeRequest>[1];
 
 import { useOpenLink } from "../browser/useOpenLink";
 import { useClientSettings } from "../hooks/useSettings";
@@ -43,7 +38,7 @@ export function usePullRequestPreviewTarget(environmentId: EnvironmentId | null,
 }
 
 /** Keeps the wrapper project as the thread context while matching a declared child remote. */
-export function findWorkspaceProjectForChangeRequest(
+function findWorkspaceProjectForChangeRequest(
   project: EnvironmentProject | undefined,
   repositories: readonly WorkspaceRepository[],
   link: ChangeRequestLink,
@@ -61,7 +56,7 @@ export function findWorkspaceProjectForChangeRequest(
     : undefined;
 }
 
-export function shouldOpenPullRequestExternally(
+function shouldOpenPullRequestExternally(
   event: Pick<MouseEvent<HTMLElement>, "metaKey" | "ctrlKey"> &
     Partial<Pick<MouseEvent<HTMLElement>, "button">>,
 ): boolean {
@@ -111,9 +106,10 @@ export function useOpenChangeRequestLink(
       visibleThreadPullRequests(linkedThread.pullRequests).some((link) =>
         threadPullRequestKeysEqual(link, parsed),
       )
-        ? projects.find((candidate) =>
-            candidate.id === linkedThread.projectId &&
-            candidate.environmentId === resolvedThreadRef?.environmentId,
+        ? projects.find(
+            (candidate) =>
+              candidate.id === linkedThread.projectId &&
+              candidate.environmentId === resolvedThreadRef?.environmentId,
           )
         : undefined;
     const target = resolveChangeRequestLinkTarget({

@@ -167,7 +167,10 @@ describe("fork migration ledger", () => {
         ) VALUES ('side-chat', 'workspace', 'Side chat', 'codex', 'full-access', 'default',
           '2026-10-20', '2026-10-20', ${payload})
       `;
-      assert.deepStrictEqual(yield* runMigrations(), [[67, "WebhookDedupe"]]);
+      assert.deepStrictEqual(
+        yield* runMigrations(),
+        migrationManifest.filter(([id]) => id > 66),
+      );
       assert.deepStrictEqual(yield* ledger, migrationManifest);
       assert.deepStrictEqual(
         yield* sql`SELECT payload_json FROM orchestration_v2_projection_threads WHERE thread_id = 'side-chat'`,

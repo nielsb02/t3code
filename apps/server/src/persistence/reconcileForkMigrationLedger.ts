@@ -4,11 +4,9 @@ import * as SqlClient from "effect/sql/SqlClient";
 import ProjectionThreadPullRequests from "./Migrations/050_ProjectionThreadPullRequests.ts";
 import PullRequestFilesViewed from "./Migrations/053_PullRequestFilesViewed.ts";
 
-// Released Micro fork builds recorded their own migrations under upstream ids.
-// The migrator skips every id at or below the recorded maximum, so the fork's
-// 55 would mask upstream's OrchestrationV2 forever. Apply the upstream schema
-// those ids stand for (each is idempotent), record the upstream names, and drop
-// the fork-only 55 so upstream's 55 and later run normally.
+// Released fork migrations reuse upstream ids, whose recorded maximum would skip V2.
+// Apply the idempotent upstream schemas and names, then drop the fork-only 55
+// so upstream's OrchestrationV2 and later migrations can run.
 const forkRows = new Map([
   [50, "ProjectionThreadsParent"],
   [53, "ReconcileForkThreadSchema"],

@@ -231,7 +231,7 @@ const singletonSurface = (
   }
 };
 
-export const sideChatSurface = (threadId: ThreadId): RightPanelSurface => ({
+const sideChatSurface = (threadId: ThreadId): RightPanelSurface => ({
   id: `side-chat:${threadId}`,
   kind: "side-chat",
   threadId,

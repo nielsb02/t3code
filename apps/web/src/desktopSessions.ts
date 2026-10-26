@@ -73,7 +73,7 @@ const SIDE_CHAT_LIFT_RANK: Partial<Record<DesktopSessionSummary["status"], numbe
  * working or needs the user, which lifts it. Needs you outranks working, which outranks the
  * thread's own status.
  */
-export function withSideChatStatus(
+function withSideChatStatus(
   status: DesktopSessionSummary["status"],
   sideChatStatuses: Iterable<DesktopSessionSummary["status"]>,
 ): DesktopSessionSummary["status"] {

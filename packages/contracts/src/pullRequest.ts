@@ -397,12 +397,8 @@ export const PullRequestWorkspace = Schema.Struct({
   repositoryPath: Schema.optional(TrimmedNonEmptyString),
 });
 
-/**
- * Addresses one pull request for reads and writes. `projectId` picks the checkout the host
- * CLI runs in and, when its repository matches, the credentials; `host` lets the server
- * route a pull request from another repository through any project on the same host
- * (a frontend project's thread linking a backend PR). Absent `host` means "the project's
- * own host", which is every reference from before thread links became host-level.
+/** `projectId` selects a checkout; `host` allows another repository on the same host.
+ * Without `host`, references address the project's own host.
  */
 export const PullRequestRef = Schema.Struct({
   workspace: Schema.optional(PullRequestWorkspace),

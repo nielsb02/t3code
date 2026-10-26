@@ -6,6 +6,7 @@ import type {
 } from "@t3tools/client-runtime/state/shell";
 import {
   EnvironmentId,
+  SourceControlProviderKind,
   ProjectId,
   ThreadId,
   type WorkspaceRepository,
@@ -50,7 +51,7 @@ const child: WorkspaceRepository = {
   kind: "repository",
   available: true,
   repositoryIdentity: {
-    provider: "github",
+    provider: SourceControlProviderKind.make("github"),
     canonicalKey: "github.com/acme/api",
     displayName: "acme/api",
     locator: {
@@ -191,6 +192,7 @@ it("links a child PR to the wrapper's thread", async () => {
           repository: "acme/api",
           number: 12,
           url: "https://github.com/acme/api/pull/12",
+          repositoryUrl: "https://github.com/acme/api",
           source: "manual",
         },
       },
@@ -234,7 +236,7 @@ it.each([
     {
       ...child,
       repositoryIdentity: {
-        provider: "forgejo",
+        provider: SourceControlProviderKind.make("forgejo"),
         canonicalKey: "ssh.code.example/team/repo",
         displayName: "team/repo",
         webUrl: "http://code.example:3000/git/team/repo",

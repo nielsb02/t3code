@@ -95,7 +95,12 @@ export function resolveChangeRequestLinkTarget<Project extends ChangeRequestProj
         Number(left.environmentId === primaryEnvironmentId),
   );
   const project =
-    candidates.find((candidate) => candidate === workspaceProject) ??
+    candidates.find(
+      (candidate) =>
+        workspaceProject !== undefined &&
+        candidate.id === workspaceProject.id &&
+        candidate.environmentId === workspaceProject.environmentId,
+    ) ??
     findProjectForChangeRequest(candidates, link) ??
     (lendHostProject
       ? findProjectOnChangeRequestHost(

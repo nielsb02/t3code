@@ -305,11 +305,11 @@ export function PullRequestDetailPanel({
     supportsThreadPullRequests,
   );
   const loadingCheckoutCommand = loadingPullRequestCheckoutCommand(reference, repositoryIdentity);
-  const unavailableHostUrl = projectChangeRequestUrl(
-    repositoryIdentity,
-    reference.repository,
-    reference.number,
-  );
+  const unavailableHostUrl =
+    browserUrl ??
+    (reference.workspace
+      ? null
+      : projectChangeRequestUrl(repositoryIdentity, reference.repository, reference.number));
   const pullRequestKey = pullRequestRefKey(reference);
   const matchingListEntry =
     listEntry?.projectId === reference.projectId &&
@@ -604,14 +604,6 @@ export function PullRequestDetailPanel({
   const actionPending = pendingAction !== null;
   const newThread = useNewThreadHandler();
   const { environments } = useEnvironments();
-  const unavailableGitHubUrl = (() => {
-    if (browserUrl) return browserUrl;
-    if (reference.workspace) return null;
-    const identity = projects.find(
-      (project) => project.id === reference.projectId && project.environmentId === environmentId,
-    )?.repositoryIdentity;
-    return gitHubPullRequestBrowserUrl(identity, reference.repository, reference.number);
-  })();
   const pickableEnvironments =
     context === "page"
       ? resolvePickableEnvironments(

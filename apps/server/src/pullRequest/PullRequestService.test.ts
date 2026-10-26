@@ -3362,7 +3362,7 @@ it.effect("reads linked child PR status from each thread checkout without a repo
         },
       ],
       providers: [
-        fakeProvider(SourceControlProviderKind.make("github"), {
+        fakePullRequestProvider(SourceControlProviderKind.make("github"), {
           getChangeRequestSummary: ({ cwd }) => {
             reads.push(cwd);
             return Effect.succeed({
@@ -3479,7 +3479,7 @@ it.effect.each(["forgejo", "unknown"] as const)(
           },
         ],
         providers: [
-          fakeProvider(SourceControlProviderKind.make("forgejo"), {
+          fakePullRequestProvider(SourceControlProviderKind.make("forgejo"), {
             getChangeRequestSummary: ({ cwd, host }) => {
               reads.push(`${cwd}:${host}`);
               return Effect.succeed(changeRequest(1, "2026-07-02T00:00:00Z"));
@@ -3542,7 +3542,7 @@ it.effect.each([
           },
         ],
         providers: [
-          fakeProvider(SourceControlProviderKind.make("forgejo"), {
+          fakePullRequestProvider(SourceControlProviderKind.make("forgejo"), {
             getChangeRequestSummary: ({ cwd, repository }) =>
               Effect.succeed({
                 ...changeRequest(1, "2026-07-02T00:00:00Z"),
@@ -3611,7 +3611,7 @@ it.effect.each([
             }),
           ),
         providers: [
-          fakeProvider(SourceControlProviderKind.make("github"), {
+          fakePullRequestProvider(SourceControlProviderKind.make("github"), {
             getChangeRequestSummary: ({ cwd }) =>
               Effect.succeed({ ...changeRequest(1, "2026-07-02T00:00:00Z"), title: cwd }),
           }),
@@ -3648,7 +3648,7 @@ it.effect("selects the matching host among child repositories with the same name
             }).repositoryIdentity ?? undefined,
         })),
       providers: [
-        fakeProvider(SourceControlProviderKind.make("github"), {
+        fakePullRequestProvider(SourceControlProviderKind.make("github"), {
           getChangeRequestSummary: ({ cwd }) =>
             Effect.succeed({
               ...changeRequest(1, "2026-07-02T00:00:00Z"),
@@ -3684,7 +3684,7 @@ it.effect("keeps inferred child PR stats and their caches separate by host", () 
             }).repositoryIdentity ?? undefined,
         })),
       providers: [
-        fakeProvider(SourceControlProviderKind.make("github"), {
+        fakePullRequestProvider(SourceControlProviderKind.make("github"), {
           listChangeRequestStats: ({ host, changeRequests }) => {
             reads.push(host);
             return Effect.succeed(
@@ -3735,7 +3735,7 @@ it.effect.each(["thread", "host", "hostless", "unavailable"] as const)(
           },
         ],
         providers: [
-          fakeProvider(SourceControlProviderKind.make("github"), {
+          fakePullRequestProvider(SourceControlProviderKind.make("github"), {
             getChangeRequestSummary: () => Effect.die("must not read an unrelated repository"),
           }),
         ],
@@ -3770,7 +3770,7 @@ it.effect("preserves host routing for linked PRs outside the thread workspace", 
       ],
       threads: [scopedThread],
       providers: [
-        fakeProvider(SourceControlProviderKind.make("github"), {
+        fakePullRequestProvider(SourceControlProviderKind.make("github"), {
           getChangeRequestSummary: ({ cwd, repository }) => {
             reads.push(`${cwd}:${repository}`);
             return Effect.succeed(changeRequest(1, "2026-07-02T00:00:00Z"));
@@ -3815,7 +3815,7 @@ it.effect.each(["dev.azure.com", "ssh.dev.azure.com", "org-b.visualstudio.com"])
               }).repositoryIdentity ?? undefined,
           })),
         providers: [
-          fakeProvider(SourceControlProviderKind.make("azure-devops"), {
+          fakePullRequestProvider(SourceControlProviderKind.make("azure-devops"), {
             getChangeRequestSummary: ({ cwd, repository }) => {
               reads.push(`${cwd}:${repository}`);
               return Effect.succeed(changeRequest(1, "2026-07-02T00:00:00Z"));
@@ -3860,7 +3860,7 @@ it.effect("reads child PRs from the active workspace and separates checkout cach
         },
       ],
       providers: [
-        fakeProvider(SourceControlProviderKind.make("github"), {
+        fakePullRequestProvider(SourceControlProviderKind.make("github"), {
           getChangeRequest: ({ cwd }) => {
             reads.push(cwd);
             return Effect.succeed(hostedChangeRequest(cwd));
@@ -3909,7 +3909,7 @@ it.effect.each(["thread", "path", "unavailable", "identity", "host"] as const)(
           },
         ],
         providers: [
-          fakeProvider(SourceControlProviderKind.make("github"), {
+          fakePullRequestProvider(SourceControlProviderKind.make("github"), {
             getChangeRequest: () => {
               reads++;
               return Effect.succeed(hostedChangeRequest("bad"));
@@ -3945,7 +3945,7 @@ it.effect("keeps scoped summary, activity, diff and stats reads in their checkou
         },
       ],
       providers: [
-        fakeProvider(SourceControlProviderKind.make("github"), {
+        fakePullRequestProvider(SourceControlProviderKind.make("github"), {
           getChangeRequest: ({ cwd }) => {
             reads.push(`summary:${cwd}`);
             return Effect.succeed(hostedChangeRequest(cwd));
@@ -4078,7 +4078,7 @@ it.effect.each(["same-checkout", "different-checkout", "different-remote"] as co
             };
           }),
         providers: [
-          fakeProvider(SourceControlProviderKind.make("gitlab"), {
+          fakePullRequestProvider(SourceControlProviderKind.make("gitlab"), {
             listChangeRequestStats: ({ cwd, host, changeRequests }) => {
               statsReads.push(`${cwd} ${host}`);
               return Effect.succeed(
@@ -4141,7 +4141,7 @@ it.effect("publishes child repository merges with their workspace scope", () =>
           },
         ],
         providers: [
-          fakeProvider(SourceControlProviderKind.make("github"), {
+          fakePullRequestProvider(SourceControlProviderKind.make("github"), {
             getChangeRequestSummary: () =>
               Effect.succeed({ ...changeRequest(1, "2026-07-02T00:00:00Z"), state: "merged" }),
             runAction: ({ cwd }) =>
