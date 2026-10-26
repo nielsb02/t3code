@@ -55,10 +55,12 @@ import {
   type Dispatch,
   type RefObject,
   type SetStateAction,
+  use,
   useEffect,
   useRef,
   useState,
 } from "react";
+import { BackgroundThreadContext } from "./backgroundThread";
 import { useStableCallback } from "../../hooks/useStableCallback";
 
 /**
@@ -532,11 +534,8 @@ export function useComposerStash(input: {
         ...(file.source ? { source: file.source } : {}),
       });
     }
-    // A repeat ⌘S on the *same* still-unencoded snapshot would stash it
-    // twice. Guard on the snapshot itself rather than a bare boolean: once
-    // the composer has been cleared the user can type something genuinely
-    // new (or switch threads) while encoding continues, and that deserves its
-    // own entry.
+    // Deduplicate the snapshot while encoding, not all stashes: new drafts or
+    // thread switches must still be able to create their own entries.
     const attachmentKey = images
       .map((image) => `image:${image.id}`)
       .concat(files.map((file) => `file:${file.id}`))
@@ -696,7 +695,9 @@ export function useComposerStash(input: {
     if (stashMenuClosesOn.prompt !== prompt || composerMenuOpen) setIsStashMenuOpen(false);
   }
 
+  const backgroundThread = use(BackgroundThreadContext);
   useEffect(() => {
+    if (backgroundThread) return;
     const handler = (event: globalThis.KeyboardEvent) => {
       if (!ownsChatPaneInput(chatPaneKey, event.target)) return;
       const command = resolveShortcutCommand(event, keybindings, {
@@ -728,6 +729,7 @@ export function useComposerStash(input: {
   }, [
     chatPaneKey,
     activePendingProgress,
+    backgroundThread,
     isComposerModelPickerOpen,
     keybindings,
     pendingUserInputs.length,
