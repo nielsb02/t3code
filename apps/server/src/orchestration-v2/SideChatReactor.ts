@@ -45,27 +45,27 @@ export const make = Effect.gen(function* () {
             threadId,
           })
           .pipe(
-            Effect.catchCause((cause) =>
-              Cause.hasInterruptsOnly(cause)
-                ? Effect.failCause(cause)
-                : Effect.logWarning(`Could not ${action} a side chat`, {
-                    threadId,
-                    parentThreadId: event.threadId,
-                    cause: Cause.pretty(cause),
-                  }),
+            Effect.catchCauseIf(
+              (cause) => !Cause.hasInterruptsOnly(cause),
+              (cause) =>
+                Effect.logWarning(`Could not ${action} a side chat`, {
+                  threadId,
+                  parentThreadId: event.threadId,
+                  cause: Cause.pretty(cause),
+                }),
             ),
           );
       }
     },
     (effect, event) =>
       effect.pipe(
-        Effect.catchCause((cause) =>
-          Cause.hasInterruptsOnly(cause)
-            ? Effect.failCause(cause)
-            : Effect.logWarning("Could not look up side chats", {
-                parentThreadId: event.threadId,
-                cause: Cause.pretty(cause),
-              }),
+        Effect.catchCauseIf(
+          (cause) => !Cause.hasInterruptsOnly(cause),
+          (cause) =>
+            Effect.logWarning("Could not look up side chats", {
+              parentThreadId: event.threadId,
+              cause: Cause.pretty(cause),
+            }),
         ),
       ),
   );

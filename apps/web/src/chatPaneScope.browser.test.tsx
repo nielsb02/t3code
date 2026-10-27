@@ -14,6 +14,7 @@ import {
   useChatPaneActive,
   useChatPaneFocusStore,
 } from "./chatPaneScope";
+import { attachTimelineViewport } from "./components/chat/timelineViewport";
 
 const observed = new Map<string, { composer: ComposerHandleRef | null; active: boolean }>();
 const parentComposer: ComposerHandleRef = { current: null };
@@ -43,6 +44,32 @@ function Workspace({ child }: { child: string | null }) {
 }
 
 describe("conversation pane input ownership", () => {
+  it("sends page navigation only to the active pane while both timelines stay mounted", async () => {
+    observed.clear();
+    useChatPaneFocusStore.setState({ panes: [], activeKey: null });
+    await using _screen = await render(<Workspace child="child" />, { router: false });
+    using stack = new DisposableStack();
+    const navigation: string[] = [];
+    for (const key of ["parent", "child"]) {
+      const node = document.querySelector<HTMLElement>(`[data-chat-pane-id="${key}"]`);
+      if (!node) throw new Error(`Missing ${key} pane`);
+      const viewport = attachTimelineViewport(node, {
+        ownsInput: (target) => ownsChatPaneInput(key, target),
+      });
+      stack.defer(viewport.dispose);
+      stack.defer(
+        viewport.subscribe((event) => {
+          if (event.source === "key") navigation.push(key);
+        }),
+      );
+    }
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "PageUp", bubbles: true }));
+    expect(navigation).toEqual(["child"]);
+    await act(() => useChatPaneFocusStore.getState().activate("parent"));
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "PageUp", bubbles: true }));
+    expect(navigation).toEqual(["child", "parent"]);
+  });
+
   it("gives a new side chat an independent composer and restores the parent when closed", async () => {
     observed.clear();
     useChatPaneFocusStore.setState({ panes: [], activeKey: null });

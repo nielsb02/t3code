@@ -374,8 +374,9 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
         const files = yield* WorkspaceFileSystem.WorkspaceFileSystem;
         const cwd = yield* makeTempDir;
         yield* writeTextFile(cwd, "t3.json", "original");
-        const outcomes = yield* Effect.all(
-          ["first", "second"].map((contents) =>
+        const outcomes = yield* Effect.forEach(
+          ["first", "second"],
+          (contents) =>
             files
               .writeFile({
                 cwd,
@@ -384,7 +385,6 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
                 expectedContents: "original",
               })
               .pipe(Effect.result),
-          ),
           { concurrency: 2 },
         );
         expect(outcomes.filter((result) => result._tag === "Success")).toHaveLength(1);

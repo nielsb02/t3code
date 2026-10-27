@@ -1,35 +1,35 @@
 import { useFocusEffect } from "@react-navigation/native";
+import { useCallback, useMemo } from "react";
+import { useAtomValue } from "@effect/atom-react";
 import { resolveFilesystemReadAccess } from "@t3tools/client-runtime/state/filesystem";
-import { environmentSession } from "../../state/session";
-import { useCallback, useEffect, useMemo } from "react";
+import { Atom } from "effect/reactivity";
 
-import {
-  deriveThreadCheckpointSummaries,
-  type ThreadCheckpointSummary,
-} from "@t3tools/client-runtime/state/thread-checkpoints";
+import { deriveThreadCheckpointSummaries } from "@t3tools/client-runtime/state/thread-checkpoints";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import { useCheckpointDiff } from "../../state/queries";
 import { useEnvironmentQuery } from "../../state/query";
 import { useEnvironmentPresentation } from "../../state/presentation";
+import { lastReviewTurnDiffsAtom } from "../../state/reviewTurnDiffs";
+import { environmentSession } from "../../state/session";
 import { useSelectedThreadProjection } from "../../state/use-thread-detail";
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
 import { useWorkspaceRepositories } from "../../state/use-workspace-repositories";
 import {
   buildReviewSectionItems,
-  getDefaultReviewSectionId,
   getReadyReviewCheckpoints,
   getReviewSectionIdForCheckpoint,
+  resolveReviewSelectedSectionId,
+  reviewTurnDiffsBySectionId,
+  type ReviewSectionItem,
 } from "./reviewModel";
-import {
-  setReviewAsyncError,
-  setReviewGitSections,
-  setReviewSelectedSectionId,
-  setReviewTurnDiff,
-  setReviewTurnDiffLoading,
-  type ReviewCacheForThread,
-} from "./reviewState";
 import { useWorkspaceReviewSources } from "./useWorkspaceReviewSources";
+import { setReviewSelectedSectionId, type ReviewCacheForThread } from "./reviewState";
+
+const NO_TURN_DIFFS_ATOM = Atom.make<Readonly<Record<number, string>>>({}).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("mobile:review:turn-diffs:null"),
+);
 
 export function useReviewSections(input: {
   readonly enabled?: boolean;
@@ -101,124 +101,34 @@ export function useReviewSections(input: {
       }),
     [selectedEntries],
   );
-  const { loadingTurnIds } = reviewCache.asyncState;
-
-  useEffect(() => {
-    if (reviewCache.threadKey && diffPreview.hasData) {
-      setReviewGitSections(reviewCache.threadKey, gitSections);
-    }
-  }, [diffPreview.hasData, gitSections, reviewCache.threadKey]);
-
-  const readyCheckpoints = useMemo(
-    () =>
-      getReadyReviewCheckpoints(
-        selectedThread === null ? [] : deriveThreadCheckpointSummaries(selectedThread.projection),
-      ),
-    [selectedThread],
-  );
-  const checkpointBySectionId = useMemo(
-    () =>
-      Object.fromEntries(
-        readyCheckpoints.map((checkpoint) => [
-          getReviewSectionIdForCheckpoint(checkpoint),
-          checkpoint,
-        ]),
-      ) as Record<string, ThreadCheckpointSummary>,
-    [readyCheckpoints],
-  );
-  const reviewSections = useMemo(() => {
-    const sections = buildReviewSectionItems({
-      checkpoints: readyCheckpoints,
-      gitSections:
-        canReadFiles || fileAccess.isPending
-          ? diffPreview.hasData
-            ? gitSections
-            : reviewCache.gitSections
-          : [],
-      turnDiffById: reviewCache.turnDiffById,
-      loadingTurnIds,
-      loadingGitSections: fileAccess.isPending || diffPreview.isPending,
-    }).map((section) => {
-      if (section.kind === "turn") return section;
-      const entries = selectedEntries.filter(({ source }) => source.kind === section.kind);
-      return {
-        ...section,
-        sourceCwd: entries[0]?.repository.cwd,
-        subtitle:
-          repositoryFilter === null && repositories.length > 1
-            ? "All workspace repositories"
-            : section.subtitle,
-        // Several repositories render as one diff with repository-prefixed paths.
-        ...(entries.length > 1
-          ? {
-              repositoryDiffs: entries.map(({ repository, source }) => ({
-                path: repository.path,
-                diff: source.diff,
-                truncated: source.truncated,
-              })),
-            }
-          : {}),
-      };
-    });
-    // Keep the selected section while its grant loads, without displaying cached host files.
-    return fileAccess.isPending
-      ? sections.map((section) =>
-          section.kind === "turn" ? section : { ...section, diff: null, isLoading: true },
-        )
-      : sections;
-  }, [
-    canReadFiles,
-    diffPreview.hasData,
-    diffPreview.isPending,
-    fileAccess.isPending,
-    gitSections,
-    loadingTurnIds,
-    readyCheckpoints,
-    repositories.length,
-    repositoryFilter,
-    reviewCache.gitSections,
-    reviewCache.turnDiffById,
-    selectedEntries,
-  ]);
-  const selectedSection = useMemo(
-    () =>
-      reviewSections.find((section) => section.id === reviewCache.selectedSectionId) ??
-      reviewSections[0] ??
-      null,
-    [reviewCache.selectedSectionId, reviewSections],
-  );
-  const fallbackSectionId = useMemo(
-    () => getDefaultReviewSectionId(reviewSections),
-    [reviewSections],
-  );
-  const selectedSectionIdExists = useMemo(
-    () =>
-      reviewCache.selectedSectionId
-        ? reviewSections.some((section) => section.id === reviewCache.selectedSectionId)
-        : false,
-    [reviewCache.selectedSectionId, reviewSections],
+  const lastTurnDiffs = useAtomValue(
+    environmentId !== undefined && threadId !== undefined
+      ? lastReviewTurnDiffsAtom(environmentId, threadId)
+      : NO_TURN_DIFFS_ATOM,
   );
 
-  useEffect(() => {
-    if (
-      reviewSections.length > 0 &&
-      reviewCache.threadKey &&
-      (!reviewCache.selectedSectionId || !selectedSectionIdExists)
-    ) {
-      setReviewSelectedSectionId(reviewCache.threadKey, fallbackSectionId);
-    }
-  }, [
-    fallbackSectionId,
+  const readyCheckpoints = getReadyReviewCheckpoints(
+    selectedThread === null ? [] : deriveThreadCheckpointSummaries(selectedThread.projection),
+  );
+  const checkpointBySectionId = new Map(
+    readyCheckpoints.map((checkpoint) => [getReviewSectionIdForCheckpoint(checkpoint), checkpoint]),
+  );
+  // Turns show their last answered diff; the active turn's live query below overrides it.
+  // Section ids and the selection do not depend on the live query, so they are resolved first.
+  const cachedSections = buildReviewSectionItems({
+    checkpoints: readyCheckpoints,
+    gitSections: canReadFiles || fileAccess.isPending ? gitSections : [],
+    turnDiffById: reviewTurnDiffsBySectionId(readyCheckpoints, lastTurnDiffs),
+    loadingGitSections: fileAccess.isPending || diffPreview.isPending,
+  });
+  const selectedSectionId = resolveReviewSelectedSectionId(
+    cachedSections,
     reviewCache.selectedSectionId,
-    reviewCache.threadKey,
-    reviewSections.length,
-    selectedSectionIdExists,
-  ]);
+  );
 
-  let activeCheckpoint = readyCheckpoints[0] ?? null;
-  if (selectedSection?.kind === "turn") {
-    activeCheckpoint = checkpointBySectionId[selectedSection.id] ?? activeCheckpoint;
-  }
+  const selectedCheckpoint =
+    selectedSectionId === null ? undefined : checkpointBySectionId.get(selectedSectionId);
+  const activeCheckpoint = selectedCheckpoint ?? readyCheckpoints[0] ?? null;
   const activeSectionId = activeCheckpoint
     ? getReviewSectionIdForCheckpoint(activeCheckpoint)
     : null;
@@ -231,28 +141,40 @@ export function useReviewSections(input: {
     ignoreWhitespace: false,
   });
 
-  useEffect(() => {
-    if (!reviewCache.threadKey || !activeSectionId) {
-      return;
+  const reviewSections = cachedSections.map((section): ReviewSectionItem => {
+    if (section.kind === "turn") {
+      return section.id === activeSectionId
+        ? {
+            ...section,
+            diff: activeTurnDiff.data?.diff ?? section.diff,
+            isLoading: activeTurnDiff.isPending,
+          }
+        : section;
     }
-    setReviewTurnDiffLoading(reviewCache.threadKey, activeSectionId, activeTurnDiff.isPending);
-  }, [activeSectionId, activeTurnDiff.isPending, reviewCache.threadKey]);
+    const entries = selectedEntries.filter(({ source }) => source.kind === section.kind);
+    const scoped = {
+      ...section,
+      sourceCwd: entries[0]?.repository.cwd,
+      subtitle:
+        repositoryFilter === null && repositories.length > 1
+          ? "All workspace repositories"
+          : section.subtitle,
+      ...(entries.length > 1
+        ? {
+            repositoryDiffs: entries.map(({ repository, source }) => ({
+              path: repository.path,
+              diff: source.diff,
+              truncated: source.truncated,
+            })),
+          }
+        : {}),
+    };
+    return fileAccess.isPending ? { ...scoped, diff: null, isLoading: true } : scoped;
+  });
+  const selectedSection =
+    reviewSections.find((section) => section.id === selectedSectionId) ?? null;
 
-  useEffect(() => {
-    if (!reviewCache.threadKey || !activeSectionId || !activeTurnDiff.data) {
-      return;
-    }
-    setReviewTurnDiff(reviewCache.threadKey, activeSectionId, activeTurnDiff.data.diff);
-    setReviewAsyncError(reviewCache.threadKey, null);
-  }, [activeSectionId, activeTurnDiff.data, reviewCache.threadKey]);
-
-  useEffect(() => {
-    if (reviewCache.threadKey && activeTurnDiff.error) {
-      setReviewAsyncError(reviewCache.threadKey, activeTurnDiff.error);
-    }
-  }, [activeTurnDiff.error, reviewCache.threadKey]);
-
-  const refreshSelectedSection = useCallback(async () => {
+  const refreshSelectedSection = async () => {
     if (!enabled) {
       return;
     }
@@ -262,16 +184,13 @@ export function useReviewSections(input: {
     }
     refreshRepositories();
     diffPreview.refresh();
-  }, [activeTurnDiff, diffPreview, enabled, refreshRepositories, selectedSection?.kind]);
+  };
 
-  const selectSection = useCallback(
-    (sectionId: string) => {
-      if (reviewCache.threadKey) {
-        setReviewSelectedSectionId(reviewCache.threadKey, sectionId);
-      }
-    },
-    [reviewCache.threadKey],
-  );
+  const selectSection = (sectionId: string) => {
+    if (reviewCache.threadKey) {
+      setReviewSelectedSectionId(reviewCache.threadKey, sectionId);
+    }
+  };
 
   return {
     repositories,
@@ -281,19 +200,11 @@ export function useReviewSections(input: {
       workspace.repositoryError ??
       diffPreview.error ??
       activeTurnDiff.error ??
-      reviewCache.asyncState.error ??
       (selectedSection === null && !fileAccess.isPending && !canReadFiles
         ? (fileAccess.error ?? "This connection cannot read local diffs.")
         : null),
     isSelectedSectionPending:
       selectedSection?.kind === "turn" ? activeTurnDiff.isPending : diffPreview.isPending,
-    loadingGitDiffs: fileAccess.isPending || diffPreview.isPending,
-    diffPreviewRevision: diffPreview.hasData
-      ? JSON.stringify(
-          selectedEntries.map(({ repository, source }) => [repository.path, source.diffHash]),
-        )
-      : undefined,
-    loadingTurnIds,
     reviewSections,
     selectedSection,
     refreshSelectedSection,

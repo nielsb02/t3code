@@ -5,7 +5,7 @@ import * as Option from "effect/Option";
 import * as Cause from "effect/Cause";
 import { useCallback, useMemo } from "react";
 import { appAtomRegistry } from "../../state/atom-registry";
-import { reviewEnvironment } from "../../state/review";
+import { lastReviewGitSectionsAtom, reviewEnvironment } from "../../state/review";
 
 export function useWorkspaceReviewSources(
   environmentId: EnvironmentId | undefined,
@@ -19,6 +19,7 @@ export function useWorkspaceReviewSources(
             .filter((repository) => repository.available)
             .map((repository) => ({
               repository,
+              lastSections: lastReviewGitSectionsAtom(environmentId, repository.cwd),
               atom: reviewEnvironment.diffPreview({
                 environmentId,
                 input: { cwd: repository.cwd },
@@ -30,16 +31,20 @@ export function useWorkspaceReviewSources(
   const aggregate = useMemo(
     () =>
       Atom.make((get) =>
-        queries.map(({ repository, atom }) => ({ repository, result: get(atom) })),
+        queries.map(({ repository, atom, lastSections }) => ({
+          repository,
+          result: get(atom),
+          lastSections: get(lastSections),
+        })),
       ),
     [queries],
   );
   const results = useAtomValue(aggregate);
   const entries = useMemo(
     () =>
-      results.flatMap(({ repository, result }) => {
+      results.flatMap(({ repository, result, lastSections }) => {
         const data = Option.getOrNull(AsyncResult.value(result));
-        return data ? data.sources.map((source) => ({ repository, source })) : [];
+        return (data?.sources ?? lastSections).map((source) => ({ repository, source }));
       }),
     [results],
   );

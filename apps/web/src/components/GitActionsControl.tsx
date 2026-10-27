@@ -206,7 +206,7 @@ function getPublishProviderReadiness(input: {
   if (!discovered) {
     return {
       ready: false,
-      hint: "Provider status unavailable. Open Settings -> Source Control and rescan.",
+      hint: "Provider status unavailable. Open Settings -> Source control and rescan.",
     };
   }
   if (discovered.status !== "available") {
@@ -217,7 +217,7 @@ function getPublishProviderReadiness(input: {
       ready: false,
       hint:
         Option.getOrNull(discovered.auth.detail) ??
-        `${discovered.label} is not authenticated. Open Settings -> Source Control for setup guidance.`,
+        `${discovered.label} is not authenticated. Open Settings -> Source control for setup guidance.`,
     };
   }
   return { ready: true, hint: null };
@@ -674,7 +674,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
                         />
                         <TooltipPopup side="top" align="end">
                           {readiness.hint ??
-                            "Open Settings -> Source Control to configure this provider."}
+                            "Open Settings -> Source control to configure this provider."}
                         </TooltipPopup>
                       </Tooltip>
                     </div>
@@ -1155,11 +1155,11 @@ export default function GitActionsControl({
       : null;
   const gitActionProgress = resolveGitActionProgressPresentation(vcsActionState);
   const redesign = useClientSettings((s) => s.redesignEnabled);
-  // A fresh draft with nothing to commit, push, or diff hides those rows until there is work.
+  // A fresh draft or a thread with no turns hides commit, push, and diff rows until there is work.
   const quietEmptyDraft =
     redesign &&
     isPanel &&
-    draftId !== undefined &&
+    (draftId !== undefined || activeServerThreadShell?.latestRun === null) &&
     gitActionProgress === null &&
     !gitStatusError &&
     quickAction.disabled &&
@@ -1301,9 +1301,12 @@ export default function GitActionsControl({
     const actionResult = result.value;
     syncThreadBranchAfterGitAction(actionResult);
     if (isPanel) {
+      const createdPullRequest = actionResult.pr.status === "created";
       setInlineSuccess({
-        title: actionResult.toast.title,
-        description: actionResult.toast.description ?? null,
+        title: createdPullRequest
+          ? `Created ${changeRequestTerminology.shortLabel}`
+          : actionResult.toast.title,
+        description: createdPullRequest ? null : (actionResult.toast.description ?? null),
         scopeKey: successScopeKey,
       });
       return;

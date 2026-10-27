@@ -72,7 +72,6 @@ function Workspace({ child }: { child: string | null }) {
         onCloseSurface={noop}
         terminal={{
           launchContext: null,
-          focusRequestId: 0,
           keybindings: [],
           onAddTerminalContext: noop,
           onSplitTerminal: noop,
