@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
   session: null as Pick<AuthSessionState, "authenticated" | "scopes"> | null,
   sessionError: null as string | null,
   sessionAtom: {},
+  turnDiffs: {} as Readonly<Record<number, string>>,
   effects: [] as Array<() => void>,
   checkpoints: [] as ReadonlyArray<ThreadCheckpointSummary>,
   repositoryFilter: null as string | null,
@@ -35,6 +36,7 @@ const state = vi.hoisted(() => ({
 vi.mock("@t3tools/client-runtime/state/thread-checkpoints", () => ({
   deriveThreadCheckpointSummaries: () => state.checkpoints,
 }));
+vi.mock("@effect/atom-react", () => ({ useAtomValue: () => state.turnDiffs }));
 vi.mock("react", () => ({
   useCallback: <A>(callback: A) => callback,
   useEffect: (effect: () => void) => state.effects.push(effect),
@@ -96,12 +98,13 @@ vi.mock("./reviewState", () => ({
   setReviewTurnDiffLoading: vi.fn(),
 }));
 
-import { setReviewSelectedSectionId, type ReviewCacheForThread } from "./reviewState";
+import { type ReviewCacheForThread } from "./reviewState";
 import { useReviewSections } from "./useReviewSections";
 
 beforeEach(() => {
   vi.clearAllMocks();
   state.effects = [];
+  state.turnDiffs = { 1: checkpointDiff };
   state.repositoryFilter = null;
   state.entries = [];
   state.session = { authenticated: true, scopes: [AuthFilesystemReadScope] };
@@ -120,27 +123,12 @@ beforeEach(() => {
 });
 
 const checkpointDiff = "diff --git a/checkpoint.ts b/checkpoint.ts";
-const localDiff = "diff --git a/local.ts b/local.ts";
 function makeReviewCache(
   kind: "working-tree" | "branch-range" = "working-tree",
 ): ReviewCacheForThread {
   return {
     threadKey: "environment:thread",
-    gitSections: [
-      {
-        id: kind,
-        kind,
-        title: "Dirty worktree",
-        baseRef: "HEAD",
-        headRef: null,
-        diff: localDiff,
-        diffHash: "cached-local",
-        truncated: false,
-      },
-    ],
-    turnDiffById: { "turn:1": checkpointDiff },
     selectedSectionId: `git:${kind}`,
-    asyncState: { loadingTurnIds: {}, error: null },
     expandedFileIdsBySection: {},
     revealedLargeFileIdsBySection: {},
     viewedFileIdsBySection: {},
@@ -210,5 +198,5 @@ it("hides child repository diffs after file access is lost and retains checkpoin
   const denied = renderSections(input);
   expect(denied.reviewSections.map((section) => section.id)).toEqual(["turn:1"]);
   expect(denied.selectedSection?.diff).toBe(checkpointDiff);
-  expect(setReviewSelectedSectionId).toHaveBeenCalledWith("environment:thread", "turn:1");
+  expect(input.reviewCache.selectedSectionId).toBe("git:working-tree");
 });

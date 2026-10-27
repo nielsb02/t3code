@@ -283,7 +283,6 @@ interface MessagesTimelineProps {
 }
 
 export function MessagesTimeline(props: MessagesTimelineProps) {
-  const chatPaneKey = useChatPaneKey();
   const find = useContext(ThreadFindTimelineContext);
   const findOpen = find?.findOpen ?? props.findOpen;
   return (
@@ -372,6 +371,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   topFadeEnabled = false,
   historyControls,
 }: MessagesTimelineProps) {
+  const chatPaneKey = useChatPaneKey();
   const listIdentityKey = displayThreadKey ?? routeThreadKey;
   // Snapshot restore positions on identity changes; ongoing scroll writes must not move them.
   // Find open at the opening is part of the snapshot: opening find later

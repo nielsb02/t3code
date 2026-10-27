@@ -318,7 +318,7 @@ export const make = Effect.gen(function* () {
   });
 
   return WorkspaceRepositories.of({
-    list: (cwd) => Cache.get(listFlights, cwd),
+    list: Effect.fn("WorkspaceRepositories.list")((cwd: string) => Cache.get(listFlights, cwd)),
     members,
   });
 });

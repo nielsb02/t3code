@@ -2060,6 +2060,7 @@ function ChatViewContent(props: ChatViewProps) {
     onComposerPageScrollKeyUpStable,
     onComposerPageScrollReleaseStable,
     scrollToEnd,
+    scrollTimelineBy,
     onTimelineAnchorReadyStable,
     onTimelineAnchorSizeChangedStable,
     onToolOutputCollapsedAtEndStable,
@@ -2504,12 +2505,7 @@ function ChatViewContent(props: ChatViewProps) {
     scope: draftId ?? activeThreadKey,
     root: inputActive ? microChatRoot : null,
     focusComposer: () => composerRef.current?.focusAtEnd(),
-    scroll: (direction) => {
-      cancelTimelineLiveFollowForUserNavigationStable();
-      legendListRef.current
-        ?.getScrollableNode()
-        ?.scrollBy({ top: direction * 80, behavior: "instant" });
-    },
+    scroll: (direction) => scrollTimelineBy(direction * 80),
     latest: () => scrollToEnd(),
     settleThread: handleSettleActiveThread,
     toggleTerminal: () => {
@@ -2692,9 +2688,8 @@ function ChatViewContent(props: ChatViewProps) {
   // it from a handler requests focus there. A closed drawer leaves focus to the
   // composer effect above.
   useEffect(() => {
-    if (activeThreadRef && ownsChatPaneInput(routeThreadKey))
-      return focusTerminalOnThreadEnter(activeThreadRef);
-  }, [activeThreadRef, routeThreadKey]);
+    if (activeThreadRef && inputActive) return focusTerminalOnThreadEnter(activeThreadRef);
+  }, [activeThreadRef, inputActive]);
 
   const getShortcutContext = (eventTarget: EventTarget | null = document.activeElement) => ({
     terminalFocus: getTerminalFocusOwner() !== null,

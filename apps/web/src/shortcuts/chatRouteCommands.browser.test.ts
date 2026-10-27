@@ -1,8 +1,10 @@
 import type { AnyRouter } from "@tanstack/react-router";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { installChatRouteCommands } from "./chatRouteCommands";
+import { executeMicroControl } from "../microControls";
+import { onOpenCommandPalette, type CommandPaletteOpenDetail } from "../commandPaletteBus";
 
 type Match = { readonly routeId: string; readonly pathname: string };
 
@@ -33,6 +35,24 @@ function selectThread(threadKey: string) {
 }
 
 describe("chat route commands", () => {
+  it("opens project creation from Micro only while the chat route can handle it", () => {
+    const { router, navigate } = routerAt(CHAT);
+    using _focus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    using stack = new DisposableStack();
+    const opened: CommandPaletteOpenDetail[] = [];
+    stack.defer(onOpenCommandPalette((detail) => opened.push(detail)));
+    const uninstall = installChatRouteCommands(router);
+    stack.defer(uninstall);
+    expect(executeMicroControl("new-project")).toBe(true);
+    expect(opened).toEqual([{ open: "add-project" }]);
+    navigate([...CHAT, { routeId: "/_chat/settings", pathname: "/settings" }]);
+    expect(executeMicroControl("new-project")).toBe(false);
+    expect(opened).toHaveLength(1);
+    navigate(CHAT);
+    uninstall();
+    expect(executeMicroControl("new-project")).toBe(false);
+  });
+
   it("clears a selection made after install, reading the store at keypress time", () => {
     const { router } = routerAt(CHAT);
     using stack = new DisposableStack();

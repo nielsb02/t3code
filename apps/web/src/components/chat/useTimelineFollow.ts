@@ -355,6 +355,10 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     });
   };
   const scrollToEndStable = useStableCallback(scrollToEnd);
+  const scrollTimelineBy = (top: number) => {
+    viewportRef.current?.navigate({ releasesFollow: true });
+    legendListRef.current?.getScrollableNode()?.scrollBy({ top, behavior: "instant" });
+  };
 
   const handleNavigation = (navigation: TimelineNavigation) => {
     const composer = composerRef.current;
@@ -575,6 +579,7 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     onComposerPageScrollKeyUpStable,
     onComposerPageScrollReleaseStable,
     scrollToEnd,
+    scrollTimelineBy,
     onTimelineAnchorReadyStable,
     onTimelineAnchorSizeChangedStable,
     onToolOutputCollapsedAtEndStable,
