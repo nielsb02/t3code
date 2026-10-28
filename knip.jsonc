@@ -22,7 +22,8 @@
       // worktree setup (from t3.json) run directly. release-desktop.yml bundles the
       // Windows verify script with esbuild through a path knip does not trace,
       // electron-builder loads the macOS signer by path, and mobile-e2e.ts runs
-      // agent-device's CLI by path.
+      // agent-device's CLI by path. release-desktop.yml runs the desktop launch
+      // check through xvfb-run, which knip does not trace.
       "entry": [
         // These fixture scripts are injected into a browser page by path.
         "fixtures/*/*.js",
@@ -30,6 +31,7 @@
         "mobile-native-client.ts",
         "setup-worktree.ts",
         "sign-macos.ts",
+        "smoke-desktop-app.ts",
         "verify-windows-desktop-artifact.ts",
         // The fork runs these release utilities manually instead of upstream workflows.
         "build-cli-archive.ts",
@@ -48,7 +50,6 @@
         "src/bin.ts!",
         "src/claude-history-worker.ts!",
         "scripts/cli.ts",
-        "scripts/evaluate-thread-titles.ts",
         "scripts/fetch-expo-schema.ts",
         "scripts/probe-claude-fork-local-rollback-replay.ts",
         "scripts/update-test-shard-weights.ts",
@@ -89,7 +90,12 @@
     "apps/web": {
       // Worktree setup (scripts/setup-worktree.ts) runs this directly, and evidence
       // fixtures run under node.
-      "entry": ["scripts/warm-dep-cache.ts", "test/fixtures/**/*.mjs"],
+      "entry": [
+        "scripts/warm-dep-cache.ts",
+        // The fork runs this upstream release check manually.
+        "scripts/verify-built-boot.ts",
+        "test/fixtures/**/*.mjs",
+      ],
       // UI component modules are copied and adapted as cohesive sets. Keep their
       // named subcomponents even before they have callers; the file audit still
       // reports an entire component module when nothing imports it.

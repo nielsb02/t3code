@@ -6,12 +6,14 @@ import { useContext } from "react";
 import type { WorkspaceDiffRepository } from "../lib/workspaceDiff";
 import { formatEnvironmentQueryError } from "../state/query";
 import { reviewEnvironment } from "../state/review";
+import { revisionedQuery } from "../state/revisionedQuery";
 
 export function useWorkspaceDiff(
   environmentId: EnvironmentId | null,
   repositories: readonly WorkspaceDiffRepository[],
   baseRefs: Readonly<Record<string, string | null>>,
   ignoreWhitespace: boolean,
+  mutationId?: string | null,
 ) {
   const registry = useContext(RegistryContext);
   const queries = (() =>
@@ -22,14 +24,17 @@ export function useWorkspaceDiff(
             const baseRef = baseRefs[repository.cwd];
             return {
               repository,
-              atom: reviewEnvironment.diffPreview({
-                environmentId,
-                input: {
-                  cwd: repository.cwd,
-                  ...(baseRef ? { baseRef } : {}),
-                  ignoreWhitespace,
-                },
-              }),
+              atom: revisionedQuery(
+                reviewEnvironment.diffPreview({
+                  environmentId,
+                  input: {
+                    cwd: repository.cwd,
+                    ...(baseRef ? { baseRef } : {}),
+                    ignoreWhitespace,
+                  },
+                }),
+                mutationId,
+              ),
             };
           })
       : [])();
@@ -40,6 +45,12 @@ export function useWorkspaceDiff(
         return {
           repository,
           data: Option.getOrNull(AsyncResult.value(result)),
+          dataUpdatedAt:
+            result._tag === "Success"
+              ? result.timestamp
+              : result._tag === "Failure"
+                ? (Option.getOrNull(result.previousSuccess)?.timestamp ?? 0)
+                : 0,
           error: result._tag === "Failure" ? formatEnvironmentQueryError(result.cause) : null,
           isPending: result._tag === "Initial" || result.waiting,
         };

@@ -4,7 +4,14 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { installChatRouteCommands } from "./chatRouteCommands";
 import { executeMicroControl } from "../microControls";
-import { onOpenCommandPalette, type CommandPaletteOpenDetail } from "../commandPaletteBus";
+import { useCommandPaletteMount, useCommandPaletteStore } from "../commandPaletteStore";
+import { render } from "../../test/render";
+import { createElement } from "react";
+
+function MountedPalette() {
+  useCommandPaletteMount();
+  return null;
+}
 
 type Match = { readonly routeId: string; readonly pathname: string };
 
@@ -35,19 +42,23 @@ function selectThread(threadKey: string) {
 }
 
 describe("chat route commands", () => {
-  it("opens project creation from Micro only while the chat route can handle it", () => {
+  it("opens project creation from Micro only while the chat route can handle it", async () => {
     const { router, navigate } = routerAt(CHAT);
     using _focus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
     using stack = new DisposableStack();
-    const opened: CommandPaletteOpenDetail[] = [];
-    stack.defer(onOpenCommandPalette((detail) => opened.push(detail)));
+    await using _screen = await render(createElement(MountedPalette), { router: "/" });
+    useCommandPaletteStore.setState(useCommandPaletteStore.getInitialState(), true);
     const uninstall = installChatRouteCommands(router);
     stack.defer(uninstall);
     expect(executeMicroControl("new-project")).toBe(true);
-    expect(opened).toEqual([{ open: "add-project" }]);
+    expect(useCommandPaletteStore.getState()).toMatchObject({
+      open: true,
+      openIntent: { kind: "add-project" },
+    });
+    const openedSession = useCommandPaletteStore.getState().session;
     navigate([...CHAT, { routeId: "/_chat/settings", pathname: "/settings" }]);
     expect(executeMicroControl("new-project")).toBe(false);
-    expect(opened).toHaveLength(1);
+    expect(useCommandPaletteStore.getState().session).toBe(openedSession);
     navigate(CHAT);
     uninstall();
     expect(executeMicroControl("new-project")).toBe(false);

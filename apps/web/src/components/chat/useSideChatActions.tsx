@@ -51,6 +51,7 @@ export function useSideChatActions(input: {
   // A side chat's own side chats are not shown; it has no right panel tabs of its own.
   const sideChats = useSideChats(isServerThread && !embedded ? activeThreadRef : null);
   const sideChatTitlesById = new Map(sideChats.map((sideChat) => [sideChat.id, sideChat.title]));
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reconciles mounted side-chat tabs with the server thread shells
   useEffect(() => {
     // Before the shell loads, every side chat would read as closed and lose its tab.
     if (!activeThreadRef || embedded || !isServerThread || !activeEnvironmentBootstrapComplete) {
@@ -97,6 +98,7 @@ export function useSideChatActions(input: {
     }
     useRightPanelStore.getState().openSideChat(activeThreadRef, targetThreadId);
   };
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes the mounted parent chat to the global side-chat command
   useEffect(() => {
     if (embedded) return;
     return subscribeSideChatStart(() => void onStartSideChat(null));
