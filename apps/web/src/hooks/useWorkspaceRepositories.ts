@@ -80,6 +80,7 @@ export function useWorkspaceRepositories(input: {
     refresh,
     resourceKey: `repositories:${scope}`,
   });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refreshes repository queries when the browser window regains focus
   useEffect(() => {
     if (cwd === null) return;
     window.addEventListener("focus", refresh);

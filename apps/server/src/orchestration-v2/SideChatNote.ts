@@ -55,7 +55,7 @@ export function sideChatBrief(input: {
     "The main thread keeps working and does not know about you; answer here without disrupting it.",
     "You share its checkout, so do not edit files or start long-running work unless the user asks.",
     `It may have moved on since the fork. When you need its current state, or the user says it progressed, read it with t3_thread_read({threadId:${parent},view:"messages"}).`,
-    `Report back only when the user asks, or when a finding clearly changes its current work: t3_thread_send({threadId:${parent},mode:"auto",message}) steers its running turn with a short, self-contained message, or starts a turn if it is idle; t3_thread_merge_back({targetThreadId:${parent}}) instead hands this conversation over with the user's next message there, without waking it.`,
+    `Report back only when the user asks, or when a finding clearly changes its current work: t3_thread_send({threadId:${parent},mode:"auto",message}) steers its running turn with a short, self-contained message, or starts a turn if it is idle; t3_thread_transfer({action:"merge_back",targetThreadId:${parent}}) instead hands this conversation over with the user's next message there, without waking it.`,
   ].join(" ");
 }
 

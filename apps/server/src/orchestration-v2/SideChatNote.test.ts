@@ -18,7 +18,10 @@ it("keeps the brief short and names the main thread and the tools to reach it", 
   );
   assert.include(brief, `t3_thread_read({threadId:"${parentThreadId}",view:"messages"})`);
   assert.include(brief, `t3_thread_send({threadId:"${parentThreadId}",mode:"auto",message})`);
-  assert.include(brief, `t3_thread_merge_back({targetThreadId:"${parentThreadId}"})`);
+  assert.include(
+    brief,
+    `t3_thread_transfer({action:"merge_back",targetThreadId:"${parentThreadId}"})`,
+  );
   assert.include(brief, "only when the user asks");
 });
 

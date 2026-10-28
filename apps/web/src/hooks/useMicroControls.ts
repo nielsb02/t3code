@@ -48,6 +48,7 @@ export function useMicroControls(options: {
   const settleThread = useEffectEvent(options.settleThread);
   const toggleTerminal = useEffectEvent(options.toggleTerminal);
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers Micro control DOM listeners while the focused chat pane is mounted
   useEffect(() => {
     const element = options.root;
     if (!element) return;

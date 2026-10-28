@@ -79,6 +79,7 @@ export function ChatPaneScope({
   const inheritedComposer = useComposerHandleContext();
   const localComposer = useRef<ChatComposerHandle | null>(null);
   const composer = embedded ? localComposer : (inheritedComposer ?? localComposer);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the mounted pane and its composer with global input ownership
   useEffect(() => {
     useChatPaneFocusStore.getState().register({ key: paneKey, composer }, embedded);
     return () => useChatPaneFocusStore.getState().unregister(paneKey);

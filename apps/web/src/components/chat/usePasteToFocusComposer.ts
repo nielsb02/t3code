@@ -18,6 +18,7 @@ export function usePasteToFocusComposer(
 ) {
   const chatPaneKey = useChatPaneKey();
   const pasteAsTextShortcutUntilRef = useRef(0);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- attaches window keydown and paste capture listeners that route stray pastes into the composer
   useEffect(() => {
     const keyHandler = (event: KeyboardEvent) => {
       if (!ownsChatPaneInput(chatPaneKey, event.target)) return;
