@@ -46,7 +46,7 @@ describe("chat route commands", () => {
     const { router, navigate } = routerAt(CHAT);
     using _focus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
     using stack = new DisposableStack();
-    await using screen = await render(createElement(MountedPalette), { router: "/" });
+    await using _screen = await render(createElement(MountedPalette), { router: "/" });
     useCommandPaletteStore.setState(useCommandPaletteStore.getInitialState(), true);
     const uninstall = installChatRouteCommands(router);
     stack.defer(uninstall);
