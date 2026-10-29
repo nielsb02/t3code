@@ -314,7 +314,7 @@ export default function DiffPanel({
       ? diffSelection.baseRef
       : null;
   const visibleRepositories = (() =>
-    selectedRunId !== null
+    !isGitSelection
       ? EMPTY_REPOSITORIES
       : filteredRepository
         ? [filteredRepository]
@@ -794,7 +794,7 @@ export default function DiffPanel({
   const headerRow = (
     <>
       <div className="@container/diff-refs flex min-w-0 flex-1 items-center gap-3 [-webkit-app-region:no-drag]">
-        {hasWorkspaceRepositories && (
+        {hasWorkspaceRepositories && !toolCallSelection && (
           <DropdownMenu>
             <DropdownMenuTrigger
               render={<Button variant="ghost" size="sm" className="max-w-48" />}
@@ -1197,7 +1197,7 @@ export default function DiffPanel({
                     {repo.name}: repository is unavailable.
                   </p>
                 ))}
-            {selectedRunId === null && repositoryFilter !== null && !filteredRepository && (
+            {isGitSelection && repositoryFilter !== null && !filteredRepository && (
               <p className="px-3 py-2 text-xs text-muted-foreground">
                 The selected repository is no longer in this workspace. Choose another repository.
               </p>
