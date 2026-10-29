@@ -4,7 +4,6 @@ import { formatDiffCount } from "@t3tools/client-runtime/diff-count";
 
 import { countReviewCommentContexts, parseReviewInlineComments } from "./reviewCommentSelection";
 import { getCachedNativeReviewDiffData } from "./nativeReviewDiffAdapter";
-import { markReviewEvent, measureReviewWork } from "./reviewPerf";
 import { getCachedReviewParsedDiff } from "./reviewState";
 import {
   applyReviewDiffMetadata,
@@ -102,7 +101,7 @@ function logReviewDiffDiagnostic(message: string, details?: Record<string, unkno
   console.log(`[review-sheet] ${message}`);
 }
 
-export function formatHeaderDiffSummary(
+function formatHeaderDiffSummary(
   parsedDiff: ReviewParsedDiff,
   files?: ReviewSectionItem["files"],
 ): {
@@ -134,24 +133,18 @@ export function useReviewDiffData(input: {
   const source = selectedSection?.source;
   const lazySource =
     !selectedSection?.repositoryDiffs && source?.truncated && source.files ? source : null;
-  const previewDiff = useMemo<ReviewParsedDiff>(
-    () =>
-      lazySource
-        ? { kind: "empty" }
-        : measureReviewWork("parse-diff", () =>
-            selectedSection?.repositoryDiffs
-              ? buildWorkspaceReviewDiff(
-                  selectedSection.repositoryDiffs,
-                  `${threadKey}:${selectedSection.id}`,
-                )
-              : getCachedReviewParsedDiff({
-                  threadKey,
-                  sectionId: selectedSection?.id ?? null,
-                  diff: selectedSection?.diff,
-                }),
-          ),
-    [lazySource, selectedSection, threadKey],
-  );
+  const previewDiff: ReviewParsedDiff = lazySource
+    ? { kind: "empty" }
+    : selectedSection?.repositoryDiffs
+      ? buildWorkspaceReviewDiff(
+          selectedSection.repositoryDiffs,
+          `${threadKey}:${selectedSection.id}`,
+        )
+      : getCachedReviewParsedDiff({
+          threadKey,
+          sectionId: selectedSection?.id ?? null,
+          diff: selectedSection?.diff,
+        });
   const registry = useContext(RegistryContext);
   const { environmentId } = input;
   const cwd = selectedSection?.sourceCwd ?? input.cwd;
@@ -245,30 +238,18 @@ export function useReviewDiffData(input: {
     () => formatHeaderDiffSummary(parsedDiff, selectedSection?.files),
     [parsedDiff, selectedSection?.files],
   );
-  const inlineReviewComments = useMemo(
-    () => parseReviewInlineComments(draftMessage),
-    [draftMessage],
-  );
+  const inlineReviewComments = parseReviewInlineComments(draftMessage);
   const selectedSectionInlineComments = useMemo(() => {
     if (!selectedSectionId || inlineReviewComments.length === 0) {
       return EMPTY_INLINE_REVIEW_COMMENTS;
     }
     return inlineReviewComments.filter((comment) => comment.sectionId === selectedSectionId);
   }, [inlineReviewComments, selectedSectionId]);
-  const nativeReviewDiffData = useMemo(
-    () =>
-      measureReviewWork("build-native-diff-data", () =>
-        getCachedNativeReviewDiffData({
-          parsedDiff,
-          comments: selectedSectionInlineComments,
-        }),
-      ),
-    [parsedDiff, selectedSectionInlineComments],
-  );
-  const pendingReviewCommentCount = useMemo(
-    () => countReviewCommentContexts(draftMessage),
-    [draftMessage],
-  );
+  const nativeReviewDiffData = getCachedNativeReviewDiffData({
+    parsedDiff,
+    comments: selectedSectionInlineComments,
+  });
+  const pendingReviewCommentCount = countReviewCommentContexts(draftMessage);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- records review perf marks and diagnostic logs once a parsed diff has committed
   useEffect(() => {
@@ -276,19 +257,12 @@ export function useReviewDiffData(input: {
       return;
     }
 
-    markReviewEvent("parsed-diff-ready", {
-      sectionId: selectedSection?.id ?? null,
-      fileCount: parsedDiff.fileCount,
-      additions: parsedDiff.additions,
-      deletions: parsedDiff.deletions,
-      renderedItems: nativeReviewDiffData.rows.length,
-    });
     logReviewDiffDiagnostic("parsed diff files", {
       selectedSectionId: selectedSection?.id ?? null,
       fileCount: parsedDiff.fileCount,
       renderableFileCount: parsedDiff.files.length,
     });
-  }, [nativeReviewDiffData.rows.length, parsedDiff, selectedSection?.id]);
+  }, [parsedDiff, selectedSection?.id]);
 
   return {
     parsedDiff,

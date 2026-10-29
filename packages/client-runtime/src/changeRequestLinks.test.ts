@@ -112,7 +112,7 @@ describe("resolveChangeRequestLinkTarget", () => {
   const sibling = project("sibling", local, "github.com/acme/tools");
   const elsewhere = project("elsewhere", remote, "github.com/acme/app");
   const projects = [mirrored, sibling, elsewhere];
-  const hostReads = () => ({ pullRequests: true, threadPullRequests: true });
+  const loaded = () => true;
   const url = "https://github.com/acme/app/pull/7";
 
   it("keeps workspace scope when the project snapshot was replaced before the click", () => {
@@ -120,7 +120,7 @@ describe("resolveChangeRequestLinkTarget", () => {
       resolveChangeRequestLinkTarget({
         url,
         projects,
-        capabilities: hostReads,
+        configLoaded: () => true,
         environmentId: local,
         workspaceProject: { ...sibling },
         lendHostProject: false,
@@ -133,7 +133,7 @@ describe("resolveChangeRequestLinkTarget", () => {
       resolveChangeRequestLinkTarget({
         url,
         projects,
-        capabilities: hostReads,
+        configLoaded: loaded,
         environmentId: local,
         projectId: mirrored.id,
         lendHostProject: true,
@@ -142,16 +142,15 @@ describe("resolveChangeRequestLinkTarget", () => {
   });
 
   it("only borrows a host project for views that can show any repository on the host", () => {
-    const resolve = (capabilities: typeof hostReads, lendHostProject: boolean) =>
+    expect(
       resolveChangeRequestLinkTarget({
         url,
         projects,
-        capabilities,
+        configLoaded: loaded,
         environmentId: local,
-        lendHostProject,
-      });
-    expect(resolve(hostReads, false)).toBeNull();
-    expect(resolve(() => ({ pullRequests: true, threadPullRequests: false }), true)).toBeNull();
+        lendHostProject: false,
+      }),
+    ).toBeNull();
   });
 
   it("finds the checked-out repository in any environment that reads change requests", () => {
@@ -159,7 +158,7 @@ describe("resolveChangeRequestLinkTarget", () => {
       resolveChangeRequestLinkTarget({
         url,
         projects,
-        capabilities: hostReads,
+        configLoaded: loaded,
         primaryEnvironmentId: local,
         lendHostProject: false,
       })?.project,
@@ -168,7 +167,7 @@ describe("resolveChangeRequestLinkTarget", () => {
       resolveChangeRequestLinkTarget({
         url,
         projects,
-        capabilities: (environmentId) => (environmentId === remote ? undefined : hostReads()),
+        configLoaded: (environmentId) => environmentId !== remote,
         lendHostProject: false,
       }),
     ).toBeNull();

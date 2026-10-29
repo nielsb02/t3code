@@ -123,7 +123,6 @@ export function WorkspacePullRequestsPanel({
               gitCwd={repository.cwd}
               activeThreadRef={threadRef}
               syncThreadBranch={repository.path === "."}
-              onOpenPullRequest={onRefresh}
             />
           </>
         )}

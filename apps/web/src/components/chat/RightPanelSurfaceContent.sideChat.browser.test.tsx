@@ -7,7 +7,10 @@ import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
 import { ChatPaneScope, useChatPaneFocusStore } from "../../chatPaneScope";
-import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "../ComposerPromptEditor";
+import {
+  ComposerPromptEditorTiptap as ComposerPromptEditor,
+  type ComposerPromptEditorHandle,
+} from "../ComposerPromptEditorTiptap";
 import { RightPanelSurfaceContent } from "./RightPanelSurfaceContent";
 
 // Keep the real panel dispatch, pane ownership and Tiptap lifecycle; the full

@@ -26,7 +26,7 @@ import { ThreadServersPanel } from "./ThreadServersPanel";
 
 const GitActionsControl = memo(BaseGitActionsControl);
 
-export interface ThreadDetailsPanelProps extends Pick<
+interface ThreadDetailsPanelProps extends Pick<
   ComponentProps<typeof ThreadDetailsCard>,
   "anchor" | "handle"
 > {
@@ -182,7 +182,6 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 {props.activeProjectName && gitActionsCwd ? (
                   <GitActionsControl
                     key={gitActionsCwd}
-                    displayMode="panel"
                     compact={density !== "full"}
                     gitCwd={gitActionsCwd}
                     syncThreadBranch={props.syncThreadBranch ?? true}
