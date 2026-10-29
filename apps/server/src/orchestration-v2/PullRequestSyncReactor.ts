@@ -392,7 +392,9 @@ export const make = Effect.gen(function* () {
     const stacksReadThisSweep = new Map<string, ThreadPullRequestStack | null>();
     const persistence = yield* Semaphore.make(1);
 
-    const syncEntry = Effect.fn("PullRequestSyncReactor.syncEntry")(function* (
+    // Effect.fn's stack frames close over these sweep-scoped bodies and their arguments, and a
+    // cache lookup forked inside keeps those frames, so a plain span leaves the sweep collectable.
+    const syncEntry = Effect.fnUntraced(function* (
       entry: LinkEntry,
       fields: SnapshotFields,
       fetchedStack: { readonly stack: ThreadPullRequestStack | null } | null,
@@ -446,12 +448,9 @@ export const make = Effect.gen(function* () {
           stack: nextStack,
         });
       }
-    });
+    }, Effect.withSpan("PullRequestSyncReactor.syncEntry"));
 
-    const syncGroup = Effect.fn("PullRequestSyncReactor.syncGroup")(function* (
-      key: string,
-      entries: ReadonlyArray<LinkEntry>,
-    ) {
+    const syncGroup = Effect.fnUntraced(function* (key: string, entries: ReadonlyArray<LinkEntry>) {
       const refreshRequested = requested.has(key);
       // A held merged summary is served without asking the host, so a snapshot still missing its
       // merge time has to drop it or the slow-cadence re-read would hand back the same gap.
@@ -466,7 +465,7 @@ export const make = Effect.gen(function* () {
       // end the search: every thread would hit the same host.
       const { ref, result } = yield* Effect.firstSuccessOf(
         entries.map(
-          Effect.fn(function* ({ thread, link }: LinkEntry) {
+          Effect.fnUntraced(function* ({ thread, link }: LinkEntry) {
             const ref = {
               projectId: thread.projectId,
               workspace: { threadId: thread.id },
@@ -579,7 +578,7 @@ export const make = Effect.gen(function* () {
           ),
         { discard: true },
       );
-    });
+    }, Effect.withSpan("PullRequestSyncReactor.syncGroup"));
 
     const skips = new Map<string, { count: number; readonly key: string }>();
     const readGroup = (key: string, entries: ReadonlyArray<LinkEntry>, pauseKey: string) =>

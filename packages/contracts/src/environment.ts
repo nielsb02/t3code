@@ -85,9 +85,7 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   workspaceRepositories: Schema.optionalKey(Schema.Boolean),
   /** Linked PR references can resolve a repository from the thread's checkout without a path. */
   workspacePullRequestLinks: Schema.optionalKey(Schema.Boolean),
-  /** Server understands canonical inline context links plus their message context records.
-      Absent on servers from before inline context shipped, which drop the records and forward
-      the links as literal text -- so a client must serialize context the legacy way for them. */
+  /** Every protocol-2 server sends this; older mobile builds still read it. */
   inlineMessageContext: Schema.optionalKey(Schema.Boolean),
   requiredWorktreeBootstrap: Schema.optionalKey(Schema.Boolean),
   threadSettlement: Schema.optionalKey(Schema.Boolean),
@@ -105,7 +103,7 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Hide the switch when absent; older servers silently drop per-project provider patches. */
   projectProviderInstanceOverrides: Schema.optionalKey(Schema.Boolean),
   threadSnooze: Schema.optionalKey(Schema.Boolean),
-  /** Clear published themes when absent; older servers never send updates. */
+  /** Every protocol-2 server sends this; older mobile builds still read it. */
   environmentThemes: Schema.optionalKey(Schema.Boolean),
   usageLimitSources: Schema.optionalKey(Schema.Boolean),
   /** Honors `workspaceSnapshotsOnDemand`; older servers send every snapshot and drop them in the stream. */
@@ -154,6 +152,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
       (`linkOrigin`). Another environment links to this one only when it is
       set, since without it that work could change the user's own threads. */
   linkFence: Schema.optionalKey(Schema.Boolean),
+  /** Server answers server.prepareTriage. */
+  triage: Schema.optionalKey(Schema.Boolean),
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
 
