@@ -38,6 +38,12 @@ vi.mock("../../../state/use-thread-selection", () => ({
     selectedThreadProject: { workspaceRoot: checkout.projectRoot },
   }),
 }));
+vi.mock("../../../state/use-workspace-repositories", () => ({
+  useWorkspaceRepositories: () => ({
+    selectedThreadCwd: checkout.worktreePath ?? checkout.projectRoot,
+    isChildRepository: false,
+  }),
+}));
 vi.mock("../../../state/use-thread-detail", () => ({
   useSelectedThreadWorktreePath: () => checkout.worktreePath,
 }));
