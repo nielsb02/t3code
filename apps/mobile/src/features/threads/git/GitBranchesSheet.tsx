@@ -28,8 +28,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const { selectedThread } = useThreadSelection();
-  const { selectedThreadCwd, selectedThreadWorktreePath, isChildRepository } =
-    useWorkspaceRepositories();
+  const { selectedThreadCwd, isChildRepository } = useWorkspaceRepositories();
   const gitState = useSelectedThreadGitState();
   const gitActions = useSelectedThreadGitActions();
   const { canChangeThreadBranch } = gitActions;
@@ -44,7 +43,7 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
   );
 
   const currentBranchLabel = gitStatus.data?.refName ?? selectedThread?.branch ?? "Detached HEAD";
-  const currentWorktreePath = isChildRepository ? selectedThreadCwd : selectedThreadWorktreePath;
+  const currentWorktreePath = selectedThreadCwd;
   const availableBranches = gitState.selectedThreadBranches;
   const branchesLoading = gitState.selectedThreadBranchesLoading;
   const busy = gitState.gitOperationLabel !== null;
