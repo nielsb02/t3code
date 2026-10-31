@@ -33,6 +33,7 @@ import { environmentServerConfigsAtom, serverEnvironment } from "../state/server
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { reviewEnvironment } from "../state/review";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
+import { usePullRequestWorkspace } from "../hooks/usePullRequestWorkspace";
 
 export function usePullRequestPreviewTarget(environmentId: EnvironmentId | null, url: string) {
   const projects = useProjects();
@@ -51,8 +52,6 @@ function shouldOpenPullRequestExternally(
 ): boolean {
   return event.metaKey || event.ctrlKey || event.button === 1;
 }
-
-import { usePullRequestWorkspace } from "../hooks/usePullRequestWorkspace";
 
 function findWorkspaceProjectForChangeRequest(
   project: EnvironmentProject | undefined,

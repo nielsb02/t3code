@@ -325,15 +325,16 @@ export default function DiffPanel({
   const selectedCommitSha = diffSelection.kind === "commit" ? diffSelection.sha : null;
   const hasWorkspaceRepositories = repositories.length > 0;
   const filteredRepository = repositories.find((repo) => repo.path === repositoryFilter);
-  const selectedBaseRef = diffSelection.kind === "commit"
-    ? diffSelection.baseRef
-    : hasWorkspaceRepositories
-    ? filteredRepository
-      ? (repositoryBaseRefs[filteredRepository.cwd] ?? null)
-      : null
-    : diffSelection.kind === "branch"
+  const selectedBaseRef =
+    diffSelection.kind === "commit"
       ? diffSelection.baseRef
-      : null;
+      : hasWorkspaceRepositories
+        ? filteredRepository
+          ? (repositoryBaseRefs[filteredRepository.cwd] ?? null)
+          : null
+        : diffSelection.kind === "branch"
+          ? diffSelection.baseRef
+          : null;
   const visibleRepositories = (() =>
     !isGitSelection || selectedCommitSha !== null
       ? EMPTY_REPOSITORIES
@@ -389,7 +390,11 @@ export default function DiffPanel({
     { enabled: isGitRepo && selectedTurn !== undefined },
   );
   const branchDiffPreviewInput =
-    (!hasWorkspaceRepositories || selectedCommitSha !== null) && canReadFiles && isGitSelection && activeThread && activeCwd
+    (!hasWorkspaceRepositories || selectedCommitSha !== null) &&
+    canReadFiles &&
+    isGitSelection &&
+    activeThread &&
+    activeCwd
       ? {
           cwd: activeCwd,
           ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
@@ -415,22 +420,23 @@ export default function DiffPanel({
         )
       : null,
   );
-  const branchDiffPreview = hasWorkspaceRepositories && selectedCommitSha === null
-    ? {
-        data: filteredRepository ? (workspaceDiffQuery.results[0]?.data ?? null) : null,
-        dataUpdatedAt: Math.min(
-          ...workspaceDiffQuery.results.map((result) => result.dataUpdatedAt),
-        ),
-        error:
-          workspaceDiffQuery.results
-            .flatMap((result) =>
-              result.error ? [`${result.repository.name}: ${result.error}`] : [],
-            )
-            .join("; ") || null,
-        isPending: workspaceDiffQuery.results.some((result) => result.isPending),
-        refresh: workspaceDiffQuery.refresh,
-      }
-    : primaryBranchDiffPreview;
+  const branchDiffPreview =
+    hasWorkspaceRepositories && selectedCommitSha === null
+      ? {
+          data: filteredRepository ? (workspaceDiffQuery.results[0]?.data ?? null) : null,
+          dataUpdatedAt: Math.min(
+            ...workspaceDiffQuery.results.map((result) => result.dataUpdatedAt),
+          ),
+          error:
+            workspaceDiffQuery.results
+              .flatMap((result) =>
+                result.error ? [`${result.repository.name}: ${result.error}`] : [],
+              )
+              .join("; ") || null,
+          isPending: workspaceDiffQuery.results.some((result) => result.isPending),
+          refresh: workspaceDiffQuery.refresh,
+        }
+      : primaryBranchDiffPreview;
   const branchCommitsQuery = useEnvironmentQuery(
     visible && isGitRepo && canReadFiles && activeThread && activeCwd
       ? reviewEnvironment.branchCommits({
@@ -457,7 +463,11 @@ export default function DiffPanel({
           : "branch-range"),
   );
   const workspaceDiff = (() =>
-    activeThread && hasWorkspaceRepositories && !filteredRepository && isGitSelection && selectedCommitSha === null
+    activeThread &&
+    hasWorkspaceRepositories &&
+    !filteredRepository &&
+    isGitSelection &&
+    selectedCommitSha === null
       ? createWorkspaceDiff(
           workspaceDiffQuery.results.flatMap((result) => {
             const source = result.data?.sources.find(
@@ -885,7 +895,7 @@ export default function DiffPanel({
               aria-label="Filter diff by repository"
             >
               <span className="truncate">
-                {selectedRunId !== null
+                {selectedRunId !== null || selectedCommitSha !== null
                   ? (repositories.find((repo) => repo.path === ".")?.name ?? "Workspace")
                   : (filteredRepository?.name ??
                     (repositoryFilter === null ? "All repositories" : repositoryFilter))}
@@ -896,7 +906,8 @@ export default function DiffPanel({
               <DropdownMenuItem
                 onClick={() => {
                   onSelectRepository?.(null);
-                  if (selectedRunId !== null) selectGitScope("unstaged");
+                  if (selectedRunId !== null || selectedCommitSha !== null)
+                    selectGitScope("unstaged");
                 }}
               >
                 All repositories
@@ -906,7 +917,8 @@ export default function DiffPanel({
                   key={repository.cwd}
                   onClick={() => {
                     onSelectRepository?.(repository.path);
-                    if (selectedRunId !== null) selectGitScope("unstaged");
+                    if (selectedRunId !== null || selectedCommitSha !== null)
+                      selectGitScope("unstaged");
                   }}
                 >
                   {repository.name}
@@ -1385,7 +1397,7 @@ export default function DiffPanel({
         </div>
       ) : !isGitRepo &&
         !toolCallSelection &&
-        (selectedRunId !== null || !hasWorkspaceRepositories) ? (
+        (selectedRunId !== null || selectedCommitSha !== null || !hasWorkspaceRepositories) ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Turn diffs are unavailable because this project is not a git repository.
         </div>
@@ -1442,7 +1454,8 @@ export default function DiffPanel({
             )}
             {selectedCommitSha !== null && hasWorkspaceRepositories && (
               <p className="px-3 py-2 text-xs text-muted-foreground">
-                Commit review covers the workspace repository. Choose Changes to review the selected repositories.
+                Commit review covers the workspace repository. Choose Changes to review the selected
+                repositories.
               </p>
             )}
             {selectedRunId !== null && hasWorkspaceRepositories && (

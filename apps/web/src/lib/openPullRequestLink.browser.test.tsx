@@ -24,7 +24,9 @@ vi.mock("../state/server", async (original) => {
   const { Atom } = await import("effect/reactivity");
   return {
     ...(await original<typeof import("../state/server")>()),
-    environmentServerConfigsAtom: Atom.make(new Map([["local", {}]])),
+    environmentServerConfigsAtom: Atom.make(
+      new Map([["local", { environment: { capabilities: { workspacePullRequestLinks: false } } }]]),
+    ),
   };
 });
 
