@@ -52,7 +52,17 @@ remote.
 On mobile, select a repository in the Git sheet. Live and branch review can show all repositories or
 one of them. Open a repository's pull request with the existing browser action.
 
-Turn diffs and checkpoint restore apply only to the outer workspace repository.
+Turn diffs, local commit review, and checkpoint restore apply only to the outer workspace repository.
+
+On web and desktop, open the Diff pane source picker and choose **Commits** to review one local
+commit at a time. The list shows the newest 100 commits in the branch comparison. A merge commit
+shows its changes against its first parent.
+
+A commit link from a supported code host opens in the Diff pane when the thread's repository has
+that commit locally, on any branch. Otherwise a pull request commit link opens the pull request. Other
+commit links follow your **Open links in** setting; on web, when that opens a new tab, T3 Code first
+shows an **Open link** button. Command/Ctrl+Click always opens the link in your browser. Commit links follow the **Open pull requests in T3 Code**
+setting in **Settings → Diffs**.
 
 ## Connect an account
 

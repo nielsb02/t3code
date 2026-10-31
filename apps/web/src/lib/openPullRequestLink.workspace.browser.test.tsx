@@ -76,6 +76,7 @@ const mutations: unknown[] = [];
 vi.mock("../state/entities", () => ({
   useProjects: () => [project],
   readProjects: () => [project],
+  readProject: () => project,
   useThreadShell: (ref: typeof threadRef | null) => (ref?.threadId === thread.id ? thread : null),
   readThreadShell: (ref: typeof threadRef) =>
     ref.threadId === currentThread.id ? currentThread : null,
@@ -98,6 +99,7 @@ vi.mock(import("@tanstack/react-router"), async (original) => ({
   },
 }));
 vi.mock("../browser/useOpenLink", () => ({ useOpenLink: () => () => Promise.resolve() }));
+vi.mock("../browser/browserLinkTarget", () => ({ canOpenLinksInApp: () => false }));
 vi.mock("../state/projects", () => ({
   projectEnvironment: {
     listRepositories: ({ input }: { input: { cwd: string } }) =>

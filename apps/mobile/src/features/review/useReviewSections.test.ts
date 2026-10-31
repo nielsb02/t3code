@@ -33,7 +33,8 @@ const state = vi.hoisted(() => ({
   }>,
 }));
 
-vi.mock("@t3tools/client-runtime/state/thread-checkpoints", () => ({
+vi.mock("@t3tools/client-runtime/state/thread-checkpoints", async (original) => ({
+  ...(await original<typeof import("@t3tools/client-runtime/state/thread-checkpoints")>()),
   deriveThreadCheckpointSummaries: () => state.checkpoints,
 }));
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => state.turnDiffs }));
