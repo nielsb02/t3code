@@ -1,11 +1,13 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { type ScopedThreadRef, type ThreadId } from "@t3tools/contracts";
 import { useThreadShell } from "../../state/entities";
+import type { SideChatParentPanel } from "../../lib/sideChatPane";
 import ChatView from "../ChatView";
 
 export default function SideChatPanel(props: {
   readonly parentRef: ScopedThreadRef;
   readonly threadId: ThreadId;
+  readonly parentPanel?: SideChatParentPanel;
   readonly onClose: () => void;
 }) {
   const threadRef = (() => scopeThreadRef(props.parentRef.environmentId, props.threadId))();
@@ -18,12 +20,15 @@ export default function SideChatPanel(props: {
     );
   }
   return (
-    <ChatView
-      environmentId={props.parentRef.environmentId}
-      threadId={props.threadId}
-      routeKind="server"
-      presentation="side-panel"
-      onCloseSideChat={props.onClose}
-    />
+    <div data-side-chat-pane className="flex h-full min-h-0 flex-col">
+      <ChatView
+        environmentId={props.parentRef.environmentId}
+        threadId={props.threadId}
+        routeKind="server"
+        presentation="side-panel"
+        {...(props.parentPanel ? { embedded: props.parentPanel } : {})}
+        onCloseSideChat={props.onClose}
+      />
+    </div>
   );
 }

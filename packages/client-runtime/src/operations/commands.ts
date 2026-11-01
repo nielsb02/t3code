@@ -60,6 +60,8 @@ export interface UpdateProjectInput extends CommandMetadata {
   readonly faviconPath?: string | null;
   readonly defaultThreadEnvMode?: ThreadEnvMode | null;
   readonly scripts?: ReadonlyArray<ProjectScript>;
+  readonly pinned?: boolean;
+  readonly archived?: boolean;
 }
 
 export interface DeleteProjectInput extends CommandMetadata {
@@ -82,7 +84,10 @@ export interface ThreadCommandInput extends CommandMetadata {
   readonly threadId: ThreadId;
 }
 
-export type DeleteThreadInput = ThreadCommandInput;
+export interface DeleteThreadInput extends ThreadCommandInput {
+  /** The server deletes only a thread with no runs and no messages. */
+  readonly onlyIfUnused?: boolean;
+}
 export type ArchiveThreadInput = ThreadCommandInput;
 export type UnarchiveThreadInput = ThreadCommandInput;
 export type SettleThreadInput = ThreadCommandInput;
@@ -218,12 +223,10 @@ export interface ForkThreadFromRunInput extends CommandMetadata {
   readonly title?: string;
 }
 
-/** Micro fork: a fork shown inside its parent thread. */
-export interface StartSideChatInput extends CommandMetadata {
+export interface ForkSideChatInput extends CommandMetadata {
   readonly sourceThreadId: ThreadId;
   readonly targetThreadId: ThreadId;
-  /** Fork after this run; null forks after the latest finished run. */
-  readonly runId: RunId | null;
+  readonly runId?: RunId | null;
   readonly title?: string;
 }
 
@@ -375,6 +378,8 @@ export const updateProject = Effect.fn("EnvironmentCommands.updateProject")(func
       ? {}
       : { defaultThreadEnvMode: input.defaultThreadEnvMode }),
     ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+    ...(input.pinned === undefined ? {} : { pinned: input.pinned }),
+    ...(input.archived === undefined ? {} : { archived: input.archived }),
   });
 });
 
@@ -410,7 +415,6 @@ export const createThread = Effect.fn("EnvironmentCommands.createThread")(functi
 
 function simpleThreadCommand(
   type:
-    | "thread.delete"
     | "thread.archive"
     | "thread.unarchive"
     | "thread.settle"
@@ -427,7 +431,12 @@ function simpleThreadCommand(
 export const deleteThread = Effect.fn("EnvironmentCommands.deleteThread")(function* (
   input: DeleteThreadInput,
 ) {
-  return yield* simpleThreadCommand("thread.delete", input);
+  return yield* dispatch({
+    type: "thread.delete",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    ...(input.onlyIfUnused === undefined ? {} : { onlyIfUnused: input.onlyIfUnused }),
+  });
 });
 
 export type CloseGuestShareInput = ThreadCommandInput;
@@ -983,8 +992,9 @@ export const forkThreadFromRun = Effect.fn("EnvironmentCommands.forkThreadFromRu
   });
 });
 
-export const startSideChat = Effect.fn("EnvironmentCommands.startSideChat")(function* (
-  input: StartSideChatInput,
+/** Forks the thread's latest stable point into a hidden side chat; works while it runs. */
+export const forkSideChat = Effect.fn("EnvironmentCommands.forkSideChat")(function* (
+  input: ForkSideChatInput,
 ) {
   return yield* dispatch({
     type: "thread.fork",
@@ -994,7 +1004,7 @@ export const startSideChat = Effect.fn("EnvironmentCommands.startSideChat")(func
     sourceThreadId: input.sourceThreadId,
     targetThreadId: input.targetThreadId,
     sourcePoint:
-      input.runId === null ? { type: "latest_stable" } : { type: "run", runId: input.runId },
+      input.runId == null ? { type: "latest_stable" } : { type: "run", runId: input.runId },
     sideChat: true,
     ...(input.title === undefined ? {} : { title: input.title }),
   });

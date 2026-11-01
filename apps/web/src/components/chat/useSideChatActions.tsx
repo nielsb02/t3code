@@ -45,7 +45,7 @@ export function useSideChatActions(input: {
     keybindings,
     setThreadError,
   } = input;
-  const startSideChatCommand = useAtomCommand(threadEnvironment.startSideChat, {
+  const forkSideChatCommand = useAtomCommand(threadEnvironment.forkSideChat, {
     reportFailure: false,
   });
   // A side chat's own side chats are not shown; it has no right panel tabs of its own.
@@ -66,7 +66,7 @@ export function useSideChatActions(input: {
   const onStartSideChat = async (runId: RunId | null) => {
     if (!activeThread || !activeThreadRef || activeEnvironmentUnavailable || embedded) return;
     const targetThreadId = newThreadId();
-    const result = await startSideChatCommand({
+    const result = await forkSideChatCommand({
       environmentId,
       input: {
         sourceThreadId: activeThread.id,

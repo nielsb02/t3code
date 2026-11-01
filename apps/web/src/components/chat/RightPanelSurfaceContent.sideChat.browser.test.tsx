@@ -50,6 +50,7 @@ function Workspace({ child }: { child: string | null }) {
     <>
       <PaneComposer threadId={parentRef.threadId} />
       <RightPanelSurfaceContent
+        sideChatParentPanel={{ openToolDiff: () => {}, runShellCommand: () => {} }}
         surface={
           child
             ? { kind: "side-chat", id: `side-chat:${child}`, threadId: ThreadId.make(child) }
