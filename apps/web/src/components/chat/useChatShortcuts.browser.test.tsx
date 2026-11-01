@@ -1,3 +1,4 @@
+import type { KeybindingCommand, ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import { useEffect } from "react";
 import { expect, it } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
@@ -6,6 +7,7 @@ import { surfaceShortcutKey } from "~/lib/surfaceShortcutKey";
 import { render } from "../../../test/render";
 import type { ChatComposerHandle } from "./ChatComposer";
 import { useChatShortcuts } from "./useChatShortcuts";
+import { ChatPaneScope, ownsChatPaneInput } from "../../chatPaneScope";
 
 const shortcutContext = {
   terminalFocus: false,
@@ -132,4 +134,58 @@ it.each([
 
   expect(composerKeys).toEqual(composer);
   expect(received).toEqual(launcher);
+});
+
+const ctrlShift = (key: string, command: KeybindingCommand) => ({
+  command,
+  shortcut: { key, metaKey: false, ctrlKey: true, shiftKey: true, altKey: false, modKey: false },
+});
+const sideChatKeybindings: ResolvedKeybindingsConfig = [
+  ctrlShift("m", "modelPicker.toggle"),
+  ctrlShift("x", "thread.stop"),
+];
+
+// A side chat in the main chat's panel: no window listeners, only its composer's own chords.
+function SideChat(props: { toggles: string[]; stops: string[] }) {
+  useChatShortcuts({
+    enabled: true,
+    ownsInput: (target) => ownsChatPaneInput("side-chat-test", target),
+    keybindings: sideChatKeybindings,
+    scriptKeybindings: [],
+    getShortcutContext: () => shortcutContext,
+    threadFindActive: false,
+    composerRef: {
+      current: {
+        toggleModelPicker: () => props.toggles.push("model"),
+      } as Partial<ChatComposerHandle> as ChatComposerHandle,
+    },
+    branchToolbarRef: { current: null },
+    closeThreadFind: () => {},
+    commands: { "thread.stop": () => void props.stops.push("stop") },
+    fallback: () => undefined,
+  });
+  return (
+    <>
+      <ChatPaneScope paneKey="side-chat-test" embedded>
+        <textarea aria-label="Side chat composer" />
+      </ChatPaneScope>
+      <ChatPaneScope paneKey="main-chat-test" embedded={false}>
+        <textarea aria-label="Main composer" />
+      </ChatPaneScope>
+    </>
+  );
+}
+
+it("runs side chat shortcuts only when its pane owns input", async () => {
+  const toggles: string[] = [];
+  const stops: string[] = [];
+  await using screen = await render(<SideChat toggles={toggles} stops={stops} />, options);
+
+  await userEvent.click(screen.getByLabelText("Side chat composer"));
+  await userEvent.keyboard("{Control>}{Shift>}MX{/Shift}{/Control}");
+  await userEvent.click(screen.getByLabelText("Main composer"));
+  await userEvent.keyboard("{Control>}{Shift>}M{/Shift}{/Control}");
+
+  expect(toggles).toEqual(["model"]);
+  expect(stops).toEqual(["stop"]);
 });

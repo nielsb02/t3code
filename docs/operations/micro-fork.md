@@ -176,6 +176,12 @@ be listed by its project's Git worktrees unless it is under a managed worktree
 folder. Archived, undeleted thread checkouts can still be reviewed. Workspace
 repository selection and linked child pull requests remain fork extensions.
 
+Upstream now supplies side-chat commands, portable context, and mobile access. The fork
+keeps its per-answer entry point, focused-pane keyboard and terminal ownership, and
+archive/reopen lifecycle. Closing a tab archives even an unused side chat; settling
+or archiving its parent closes it, and only deleting the parent deletes it. Existing
+fork side-chat flags are read as upstream lineage flags without a database migration.
+
 ## Retired fork features
 
 These fork features were replaced by upstream equivalents when the fork moved to

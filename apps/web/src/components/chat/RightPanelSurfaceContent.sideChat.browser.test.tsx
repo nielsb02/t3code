@@ -11,6 +11,7 @@ import {
   ComposerPromptEditorTiptap as ComposerPromptEditor,
   type ComposerPromptEditorHandle,
 } from "../ComposerPromptEditorTiptap";
+import { selectActiveRightPanelSurface, useRightPanelStore } from "../../rightPanelStore";
 import { RightPanelSurfaceContent } from "./RightPanelSurfaceContent";
 
 // Keep the real panel dispatch, pane ownership and Tiptap lifecycle; the full
@@ -50,6 +51,7 @@ function Workspace({ child }: { child: string | null }) {
     <>
       <PaneComposer threadId={parentRef.threadId} />
       <RightPanelSurfaceContent
+        sideChatParentPanel={{ openToolDiff: () => {}, runShellCommand: () => {} }}
         surface={
           child
             ? { kind: "side-chat", id: `side-chat:${child}`, threadId: ThreadId.make(child) }
@@ -109,6 +111,7 @@ it.each([null, "first"])(
   "mounts usable independent editors when opening or restoring a side chat (initial %s)",
   async (initial) => {
     useChatPaneFocusStore.setState({ panes: [], activeKey: null });
+    useRightPanelStore.setState({ byThreadKey: {} });
     await using screen = await render(<Workspace child={initial} />, { router: false });
     const { container } = screen;
     await act(() => {
@@ -127,7 +130,19 @@ it.each([null, "first"])(
     );
     expect(container.querySelector('[aria-label="parent"]')?.textContent).toBe("main draft");
     expect(container.querySelector('[aria-label="first"]')?.textContent).toBe("side draft");
+    const sideRef = scopeThreadRef(environmentId, ThreadId.make("first"));
+    await act(() => useRightPanelStore.getState().openFile(sideRef, "src/side-chat.ts"));
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, parentRef)?.id,
+    ).toBe("file:src/side-chat.ts");
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, sideRef),
+    ).toBeNull();
     await act(() => flushSync(() => void screen.rerender(<Workspace child="second" />)));
+    await act(() => useRightPanelStore.getState().openFile(sideRef, "src/unhosted.ts"));
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, sideRef)?.id,
+    ).toBe("file:src/unhosted.ts");
     expect(container.querySelector('[aria-label="second"]')?.textContent).toBe("");
     await act(() => flushSync(() => void screen.rerender(<Workspace child={null} />)));
     expect(container.querySelectorAll(".tiptap")).toHaveLength(1);

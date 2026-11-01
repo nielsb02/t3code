@@ -3,6 +3,7 @@ import {
   AuthTerminalOperateScope,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import { agentControlledBrowserCloseConfirmation } from "../components/ChatView.logic";
 import { closePreviewSession } from "../components/preview/closePreviewSession";
@@ -22,11 +23,13 @@ import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useStableCallback } from "./useStableCallback";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { useThreadActions } from "./useThreadActions";
 import { toastManager } from "../components/ui/toast";
 
-/** Closing releases preview and terminal sessions. Agent-driven browsers and terminal tabs require confirmation. */
+/**
+ * Closing releases preview and terminal sessions, and archives side chats for reopening.
+ * Agent-driven browsers and terminal tabs require confirmation.
+ */
 export function useRightPanelSurfaceClose(input: {
   readonly threadRef: ScopedThreadRef | null;
   readonly terminalLabelsById: ReadonlyMap<string, string>;
@@ -61,7 +64,7 @@ export function useRightPanelSurfaceClose(input: {
     ) {
       for (const terminalId of surface.terminalIds) {
         storeCloseTerminal(ref, terminalId);
-        terminalActions.closeTerminalSession(terminalId);
+        terminalActions.closeTerminalSession(terminalId, ref);
       }
     }
   };
