@@ -12,6 +12,9 @@ const fixture = vi.hoisted(() => ({
   sessions: new Map<string, string>(),
   failClose: false,
 }));
+vi.mock("./useThreadActions", () => ({
+  useThreadActions: () => ({ archiveThread: async () => ({ _tag: "Success" }) }),
+}));
 vi.mock("../lib/terminalCloseConfirm", () => ({
   confirmTerminalClose: (labels: readonly string[]) => fixture.confirm(labels),
 }));

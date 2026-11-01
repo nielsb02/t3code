@@ -601,8 +601,6 @@ function surfaceTitle(
       return "Workspace PRs";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
-    case "side-chat":
-      return "Side chat";
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";

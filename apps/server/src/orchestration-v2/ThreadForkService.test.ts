@@ -286,10 +286,9 @@ it.effect("marks only requested forks as supervised side chats", () =>
     assert.isUndefined(forkOfSideChat.targetThread.lineage.sideChat);
     assert.equal(forkOfSideChat.targetThread.runtimeMode, "full-access");
 
-    const nested = yield* planFork(sourceRun, sideChatProjection, { sideChat: true }).pipe(
-      Effect.flip,
-    );
-    assert.equal(nested.cause, "A side chat cannot start another side chat.");
+    const nested = yield* planFork(sourceRun, sideChatProjection, { sideChat: true });
+    assert.isTrue(nested.targetThread.sideChat);
+    assert.isTrue(nested.targetThread.lineage.sideChat);
 
     const subagentSource = makeSourceProjection(sourceRun);
     const fromSubagent = yield* planFork(

@@ -1,11 +1,20 @@
-import { ProviderDriverKind, ProviderInstanceId, type ModelSelection } from "@t3tools/contracts";
+import {
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type ModelSelection,
+  type ServerProviderModel,
+  type ProviderOptionSelection,
+} from "@t3tools/contracts";
 import { useState } from "react";
 import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
 
-import { render } from "../../../test/render";
+import { act, render } from "../../../test/render";
+import { useMicroControls } from "../../hooks/useMicroControls";
+import { executeMicroControl } from "../../microControls";
+import { ComposerEffortColumn } from "./ComposerModelEffort";
 import { deriveProviderInstanceEntries } from "../../providerInstances";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 
@@ -168,4 +177,104 @@ it("keeps a docked picker open after a pick and hands focus to that model's effo
   await expect.element(page.getByRole("radio", { name: "Medium" })).toHaveFocus();
   await userEvent.keyboard("{Escape}");
   await expect.element(search).not.toBeInTheDocument();
+});
+
+it("lets the Micro dial pick reasoning in the combined model picker", async () => {
+  const instanceId = ProviderInstanceId.make("micro-picker");
+  const provider = ProviderDriverKind.make("codex");
+  const models: ServerProviderModel[] = [
+    {
+      slug: "model",
+      name: "Model",
+      isCustom: false,
+      capabilities: {
+        optionDescriptors: [
+          {
+            id: "reasoningEffort",
+            label: "Reasoning",
+            type: "select",
+            options: [
+              { id: "low", label: "Low" },
+              { id: "high", label: "High" },
+            ],
+            currentValue: "low",
+          },
+        ],
+      },
+    },
+  ];
+  const entries = deriveProviderInstanceEntries([
+    {
+      instanceId,
+      driver: provider,
+      enabled: true,
+      installed: true,
+      version: null,
+      status: "ready",
+      auth: { status: "authenticated" },
+      checkedAt: "2026-01-01T00:00:00.000Z",
+      models,
+      slashCommands: [],
+      skills: [],
+    },
+  ]);
+  function Picker() {
+    const [root, setRoot] = useState<HTMLDivElement | null>(null);
+    const [options, setOptions] = useState<ReadonlyArray<ProviderOptionSelection>>([
+      { id: "reasoningEffort", value: "low" },
+    ]);
+    useMicroControls({
+      scope: "micro-picker",
+      root,
+      focusComposer: () => root?.focus(),
+      scroll: () => {},
+      latest: () => {},
+      settleThread: () => true,
+      toggleTerminal: () => true,
+    });
+    return (
+      <div ref={setRoot} tabIndex={-1}>
+        <ProviderModelPicker
+          environmentId={null}
+          activeInstanceId={instanceId}
+          model="model"
+          lockedProvider={null}
+          instanceEntries={entries}
+          modelOptionsByInstance={new Map([[instanceId, models]])}
+          isComposerOwned
+          triggerAriaLabel="Choose model"
+          triggerShortcuts="composer.effort"
+          onInstanceModelChange={() => {}}
+          effortColumn={
+            <ComposerEffortColumn
+              traits={{
+                provider,
+                instanceId,
+                models,
+                model: "model",
+                modelOptions: options,
+                planModeEnabled: false,
+                onModelOptionsChange: (next) => setOptions(next ?? []),
+              }}
+            />
+          }
+        />
+        <output aria-label="Picked effort">
+          {String(options.find((option) => option.id === "reasoningEffort")?.value)}
+        </output>
+      </div>
+    );
+  }
+  await using screen = await render(<Picker />);
+  await act(() => {
+    executeMicroControl("composer-toggle");
+    executeMicroControl("dial-clockwise");
+    executeMicroControl("dial-clockwise");
+    executeMicroControl("dial-press");
+  });
+  await expect.element(page.getByRole("radio", { name: "Low", exact: true })).toHaveFocus();
+  await act(() => executeMicroControl("dial-clockwise"));
+  await expect.element(page.getByRole("radio", { name: "High", exact: true })).toHaveFocus();
+  await act(() => executeMicroControl("dial-press"));
+  await expect.element(screen.getByLabelText("Picked effort")).toHaveTextContent("high");
 });

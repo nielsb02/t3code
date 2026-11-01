@@ -2,6 +2,7 @@ import { useEffect, useEffectEvent, useState } from "react";
 import { flushSync } from "react-dom";
 
 import { createMicroDialController, registerMicroControlHandler } from "../microControls";
+import { markOpenToEffort } from "../components/chat/composerEventScope";
 import { isTerminalFocused } from "../lib/terminalFocus";
 
 const CONTROL_LABELS = new Map([
@@ -61,6 +62,7 @@ export function useMicroControls(options: {
             ? previous
             : { scope: options.scope, text },
       );
+    let openedControl: string | null = null;
     let disposed = false;
     let blurFrame: number | null = null;
 
@@ -70,8 +72,16 @@ export function useMicroControls(options: {
       );
       // A resting and expanded trigger can coexist during composer transitions.
       return Array.from(CONTROL_LABELS.keys()).flatMap((id) => {
-        const control = candidates.find((candidate) => candidate.dataset.microDialControl === id);
-        return control ? [control] : [];
+        const control =
+          candidates.find((candidate) => candidate.dataset.microDialControl === id) ??
+          (id === "reasoning"
+            ? candidates.find(
+                (candidate) =>
+                  candidate.dataset.microDialControl === "model" &&
+                  candidate.dataset.composerShortcut?.split(" ").includes("composer.effort"),
+              )
+            : undefined);
+        return control ? [{ id, element: control }] : [];
       });
     }
 
@@ -90,10 +100,10 @@ export function useMicroControls(options: {
     }
 
     function keyboardTarget(menu: HTMLElement): HTMLElement {
-      const combobox = menu.querySelector<HTMLElement>('[role="combobox"]');
-      if (combobox) return combobox;
       const active = document.activeElement;
       if (active instanceof HTMLElement && menu.contains(active)) return active;
+      const combobox = menu.querySelector<HTMLElement>('[role="combobox"]');
+      if (combobox) return combobox;
       return (
         menu.querySelector<HTMLElement>(
           '[role="combobox"], [role="option"][tabindex="0"], [role="menuitemradio"][tabindex="0"], [role="menu"], [role="listbox"]',
@@ -105,6 +115,10 @@ export function useMicroControls(options: {
       const menu = popup();
       if (!menu) return;
       const target = keyboardTarget(menu);
+      if (key === "Enter" && target.matches("[data-effort-row]")) {
+        flushSync(() => target.click());
+        return;
+      }
       // Use each picker's keyboard path, including its virtual list and disabled options.
       flushSync(() => {
         target.dispatchEvent(
@@ -150,11 +164,15 @@ export function useMicroControls(options: {
     }
 
     const controller = createMicroDialController({
-      getControls: () => controls().flatMap((control) => control.dataset.microDialControl ?? []),
-      getOpenPicker: () => popup()?.dataset.microDialPopup ?? null,
+      getControls: () => controls().map((control) => control.id),
+      getOpenPicker: () => {
+        const menu = popup();
+        if (menu === null) openedControl = null;
+        return menu ? (openedControl ?? menu.dataset.microDialPopup ?? null) : null;
+      },
       highlight: (id) => {
         clearHighlight();
-        const control = controls().find((candidate) => candidate.dataset.microDialControl === id);
+        const control = controls().find((candidate) => candidate.id === id)?.element;
         if (control) {
           control.dataset.microDialHighlighted = "true";
           setHint(`${CONTROL_LABELS.get(id ?? "") ?? "Settings"} · Press to choose`);
@@ -163,8 +181,11 @@ export function useMicroControls(options: {
         }
       },
       openPicker: (id) => {
-        const control = controls().find((candidate) => candidate.dataset.microDialControl === id);
+        const control = controls().find((candidate) => candidate.id === id)?.element;
         if (!control) return;
+        openedControl = id;
+        if (id === "reasoning" && control.dataset.microDialControl === "model")
+          markOpenToEffort(control);
         flushSync(() => control.click());
         setHint(`${CONTROL_LABELS.get(id) ?? "Settings"} · Turn to choose · Press to confirm`);
       },
@@ -191,7 +212,7 @@ export function useMicroControls(options: {
         }
         focusComposer();
         const editor = root.querySelector<HTMLElement>(EDITOR_SELECTOR);
-        if (!editor || !available(editor)) controls()[0]?.focus({ preventScroll: true });
+        if (!editor || !available(editor)) controls()[0]?.element.focus({ preventScroll: true });
         setHint("Turn to choose a setting · Down to scroll");
       },
       blurComposer: leaveSettings,

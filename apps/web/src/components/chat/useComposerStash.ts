@@ -62,7 +62,6 @@ import {
   useState,
 } from "react";
 import { BackgroundThreadContext } from "./backgroundThread";
-import { isInSideChatPane } from "../../lib/sideChatPane";
 import { useStableCallback } from "../../hooks/useStableCallback";
 
 /**

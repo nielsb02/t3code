@@ -2223,6 +2223,7 @@ function ChatViewContent(props: ChatViewProps) {
     };
   }, [
     activeThread?.id,
+    embedded,
     focusComposerStable,
     isMobileViewport,
     routeThreadKey,

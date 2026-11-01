@@ -27,7 +27,6 @@ export function useSideChat(input: {
 }) {
   const pendingRef = useRef(false);
   const forkSideChat = useAtomCommand(threadEnvironment.forkSideChat, { reportFailure: false });
-  const deleteThread = useAtomCommand(threadEnvironment.delete, { reportFailure: false });
   const startThreadTurn = useOrchestrationCommand(threadEnvironment.startTurn, {
     reportFailure: false,
   });
@@ -49,19 +48,12 @@ export function useSideChat(input: {
       reportFailure(fork, "Could not start a side chat.");
       return false;
     }
-    // Drops the empty side chat a failed start leaves behind; one that got its message stays.
-    const discard = () =>
-      void deleteThread({
-        environmentId: threadRef.environmentId,
-        input: { threadId: targetThreadId, onlyIfUnused: true },
-      });
     if (!(await waitForThreadShell(scopeThreadRef(threadRef.environmentId, targetThreadId)))) {
       input.onError("The side chat was created, but it did not reach this client.");
-      discard();
       return false;
     }
     const text = prompt?.trim();
-    // Send before showing the tab: closing a tab whose side chat has no run deletes it.
+    // Keep a failed start available in the parent's side-chat tabs.
     if (text) {
       // The server asks before edits on a side chat's first turn whatever mode is sent.
       const turn = await startThreadTurn({
@@ -77,7 +69,6 @@ export function useSideChat(input: {
       });
       if (turn._tag === "Failure") {
         reportFailure(turn, "Could not send the side chat message.");
-        discard();
         return false;
       }
     }

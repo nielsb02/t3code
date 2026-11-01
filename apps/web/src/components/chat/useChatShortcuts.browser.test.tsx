@@ -169,7 +169,9 @@ function SideChat(props: { toggles: string[]; stops: string[] }) {
       <ChatPaneScope paneKey="side-chat-test" embedded>
         <textarea aria-label="Side chat composer" />
       </ChatPaneScope>
-      <textarea aria-label="Main composer" />
+      <ChatPaneScope paneKey="main-chat-test" embedded={false}>
+        <textarea aria-label="Main composer" />
+      </ChatPaneScope>
     </>
   );
 }
