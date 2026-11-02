@@ -28,6 +28,7 @@ import {
   projectTurnItemForWire,
   projectTurnItemForDetail,
   projectDomainEventForWire,
+  projectThreadProjectionForWire,
 } from "./WireProjection.ts";
 import { threadShellFromProjection } from "./ProjectionStore.ts";
 import { MAX_TOOL_OUTPUT_IMAGES, toolOutputImages } from "@t3tools/shared/toolOutput";
@@ -154,6 +155,24 @@ describe("orchestration V2 wire projection", () => {
 
     expect(shell.latestVisibleMessage).toBeNull();
     expect(JSON.stringify(shell).length).toBeLessThan(2_000);
+    const canonical = {
+      ...projection,
+      checkpoints: [],
+      contextHandoffs: [],
+      thread: { ...projection.thread, lineage: { ...projection.thread.lineage, sideChat: true } },
+    };
+    expect(canonical.thread).not.toHaveProperty("sideChat");
+    expect(threadShellFromProjection(canonical).sideChat).toBe(true);
+    expect(projectThreadProjectionForWire(canonical).thread.sideChat).toBe(true);
+    expect(
+      projectDomainEventForWire({
+        id: EventId.make("side-chat-metadata-wire"),
+        type: "thread.metadata-updated",
+        threadId,
+        occurredAt: now,
+        payload: canonical.thread,
+      }),
+    ).toMatchObject({ payload: { sideChat: true, lineage: { sideChat: true } } });
   });
 
   it("omits even small dynamic tool results while retaining input", () => {

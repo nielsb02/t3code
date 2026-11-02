@@ -166,7 +166,7 @@ stash and timeline-follow hooks; Micro's runtime-mode attributes live in
 `ComposerFooterControls.tsx`. Pull request cache identity must keep workspace scope
 in the extracted `components/pullRequest/usePullRequestDetail.ts`.
 
-Keep `SideChatPanel` eagerly imported and keyed by thread id in
+Keep `SideChatPane` eagerly imported and keyed by thread id in
 `RightPanelSurfaceContent`. A lazy Suspense retry can let Tiptap dispose an editor
 before commit. Its browser regression test must exercise the real composer editor.
 
@@ -176,11 +176,23 @@ be listed by its project's Git worktrees unless it is under a managed worktree
 folder. Archived, undeleted thread checkouts can still be reviewed. Workspace
 repository selection and linked child pull requests remain fork extensions.
 
-Upstream now supplies side-chat commands, portable context, and mobile access. The fork
-keeps its per-answer entry point, focused-pane keyboard and terminal ownership, and
-archive/reopen lifecycle. Closing a tab archives even an unused side chat; settling
-or archiving its parent closes it, and only deleting the parent deletes it. Existing
-fork side-chat flags are read as upstream lineage flags without a database migration.
+Upstream owns side-chat creation, context, permissions, checkpoints, lineage, and
+locked deletion. The fork uses its `useSideChat` and `SideChatPane` flows, with
+selected-answer starts, focused-pane keyboard and terminal ownership, Micro
+controls, and archive/reopen as extensions. Closing a tab archives even an unused
+side chat; settling or archiving its parent closes it. The archive reactor does
+not duplicate deletion. The locked delete cascade includes historical nested
+side chats, although new nesting is refused across clients and server.
+
+Side chats receive one capped context frame per native conversation. A provider
+switch keeps the side-chat guidance without replaying the original live digest.
+Bring back leaves the
+parent asleep and applies with its next message; active work, a nonempty queue,
+or another pending merge prevents acceptance. An agent's deferred merge reports
+a later failure in its side chat. Legacy fork flags are normalized at storage
+and client boundaries; wire aliases remain for older clients, without a database
+migration. Historical nested chats remain available in the owning thread's tabs
+and closed-chat menu.
 
 ## Retired fork features
 

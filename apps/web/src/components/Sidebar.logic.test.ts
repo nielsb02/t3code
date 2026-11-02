@@ -176,8 +176,8 @@ describe("sidebar thread lineage helpers", () => {
         rootThreadId: parentId,
         parentThreadId: parentId,
         relationshipToParent: "fork",
+        sideChat: true,
       },
-      sideChat: true,
     });
     const archived = makeThreadFixture({
       id: ThreadId.make("thread-archived"),

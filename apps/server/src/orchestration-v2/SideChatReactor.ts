@@ -16,39 +16,38 @@ const CLOSING_EVENTS = new Set<OrchestrationV2DomainEvent["type"]>([
 /**
  * Micro fork: side chats live inside their main thread. Settling or archiving the main thread
  * closes (archives) its open side chats, which stay listed in the thread to reopen or delete.
- * Deleting the main thread deletes all of its side chats, closed ones included, since nothing
- * else can reach them. Both cascade to a side chat's own side chats through their events.
+ * Historical nested side chats close through their own archive events.
  */
 export const make = Effect.gen(function* () {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const sql = yield* SqlClient.SqlClient;
 
-  const sideChatsOf = (parentThreadId: ThreadId, which: "open" | "undeleted") =>
+  const sideChatsOf = (parentThreadId: ThreadId) =>
     sql<{ readonly threadId: string }>`
       SELECT thread_id AS "threadId"
       FROM orchestration_v2_projection_threads
       WHERE deleted_at IS NULL
-        AND (${which} = 'undeleted' OR archived_at IS NULL)
-        AND json_extract(payload_json, '$.sideChat') = 1
+        AND archived_at IS NULL
+        AND COALESCE(json_extract(payload_json, '$.lineage.sideChat'), json_extract(payload_json, '$.sideChat')) = 1
         AND json_extract(payload_json, '$.lineage.parentThreadId') = ${parentThreadId}
     `;
 
   const cascade = Effect.fn("SideChatReactor.cascade")(
-    function* (event: OrchestrationV2DomainEvent, action: "archive" | "delete") {
-      const rows = yield* sideChatsOf(event.threadId, action === "delete" ? "undeleted" : "open");
+    function* (event: OrchestrationV2DomainEvent) {
+      const rows = yield* sideChatsOf(event.threadId);
       for (const row of rows) {
         const threadId = ThreadId.make(row.threadId);
         yield* orchestrator
           .dispatch({
-            type: action === "delete" ? "thread.delete" : "thread.archive",
-            commandId: CommandId.make(`side-chat:${action}:${threadId}:${event.id}`),
+            type: "thread.archive",
+            commandId: CommandId.make(`side-chat:archive:${threadId}:${event.id}`),
             threadId,
           })
           .pipe(
             Effect.catchCauseIf(
               (cause) => !Cause.hasInterruptsOnly(cause),
               (cause) =>
-                Effect.logWarning(`Could not ${action} a side chat`, {
+                Effect.logWarning("Could not archive a side chat", {
                   threadId,
                   parentThreadId: event.threadId,
                   cause: Cause.pretty(cause),
@@ -73,11 +72,7 @@ export const make = Effect.gen(function* () {
   const start = Effect.fn("SideChatReactor.start")(function* () {
     yield* forkParked(
       Stream.runForEach(orchestrator.streamDomainEvents, (event) =>
-        event.type === "thread.deleted"
-          ? cascade(event, "delete")
-          : CLOSING_EVENTS.has(event.type)
-            ? cascade(event, "archive")
-            : Effect.void,
+        CLOSING_EVENTS.has(event.type) ? cascade(event) : Effect.void,
       ).pipe(
         Effect.catchCause((cause) =>
           Effect.logWarning("Side chat event stream failed", { cause: Cause.pretty(cause) }),

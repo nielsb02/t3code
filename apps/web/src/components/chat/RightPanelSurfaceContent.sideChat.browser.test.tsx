@@ -19,7 +19,8 @@ import { RightPanelSurfaceContent } from "./RightPanelSurfaceContent";
 vi.mock("../ChatView", () => ({ default: PaneComposer }));
 vi.mock("../../state/entities", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../state/entities")>()),
-  useThreadShell: () => ({ lineage: { parentThreadId: "parent" } }),
+  useQuietThreadShell: () => ({ lineage: { parentThreadId: "parent" } }),
+  useQuietThreadProjection: () => null,
 }));
 
 const environmentId = EnvironmentId.make("side-chat-test");

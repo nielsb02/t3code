@@ -56,9 +56,10 @@ export function ArchivedThreadsPanel() {
     );
     const threads = archivedSnapshots.flatMap(({ environmentId, snapshot }) =>
       snapshot.threads
-        .filter((thread) => thread.sideChat !== true)
+        .map((thread) => presentThreadShell(environmentId, thread))
+        .filter((thread) => thread.lineage.sideChat !== true)
         .map((thread) => ({
-          ...presentThreadShell(environmentId, thread),
+          ...thread,
           environmentLabel: environmentLabels.get(environmentId) ?? environmentId,
         })),
     );

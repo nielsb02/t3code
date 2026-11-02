@@ -97,18 +97,22 @@ export function useRightPanelSurfaceClose(input: {
     for (const surface of ordered) {
       // Releasing a browser drops its session, which prunes the tab automatically; close it
       // first so the close stays a user action that hides the panel after the last tab.
-      store.closeSurface(threadRef, surface.id);
       if (surface.kind === "side-chat") {
         void archiveThread(scopeThreadRef(threadRef.environmentId, surface.threadId)).then(
           (result) => {
-            if (result._tag === "Failure")
+            if (result._tag === "Success") {
+              store.closeSurface(threadRef, surface.id);
+            } else {
               toastManager.add({
                 type: "error",
                 title: "Could not close the side chat",
                 description: "Stop its running turn first.",
               });
+            }
           },
         );
+      } else {
+        store.closeSurface(threadRef, surface.id);
       }
       releaseSurfaceResources(threadRef, surface);
     }

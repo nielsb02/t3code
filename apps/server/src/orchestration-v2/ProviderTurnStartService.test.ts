@@ -299,6 +299,7 @@ function makeLocalCommandHarness(input: {
     readonly contextRun: "current" | "failed" | "cancelled" | "delivered";
     readonly nativeForkFrom?: "idle" | "busy";
     readonly switchedProvider?: boolean;
+    readonly recreatedNative?: boolean;
   };
 }) {
   const now = DateTime.makeUnsafe("2026-09-04T12:00:00Z");
@@ -597,7 +598,9 @@ function makeLocalCommandHarness(input: {
           ...(input.sideChat.contextRun === "delivered"
             ? {
                 delivery: {
-                  nativeThreadId: "side-chat-native",
+                  nativeThreadId: input.sideChat.recreatedNative
+                    ? "old-side-chat-native"
+                    : "side-chat-native",
                   status: "inline" as const,
                   itemIds: [],
                 },
@@ -738,7 +741,9 @@ function makeLocalCommandHarness(input: {
     updatedAt: now,
     lastError: null,
   };
-  const startTurn = vi.fn((_turn: ProviderAdapter.ProviderAdapterV2TurnInput) => Effect.void);
+  const startTurn = vi.fn<ProviderAdapter.ProviderAdapterV2SessionRuntime["startTurn"]>(
+    () => Effect.void,
+  );
   const sideChatThread = {
     ...providerThread,
     nativeThreadRef: {
@@ -1217,6 +1222,24 @@ effectIt.effect.each([
     context: "SIDE_CHAT_CONTEXT",
   },
   { contextRun: "delivered", runtimeMode: "full-access", context: "" },
+  {
+    contextRun: "delivered",
+    switchedProvider: true,
+    runtimeMode: "full-access",
+    context: ContextHandoffService.makeSideChatContext({
+      parentThreadId: ThreadId.make("side-chat-parent"),
+      digest: [],
+    }),
+  },
+  {
+    contextRun: "delivered",
+    recreatedNative: true,
+    runtimeMode: "full-access",
+    context: ContextHandoffService.makeSideChatContext({
+      parentThreadId: ThreadId.make("side-chat-parent"),
+      digest: [],
+    }),
+  },
 ] as const)(
   "sends side chat context inline once, for the first turn that reaches the provider: %j",
   ({ runtimeMode, context, ...sideChat }) =>
@@ -1242,6 +1265,50 @@ effectIt.effect.each([
           delivery: { nativeThreadId: "side-chat-native", status: "inline" },
         },
       ]);
+    }),
+);
+
+effectIt.effect(
+  "retries a new native side chat frame until acceptance and then sends no duplicate",
+  () =>
+    Effect.gen(function* () {
+      const text = "What changed in the main thread?";
+      const harness = makeLocalCommandHarness({
+        text,
+        sideChat: { contextRun: "delivered", switchedProvider: true },
+      });
+      const before = harness.projection();
+      harness.startTurn.mockImplementationOnce((turn) =>
+        Effect.fail(
+          new ProviderAdapter.ProviderAdapterTurnStartError({
+            driver: turn.providerThread.driver,
+            threadId: turn.threadId,
+            providerThreadId: turn.providerThread.id,
+            runId: turn.runId,
+          }),
+        ),
+      );
+      const refused = yield* Effect.exit(harness.start);
+      expect(refused._tag).toBe("Failure");
+      expect(harness.projection().contextHandoffs[0]?.toProviderThreadId).toBe(
+        "existing-native-provider-thread",
+      );
+      harness.setProjection(before);
+      yield* harness.start;
+      const framed = withInlineContext(
+        ContextHandoffService.makeSideChatContext({
+          parentThreadId: ThreadId.make("side-chat-parent"),
+          digest: [],
+        }),
+        text,
+      );
+      expect(harness.startTurn.mock.calls.map(([turn]) => turn.message.text)).toEqual([
+        framed,
+        framed,
+      ]);
+      harness.setProjection({ ...before, contextHandoffs: harness.projection().contextHandoffs });
+      yield* harness.start;
+      expect(harness.startTurn.mock.calls.at(-1)?.[0].message.text).toBe(text);
     }),
 );
 

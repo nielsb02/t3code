@@ -72,6 +72,7 @@ import {
   ProviderInstanceId,
   type ServerProvider,
   type ScopedThreadRef,
+  type RunId,
   type ThreadId,
   ProviderInteractionMode,
   resolveIdleCompaction,
@@ -392,8 +393,6 @@ const EMPTY_AUTO_UPDATE_ENVIRONMENTS: ReadonlyArray<EnvironmentPresentation> = [
 const EMPTY_PENDING_FILE_SURFACE_IDS: ReadonlySet<string> = new Set();
 
 type ChatViewProps = {
-  /** "side-panel" renders a side chat inside its main thread's right panel (Micro fork). */
-  presentation?: "main" | "side-panel";
   onCloseSideChat?: () => void;
 } & (
   | {
@@ -425,7 +424,7 @@ export default function ChatView(props: ChatViewProps) {
   return (
     <ChatPaneScope
       paneKey={scopedThreadKey(scopeThreadRef(props.environmentId, props.threadId))}
-      embedded={props.presentation === "side-panel" || props.embedded !== undefined}
+      embedded={props.embedded !== undefined}
     >
       <ChatViewContent {...props} />
     </ChatPaneScope>
@@ -445,7 +444,7 @@ function ChatViewContent(props: ChatViewProps) {
     forceExpandedMobileComposer = false,
     embedded: parentPanel,
   } = props;
-  const embedded = props.presentation === "side-panel" || parentPanel !== undefined;
+  const embedded = parentPanel !== undefined;
   const canOperateThread = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
   const canOperateTerminal = useEnvironmentScope(environmentId, AuthTerminalOperateScope);
   const draftId = routeKind === "draft" ? props.draftId : null;
@@ -1671,18 +1670,34 @@ function ChatViewContent(props: ChatViewProps) {
     resourceKey: `git-status:${activeThreadKey ?? ""}:${gitStatusCwd ?? ""}`,
   });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const { onStartSideChat, sideChatTitlesById, sideChatMenuItems, sideChatShortcuts } =
-    useSideChatActions({
-      environmentId,
-      activeThread,
-      activeThreadRef,
-      embedded,
-      isServerThread,
-      activeEnvironmentUnavailable,
-      activeEnvironmentBootstrapComplete,
-      keybindings,
-      setThreadError,
-    });
+  // A delegated task is a remote thread's subagent.
+  const isSubagentThread =
+    activeThread?.lineage.relationshipToParent === "subagent" || delegatedFrom !== null;
+  // Side chats do not nest or start from subagents, and older servers would fork a listed thread.
+  const sideChatsOffered =
+    !embedded &&
+    canOperateThread &&
+    !activeEnvironmentUnavailable &&
+    activeThread?.lineage.sideChat !== true &&
+    !isSubagentThread &&
+    serverConfig?.environment.capabilities.sideChats === true;
+  const sideChat = useSideChat({
+    threadRef: sideChatsOffered && isServerThread ? activeThreadRef : null,
+    onError: (message) => {
+      if (activeThread) setThreadError(activeThread.id, message);
+    },
+  });
+  const onStartSideChat = useStableCallback(async (runId: RunId | null) => {
+    await sideChat.open({ runId });
+  });
+  const { sideChatTitlesById, sideChatMenuItems, sideChatShortcuts } = useSideChatActions({
+    environmentId,
+    activeThreadRef,
+    embedded,
+    isServerThread,
+    activeEnvironmentBootstrapComplete,
+    onStartSideChat,
+  });
   const backgroundThread = use(BackgroundThreadContext);
   const scriptKeybindings =
     useAtomValue(serverEnvironment.configValueAtom(environmentId))?.keybindings ??
@@ -2825,22 +2840,6 @@ function ChatViewContent(props: ChatViewProps) {
   }, [embedded, toggleRightPanelStable, toggleRightPanelMaximizedStable]);
 
   usePasteToFocusComposer(activeThreadId, composerRef);
-  // A delegated task is a remote thread's subagent.
-  const isSubagentThread =
-    activeThread?.lineage.relationshipToParent === "subagent" || delegatedFrom !== null;
-  // Side chats do not nest or start from subagents, and older servers would fork a listed thread.
-  const sideChatsOffered =
-    !embedded &&
-    canOperateThread &&
-    activeThread?.lineage.sideChat !== true &&
-    !isSubagentThread &&
-    serverConfig?.environment.capabilities.sideChats === true;
-  const sideChat = useSideChat({
-    threadRef: sideChatsOffered && isServerThread ? activeThreadRef : null,
-    onError: (message) => {
-      if (activeThread) setThreadError(activeThread.id, message);
-    },
-  });
   // A maximized panel covers the terminal drawer the command runs in.
   const runSideChatShellCommandStable = useStableCallback((command: string) => {
     if (activeThreadRef) useRightPanelStore.getState().setMaximized(activeThreadRef, false);
@@ -2866,7 +2865,7 @@ function ChatViewContent(props: ChatViewProps) {
                 ? "Available once the thread's worktree is set up."
                 : null;
   const openSideChatStable = useStableCallback(() => void sideChat.open());
-  const sendSideChatStable = useStableCallback((prompt: string) => sideChat.open(prompt));
+  const sendSideChatStable = useStableCallback((prompt: string) => sideChat.open({ prompt }));
   const { onConfirmRevertStable, onForkFromRunStable, onRevertTimelineTurnStable } =
     useTimelineRewind({
       environmentId,
@@ -3534,7 +3533,7 @@ function ChatViewContent(props: ChatViewProps) {
                   : { onOpenTurnDiff: onOpenTurnDiffStable, onForkFromRun: onForkFromRunStable })}
                 onOpenThread={onOpenRelatedThreadStable}
                 parentThreadLink={parentThreadLink}
-                sideChatSourceThreadId={!embedded && isServerThread ? activeThread.id : null}
+                sideChatSourceThreadId={sideChat.available ? activeThread.id : null}
                 onSideChatFromRun={onStartSideChat}
                 workflowOpening={workflowOpening}
                 supportsConversationRollback={supportsConversationRollback}

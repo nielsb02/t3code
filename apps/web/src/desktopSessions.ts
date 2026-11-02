@@ -122,7 +122,11 @@ export function buildDesktopSessionSnapshot(input: {
     const sideChatStatuses = new Map<string, DesktopSessionSummary["status"][]>();
     for (const thread of threads) {
       const parentThreadId = thread.lineage.parentThreadId;
-      if (thread.sideChat !== true || thread.archivedAt !== null || parentThreadId === null) {
+      if (
+        thread.lineage.sideChat !== true ||
+        thread.archivedAt !== null ||
+        parentThreadId === null
+      ) {
         continue;
       }
       const statuses = sideChatStatuses.get(parentThreadId) ?? [];

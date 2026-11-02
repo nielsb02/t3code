@@ -504,8 +504,17 @@ export function createEnvironmentThreadShellAtoms(input: {
     const ref = parseThreadKey(key);
     let previous = EMPTY_THREAD_SHELLS;
     return Atom.make((get) => {
-      const sideChats = get(environmentSideChatsByParentAtom(ref.environmentId)).get(ref.threadId);
-      if (sideChats === undefined) {
+      const byParent = get(environmentSideChatsByParentAtom(ref.environmentId));
+      const sideChats: OrchestrationV2ThreadShell[] = [];
+      const seen = new Set([ref.threadId]);
+      for (const parentId of seen) {
+        for (const child of byParent.get(parentId) ?? []) {
+          if (seen.has(child.id)) continue;
+          seen.add(child.id);
+          sideChats.push(child);
+        }
+      }
+      if (sideChats.length === 0) {
         previous = EMPTY_THREAD_SHELLS;
         return previous;
       }

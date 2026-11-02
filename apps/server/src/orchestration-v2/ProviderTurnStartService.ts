@@ -45,7 +45,6 @@ import {
   latestNativeContextUsage,
 } from "@t3tools/provider-core/server/handoffBudget";
 import { deliverContextHandoffs, withInlineContext } from "./ContextHandoffDelivery.ts";
-import { sideChatTurnNote } from "./SideChatNote.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -400,6 +399,11 @@ export const layer: Layer.Layer<
           handoff.delivery === undefined &&
           isPendingForRun(handoff, true),
       );
+      const sideChatFrameHandoff =
+        sideChatHandoff ??
+        projection.contextHandoffs.findLast(
+          (handoff) => isSideChatHandoff(handoff) && handoff.status === "ready",
+        );
       const nativeForkTransfer = projection.contextTransfers.find(
         (transfer) =>
           transfer.type === "fork" &&
@@ -939,6 +943,39 @@ export const layer: Layer.Layer<
             .filter((source) => source.nativeThreadId === undefined)
             .map((source) => source.runId),
         );
+        const hasLegacyNativeInput =
+          sameNativeThread &&
+          !acceptedAttempts.some((source) => source.nativeThreadId !== undefined);
+        const nativeThreadHasTurns =
+          nativeInputRunIds.size > 0 || (hasLegacyNativeInput && legacyInputRunIds.size > 0);
+        const parentThreadId = projection.thread.lineage.parentThreadId;
+        const needsSideChatFrame =
+          projection.thread.lineage.sideChat === true && parentThreadId !== null;
+        const sideChatFrameDelivered =
+          needsSideChatFrame &&
+          ((sideChatFrameHandoff?.toProviderThreadId === providerThread.id &&
+            sideChatFrameHandoff.delivery !== undefined &&
+            sideChatFrameHandoff.delivery.nativeThreadId ===
+              loadedProviderThread.nativeThreadRef?.nativeId &&
+            sideChatFrameHandoff.delivery.status !== "pending") ||
+            projection.runs.some(
+              (source) =>
+                (nativeInputRunIds.has(source.id) ||
+                  (hasLegacyNativeInput && legacyInputRunIds.has(source.id))) &&
+                !projection.messages.some(
+                  (previous) =>
+                    previous.id === source.userMessageId &&
+                    (isCompactionCommandMessage(previous) || parseGoalCommand(previous) !== null),
+                ),
+            ));
+        // A new native conversation needs the identity again, without replaying the old activity digest.
+        const sideChatFrame =
+          projection.thread.lineage.sideChat !== true ||
+          parentThreadId === null ||
+          sideChatFrameDelivered
+            ? ""
+            : (sideChatHandoff?.summaryText ??
+              ContextHandoffService.makeSideChatContext({ parentThreadId, digest: [] }));
         const legacyRecoveredRunIds = new Set(
           projection.runs
             .filter(
@@ -998,33 +1035,19 @@ export const layer: Layer.Layer<
             !deliveredAttemptIds.has(source.activeAttemptId),
         );
         const missedRunIds = new Set(missedRuns.map((source) => source.id));
-        const sideChatNote = sideChatTurnNote({
-          projectionStore,
-          thread: projection.thread,
-          userText,
-          firstTurnInNativeConversation: !(
-            nativeInputRunIds.size > 0 ||
-            (legacyInputRunIds.size > 0 &&
-              sameNativeThread &&
-              !acceptedAttempts.some((source) => source.nativeThreadId !== undefined))
-          ),
-        });
         return {
-          sideChatNote,
-          sameNativeThread,
           handoffUsage,
           deliveredItemIds,
           coveredItemIds,
-          acceptedAttempts,
-          nativeInputRunIds,
-          legacyInputRunIds,
+          nativeThreadHasTurns,
+          sideChatFrame,
           missedRuns,
           missedRunIds,
           budget: Effect.gen(function* () {
             return handoffBudget({
               tokenCap,
               modelContextWindow,
-              userText: [restartNote, yield* sideChatNote, userText]
+              userText: [restartNote, sideChatFrame, userText]
                 .filter((part) => part !== "")
                 .join("\n\n"),
               attachments: message.attachments,
@@ -1401,17 +1424,8 @@ export const layer: Layer.Layer<
       }
       const now = yield* DateTime.now;
       const handoffContext = resumedHandoffContext ?? handoffContextForThread(loadedProviderThread);
-      const {
-        sameNativeThread,
-        handoffUsage,
-        deliveredItemIds,
-        acceptedAttempts,
-        nativeInputRunIds,
-        legacyInputRunIds,
-        budget,
-        sideChatNote: sideChatNoteEffect,
-      } = handoffContext;
-      const sideChatNote = yield* sideChatNoteEffect;
+      const { handoffUsage, deliveredItemIds, nativeThreadHasTurns, sideChatFrame, budget } =
+        handoffContext;
       const retryHandoff = resumedRetryHandoff ?? (yield* prepareRetryHandoff(handoffContext));
       const runningProviderThread: OrchestrationV2ProviderThread = {
         ...loadedProviderThread,
@@ -1587,11 +1601,8 @@ export const layer: Layer.Layer<
           if (!(yield* isCurrentAttemptInStatus("running"))) return;
           const start = compact ? session.compactThread! : session.startTurn;
           // Like history, the side chat context waits for a turn that sends a prompt.
-          const sideChatContext =
-            sideChatHandoff === undefined || compact || goalCommand
-              ? ""
-              : sideChatHandoff.summaryText;
-          const context = [delivery.context, sideChatContext, restartNote, sideChatNote]
+          const sideChatContext = compact || goalCommand ? "" : sideChatFrame;
+          const context = [delivery.context, sideChatContext, restartNote]
             .filter((part) => part !== "")
             .join("\n\n");
           const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
@@ -1620,11 +1631,13 @@ export const layer: Layer.Layer<
           yield* Effect.forEach(
             [
               delivery.delivered,
-              ...(sideChatContext === "" || sideChatHandoff === undefined || nativeThreadId == null
+              ...(sideChatContext === "" ||
+              sideChatFrameHandoff === undefined ||
+              nativeThreadId == null
                 ? []
                 : [
                     persistHandoff({
-                      ...sideChatHandoff,
+                      ...sideChatFrameHandoff,
                       toProviderThreadId: runningProviderThread.id,
                       delivery: { nativeThreadId, status: "inline" as const, itemIds: [] },
                     }),
@@ -1657,9 +1670,8 @@ export const layer: Layer.Layer<
       const deliverySession =
         effectiveHandoffs.length === 0 &&
         retryHandoff.length === 0 &&
-        sideChatHandoff === undefined &&
+        sideChatFrame === "" &&
         restartNote === "" &&
-        sideChatNote === "" &&
         !noteContinuation
           ? session
           : makeDeliverySession(session, startWithHandoffs);
@@ -1688,11 +1700,7 @@ export const layer: Layer.Layer<
               .filter((turn) => turn.providerThreadId === providerThread.id)
               .map((turn) => turn.ordinal),
           ) + 1,
-        nativeThreadHasTurns:
-          nativeInputRunIds.size > 0 ||
-          (legacyInputRunIds.size > 0 &&
-            sameNativeThread &&
-            !acceptedAttempts.some((source) => source.nativeThreadId !== undefined)),
+        nativeThreadHasTurns,
         shouldStartProviderTurn: runControls.shouldStartProviderTurn,
         shouldFinalizeRun: runControls.shouldFinalizeRun,
         hasUnpairedRunInterruptRequest: runControls.hasUnpairedRunInterruptRequest,

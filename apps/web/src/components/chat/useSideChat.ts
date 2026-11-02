@@ -1,4 +1,4 @@
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { RunId, ScopedThreadRef } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { deriveThreadTitleSeed } from "@t3tools/client-runtime/operations";
 import {
@@ -38,11 +38,19 @@ export function useSideChat(input: {
     const error = squashAtomCommandFailure(failure);
     input.onError(error instanceof Error ? error.message : fallback);
   };
-  const start = async (threadRef: ScopedThreadRef, prompt: string | undefined) => {
+  const start = async (
+    threadRef: ScopedThreadRef,
+    options: { readonly prompt?: string; readonly runId?: RunId | null },
+  ) => {
     const targetThreadId = newThreadId();
     const fork = await forkSideChat({
       environmentId: threadRef.environmentId,
-      input: { sourceThreadId: threadRef.threadId, targetThreadId, title: "Side chat" },
+      input: {
+        sourceThreadId: threadRef.threadId,
+        targetThreadId,
+        ...(options.runId == null ? {} : { runId: options.runId }),
+        title: "Side chat",
+      },
     });
     if (fork._tag === "Failure") {
       reportFailure(fork, "Could not start a side chat.");
@@ -52,8 +60,8 @@ export function useSideChat(input: {
       input.onError("The side chat was created, but it did not reach this client.");
       return false;
     }
-    const text = prompt?.trim();
-    // Keep a failed start available in the parent's side-chat tabs.
+    useRightPanelStore.getState().openSideChat(threadRef, targetThreadId);
+    const text = options.prompt?.trim();
     if (text) {
       // The server asks before edits on a side chat's first turn whatever mode is sent.
       const turn = await startThreadTurn({
@@ -72,14 +80,15 @@ export function useSideChat(input: {
         return false;
       }
     }
-    useRightPanelStore.getState().openSideChat(threadRef, targetThreadId);
     return true;
   };
-  const open = async (prompt?: string) => {
+  const open = async (
+    options: { readonly prompt?: string; readonly runId?: RunId | null } = {},
+  ) => {
     const { threadRef } = input;
     if (!threadRef || pendingRef.current) return false;
     pendingRef.current = true;
-    return start(threadRef, prompt).finally(() => {
+    return start(threadRef, options).finally(() => {
       pendingRef.current = false;
     });
   };

@@ -17,6 +17,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
+import { isActiveRun } from "./CommandPolicy.ts";
+
 export interface ThreadForkPlanV2 {
   readonly targetThread: OrchestrationV2AppThread;
   readonly transfer: OrchestrationV2ContextTransfer;
@@ -46,6 +48,30 @@ export function forkableSourceRunStatusError(
   run: Pick<OrchestrationV2Run, "id" | "status">,
 ): string {
   return `Fork source run ${run.id} is ${run.status}; in-progress and rolled-back runs cannot be forked.`;
+}
+
+export function mergeBackTargetBlockedReason(
+  target: Pick<OrchestrationV2ThreadProjection, "thread" | "runs" | "contextTransfers">,
+  sourceThreadId: ThreadId,
+): string | null {
+  if (target.thread.deletedAt !== null || target.thread.archivedAt !== null) {
+    return "Reopen the target thread before merging back.";
+  }
+  if (target.runs.some((run) => isActiveRun(run) || run.status === "queued")) {
+    return "Finish or stop the target thread's active work and clear its queue before merging back.";
+  }
+  if (
+    target.contextTransfers.some(
+      (transfer) =>
+        transfer.type === "merge_back" &&
+        transfer.status === "pending" &&
+        transfer.targetThreadId === target.thread.id &&
+        transfer.sourceThreadId !== sourceThreadId,
+    )
+  ) {
+    return `Thread ${target.thread.id} already has pending context from another side chat or fork. Send a message there first.`;
+  }
+  return null;
 }
 
 export interface ThreadForkServiceV2Shape {
@@ -80,13 +106,16 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
       // A task a linked environment delegated here is a subagent of a remote thread.
       if (
         input.sideChat &&
-        (sourceLineage.relationshipToParent === "subagent" ||
+        (sourceLineage.sideChat === true ||
+          sourceLineage.relationshipToParent === "subagent" ||
           input.sourceProjection.thread.delegatedFrom !== undefined)
       ) {
         return yield* new ThreadForkPlanError({
           sourceThreadId: input.sourceProjection.thread.id,
           targetThreadId: input.targetThreadId,
-          cause: "A subagent cannot start a side chat.",
+          cause: sourceLineage.sideChat
+            ? "A side chat cannot start another side chat."
+            : "A subagent cannot start a side chat.",
         });
       }
       if (sourceRun !== null && !isForkableSourceRunStatus(sourceRun.status)) {
@@ -99,7 +128,6 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
       const { sideChat: _sourceSideChat, ...sourceThread } = input.sourceProjection.thread;
       const targetThread: OrchestrationV2AppThread = {
         ...sourceThread,
-        ...(input.sideChat === true ? { sideChat: true } : {}),
         // PR context follows the conversation; watching remains the source thread's responsibility.
         pullRequests: input.sourceProjection.thread.pullRequests?.map(
           ({ watch: _watch, ...link }) => link,
