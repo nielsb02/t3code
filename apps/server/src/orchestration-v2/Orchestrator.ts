@@ -183,6 +183,7 @@ import {
 import {
   forkableSourceRunStatusError,
   isForkableSourceRunStatus,
+  mergeBackTargetBlockedReason,
   ThreadForkServiceV2,
 } from "./ThreadForkService.ts";
 import { planThreadDeletion } from "./ThreadDeletion.ts";
@@ -453,6 +454,11 @@ export interface OrchestratorV2Shape {
     Effect.Effect<OrchestrationV2ThreadShellSnapshot, OrchestratorV2Error>,
     OrchestratorV2Error
   >;
+  readonly recordMergeBackFailure: (input: {
+    readonly sourceThreadId: ThreadId;
+    readonly targetThreadId: ThreadId;
+    readonly runId: RunId;
+  }) => Effect.Effect<void, OrchestratorV2Error>;
   readonly getThreadShell: (
     threadId: ThreadId,
   ) => Effect.Effect<OrchestrationV2ThreadShell | null, OrchestratorV2Error>;
@@ -1238,23 +1244,35 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   /** Side chats live inside their parent, so deleting the parent deletes them too. */
   const liveSideChatIds = Effect.fn("Orchestrator.liveSideChatIds")(
     function* (threadId: ThreadId) {
-      const { contextTransfers } = yield* projectionStore
-        .getThreadRecords(threadId, ["contextTransfers"])
-        .pipe(
-          Effect.catchTags({
-            ProjectionStoreThreadNotFoundError: () => Effect.succeed({ contextTransfers: [] }),
-          }),
-        );
       const sideChatIds: Array<ThreadId> = [];
-      for (const transfer of contextTransfers) {
-        if (transfer.type !== "fork" || transfer.sourceThreadId !== threadId) continue;
-        const child = yield* projectionStore
-          .getThread(transfer.targetThreadId)
+      const seen = new Set([threadId]);
+      const parents = [threadId];
+      // Older fork builds allowed nested side chats; delete the whole stored chain.
+      for (const parentId of parents) {
+        const { contextTransfers } = yield* projectionStore
+          .getThreadRecords(parentId, ["contextTransfers"])
           .pipe(
-            Effect.catchTags({ ProjectionStoreThreadNotFoundError: () => Effect.succeed(null) }),
+            Effect.catchTags({
+              ProjectionStoreThreadNotFoundError: () => Effect.succeed({ contextTransfers: [] }),
+            }),
           );
-        if (child?.lineage.sideChat === true && child.deletedAt === null) {
-          sideChatIds.push(child.id);
+        for (const transfer of contextTransfers) {
+          if (
+            transfer.type !== "fork" ||
+            transfer.sourceThreadId !== parentId ||
+            seen.has(transfer.targetThreadId)
+          )
+            continue;
+          seen.add(transfer.targetThreadId);
+          const child = yield* projectionStore
+            .getThread(transfer.targetThreadId)
+            .pipe(
+              Effect.catchTags({ ProjectionStoreThreadNotFoundError: () => Effect.succeed(null) }),
+            );
+          if (child?.lineage.sideChat === true && child.deletedAt === null) {
+            sideChatIds.push(child.id);
+            parents.push(child.id);
+          }
         }
       }
       return sideChatIds;
@@ -4503,28 +4521,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         cause: `Thread ${command.sourceThreadId} is not a fork of ${command.targetThreadId}.`,
       });
     }
-    // Queued runs cannot consume merge-back context. Refuse under the target's
-    // command lock before a pending transfer can block its ordinary messages.
-    if (targetProjection.runs.some((run) => isActiveRun(run) || run.status === "queued")) {
+    const blockedReason = mergeBackTargetBlockedReason(targetProjection, command.sourceThreadId);
+    if (blockedReason !== null) {
       return yield* new OrchestratorDispatchError({
         commandId: command.commandId,
         commandType: command.type,
-        cause:
-          "Finish or stop the target thread's active work and clear its queue before merging back.",
-      });
-    }
-    const otherPendingMergeBack = targetProjection.contextTransfers.some(
-      (transfer) =>
-        transfer.type === "merge_back" &&
-        transfer.status === "pending" &&
-        transfer.targetThreadId === command.targetThreadId &&
-        transfer.sourceThreadId !== command.sourceThreadId,
-    );
-    if (otherPendingMergeBack) {
-      return yield* new OrchestratorDispatchError({
-        commandId: command.commandId,
-        commandType: command.type,
-        cause: `Thread ${command.targetThreadId} already has pending context from another side chat or fork. Send a message there first.`,
+        cause: blockedReason,
       });
     }
 
@@ -13600,7 +13602,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         command.threadId,
         liveSideChatIds(command.threadId).pipe(
           Effect.flatMap((sideChatIds) =>
-            sideChatIds.reduce(
+            sideChatIds.reduceRight(
               (locked, sideChatId) => threadDispatch.withLock(sideChatId, locked),
               dispatchWithReceiptEffect(command, sideChatIds),
             ),
@@ -14043,6 +14045,62 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         .pipe(
           Effect.mapError(shellProjectionError),
           Effect.map(Effect.mapError(shellProjectionError)),
+        );
+    }),
+    recordMergeBackFailure: Effect.fn("OrchestratorV2.recordMergeBackFailure")(function (input) {
+      return threadDispatch
+        .withLock(
+          input.sourceThreadId,
+          Effect.gen(function* () {
+            const { thread, turnItems } = yield* projectionStore.getThreadRecords(
+              input.sourceThreadId,
+              ["turnItems"],
+            );
+            const itemId = TurnItemId.make(
+              `merge-back-failed:${input.runId}:${input.targetThreadId}`,
+            );
+            if (thread.deletedAt !== null || turnItems.some((item) => item.id === itemId)) return;
+            const now = yield* DateTime.now;
+            yield* eventSink.write({
+              events: [
+                {
+                  id: yield* idAllocator.allocate.event({ threadId: thread.id }),
+                  type: "turn-item.updated",
+                  threadId: thread.id,
+                  runId: input.runId,
+                  occurredAt: now,
+                  payload: {
+                    id: itemId,
+                    type: "notification",
+                    threadId: thread.id,
+                    runId: input.runId,
+                    nodeId: null,
+                    providerThreadId: null,
+                    providerTurnId: null,
+                    nativeItemRef: null,
+                    parentItemId: null,
+                    ordinal:
+                      turnItems.reduce((maximum, item) => Math.max(maximum, item.ordinal), -1) + 1,
+                    status: "failed",
+                    title: "Bring back failed",
+                    startedAt: now,
+                    completedAt: now,
+                    updatedAt: now,
+                    source: { kind: "system" },
+                    outcome: "failed",
+                    summary: "Could not bring back this side chat.",
+                    detail:
+                      "The transfer failed after this reply finished. Check the main thread's status and try Bring back again.",
+                  },
+                },
+              ],
+            });
+          }),
+        )
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: input.sourceThreadId, cause }),
+          ),
         );
     }),
     getThreadShell: Effect.fn("OrchestratorV2.getThreadShell")(function (threadId) {

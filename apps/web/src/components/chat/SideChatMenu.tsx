@@ -1,23 +1,16 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { presentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import { HistoryIcon, MessagesSquareIcon, Trash2Icon } from "lucide-react";
+import { HistoryIcon, Trash2Icon } from "lucide-react";
 
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { useClientSettings } from "../../hooks/useSettings";
 import { readLocalApi } from "../../localApi";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
 import { useRightPanelStore } from "../../rightPanelStore";
-import { waitForThreadShell } from "../../state/entities";
+import { useThreadShells, waitForThreadShell } from "../../state/entities";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
-import {
-  MenuItem,
-  MenuSeparator,
-  MenuShortcut,
-  MenuSub,
-  MenuSubPopup,
-  MenuSubTrigger,
-} from "../ui/menu";
+import { MenuItem, MenuSeparator, MenuSub, MenuSubPopup, MenuSubTrigger } from "../ui/menu";
 import { toastManager } from "../ui/toast";
 
 /**
@@ -25,19 +18,10 @@ import { toastManager } from "../ui/toast";
  * are archived threads; they stay listed here to reopen or delete, and are never deleted
  * automatically.
  */
-export function SideChatMenuItems(props: {
-  readonly parentRef: ScopedThreadRef;
-  readonly shortcutLabel: string | null;
-  readonly onNewSideChat: () => void;
-}) {
+export function SideChatMenuItems(props: { readonly parentRef: ScopedThreadRef }) {
   return (
     <>
       <MenuSeparator />
-      <MenuItem onClick={props.onNewSideChat}>
-        <MessagesSquareIcon />
-        Side chat
-        {props.shortcutLabel ? <MenuShortcut>{props.shortcutLabel}</MenuShortcut> : null}
-      </MenuItem>
       <MenuSub>
         <MenuSubTrigger>
           <HistoryIcon />
@@ -56,23 +40,32 @@ function ClosedSideChats(props: { readonly parentRef: ScopedThreadRef }) {
   const { parentRef } = props;
   const environmentIds = (() => [parentRef.environmentId])();
   const { snapshots, isLoading, error } = useArchivedThreadSnapshots(environmentIds);
+  const live = useThreadShells();
   const { unarchiveThread, deleteThread } = useThreadActions();
   const confirmThreadDelete = useClientSettings((settings) => settings.confirmThreadDelete);
-  const closed = (() =>
-    snapshots
-      .flatMap(({ environmentId, snapshot }) =>
-        snapshot.threads
-          .filter(
-            (thread) =>
-              thread.sideChat === true &&
-              thread.deletedAt === null &&
-              thread.lineage.parentThreadId === parentRef.threadId,
-          )
-          .map((thread) => presentThreadShell(environmentId, thread)),
-      )
-      .sort((left, right) =>
-        (right.archivedAt ?? right.createdAt).localeCompare(left.archivedAt ?? left.createdAt),
-      ))();
+  const archived = snapshots.flatMap(({ environmentId, snapshot }) =>
+    snapshot.threads.map((thread) => presentThreadShell(environmentId, thread)),
+  );
+  const all = [
+    ...live.filter((thread) => thread.environmentId === parentRef.environmentId),
+    ...archived,
+  ];
+  const descendants = new Set([parentRef.threadId]);
+  for (const parentId of descendants) {
+    for (const thread of all) {
+      if (thread.lineage.sideChat === true && thread.lineage.parentThreadId === parentId) {
+        descendants.add(thread.id);
+      }
+    }
+  }
+  const closed = archived
+    .filter(
+      (thread) =>
+        thread.lineage.sideChat === true && descendants.has(thread.id) && thread.deletedAt === null,
+    )
+    .sort((left, right) =>
+      (right.archivedAt ?? right.createdAt).localeCompare(left.archivedAt ?? left.createdAt),
+    );
 
   if (closed.length === 0) {
     return (
@@ -104,13 +97,28 @@ function ClosedSideChats(props: { readonly parentRef: ScopedThreadRef }) {
   };
 
   const reopen = async (sideChatRef: ScopedThreadRef) => {
-    const result = await unarchiveThread(sideChatRef);
-    if (result._tag === "Failure") {
-      toastManager.add({ type: "error", title: "Could not reopen the side chat" });
-      return;
+    const chain = [sideChatRef.threadId];
+    const seen = new Set(chain);
+    for (const threadId of chain) {
+      const parentId = all.find((thread) => thread.id === threadId)?.lineage.parentThreadId;
+      if (parentId == null || parentId === parentRef.threadId || seen.has(parentId)) break;
+      seen.add(parentId);
+      chain.push(parentId);
+    }
+    for (const threadId of chain.toReversed()) {
+      const result = await unarchiveThread(scopeThreadRef(sideChatRef.environmentId, threadId));
+      if (result._tag === "Failure") {
+        toastManager.add({ type: "error", title: "Could not reopen the side chat" });
+        return;
+      }
     }
     if (await waitForThreadShell(sideChatRef)) {
       useRightPanelStore.getState().openSideChat(parentRef, sideChatRef.threadId);
+    } else {
+      toastManager.add({
+        type: "error",
+        title: "The reopened side chat did not reach this client",
+      });
     }
   };
 

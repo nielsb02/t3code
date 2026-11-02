@@ -147,8 +147,6 @@ export interface EnvironmentThreadShell {
   readonly worktreePath: string | null;
   readonly lineage: OrchestrationV2ThreadShell["lineage"];
   readonly forkedFrom: OrchestrationV2ThreadShell["forkedFrom"];
-  /** Shown inside its parent thread rather than the sidebar (Micro fork). */
-  readonly sideChat?: true;
   readonly linkOrigin: OrchestrationV2ThreadShell["linkOrigin"] | null;
   /** The thread in a linked environment that delegated this one, if one did. */
   readonly delegatedFrom: OrchestrationV2ThreadShell["delegatedFrom"] | null;
@@ -296,9 +294,11 @@ export function presentThreadShell(
     pullRequests: threadPullRequestsOf(thread),
     linkedPullRequest: thread.linkedPullRequest ?? null,
     branchPullRequest: thread.branchPullRequest ?? null,
-    lineage: thread.lineage,
+    lineage:
+      thread.sideChat === true && thread.lineage.sideChat !== true
+        ? { ...thread.lineage, sideChat: true }
+        : thread.lineage,
     forkedFrom: thread.forkedFrom,
-    ...(thread.sideChat === true ? { sideChat: true as const } : {}),
     linkOrigin: thread.linkOrigin ?? null,
     delegatedFrom: thread.delegatedFrom ?? null,
     activeProviderThreadId: thread.activeProviderThreadId,

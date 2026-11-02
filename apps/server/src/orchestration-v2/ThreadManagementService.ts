@@ -58,6 +58,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import * as CommandReceiptStore from "./CommandReceiptStore.ts";
+import { mergeBackTargetBlockedReason } from "./ThreadForkService.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { projectedRowEncodedBytes } from "./threadHistoryPaging.ts";
@@ -1119,6 +1120,18 @@ const make = Effect.gen(function* () {
         cause: `Thread ${input.sourceThreadId} is not a fork of ${input.targetThreadId}.`,
       });
     }
+    const target = yield* orchestrator.getThreadRecords(input.targetThreadId, [
+      "runs",
+      "contextTransfers",
+    ]);
+    const blockedReason = mergeBackTargetBlockedReason(target, input.sourceThreadId);
+    if (blockedReason !== null) {
+      return yield* new Orchestrator.OrchestratorDispatchError({
+        commandId: input.commandId,
+        commandType: command.type,
+        cause: blockedReason,
+      });
+    }
     yield* waitForThread({
       projectId: source.projectId,
       threadId: source.id,
@@ -1135,7 +1148,26 @@ const make = Effect.gen(function* () {
               ),
               sourcePoint: { type: "run", runId },
             })
-          : Effect.void,
+          : orchestrator.recordMergeBackFailure({
+              sourceThreadId: source.id,
+              targetThreadId: input.targetThreadId,
+              runId,
+            }),
+      ),
+      Effect.catch((error) =>
+        Effect.logWarning("Deferred merge-back failed", {
+          sourceThreadId: source.id,
+          targetThreadId: input.targetThreadId,
+          error,
+        }).pipe(
+          Effect.andThen(
+            orchestrator.recordMergeBackFailure({
+              sourceThreadId: source.id,
+              targetThreadId: input.targetThreadId,
+              runId,
+            }),
+          ),
+        ),
       ),
       Effect.ignoreCause({ log: true }),
       Effect.forkIn(layerScope),

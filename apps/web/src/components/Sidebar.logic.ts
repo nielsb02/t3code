@@ -592,10 +592,8 @@ export function isSidebarHiddenThread(thread: Pick<SidebarThreadSummary, "lineag
 }
 
 /** Subagents and side chats (Micro fork) live inside their parent thread, not the sidebar. */
-export function isSidebarNestedThread(
-  thread: Pick<SidebarThreadSummary, "lineage" | "sideChat">,
-): boolean {
-  return isSidebarHiddenThread(thread) || thread.sideChat === true;
+export function isSidebarNestedThread(thread: Pick<SidebarThreadSummary, "lineage">): boolean {
+  return isSidebarHiddenThread(thread);
 }
 
 // Subagent and side-chat threads have no sidebar row, so an open one is represented by
@@ -623,10 +621,7 @@ export function resolveSidebarRowThreadId(
  * the sidebar lists, by thread key; they show under that thread, as subagents do.
  */
 export function filterSidebarV2VisibleThreads<
-  T extends Pick<
-    SidebarThreadSummary,
-    "archivedAt" | "environmentId" | "id" | "lineage" | "sideChat"
-  > & {
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id" | "lineage"> & {
     projectId: string;
   },
 >(
@@ -637,7 +632,6 @@ export function filterSidebarV2VisibleThreads<
   return threads.filter(
     (thread) =>
       thread.archivedAt === null &&
-      thread.sideChat !== true &&
       !isShownUnderParent(
         { environmentId: thread.environmentId, threadId: thread.id },
         thread.lineage,

@@ -292,7 +292,7 @@ to check something or look into a detail without interrupting the thread's agent
 
 Start one with the side chat button next to **Fork from this response** on an
 answer, or with **New side chat** in the command palette (⌘⌥S on macOS,
-Ctrl+Alt+S elsewhere), which starts from the latest finished answer. A running
+Ctrl+Alt+S elsewhere), which starts from the latest stable point. A running
 turn keeps running. The side chat opens as a tab in the thread's right panel and
 knows the conversation up to the answer it started from. Its first message can
 use any model; with a different provider it receives the conversation as a
@@ -308,9 +308,10 @@ context, for example after you tell it the thread has moved on. The thread itsel
 is not told about its side chats.
 
 When a side chat finds something the thread should know, ask it to report back.
-Its agent either sends the thread a short message, which steers a running turn or
-starts one, or merges the side chat so the thread receives it with your next
-message there. It reports back on its own only when a finding clearly changes the
+Its agent can send the thread a short message, which steers a running turn or
+starts one. You can also choose **Bring back** in the side chat to give the thread
+this conversation with your next message there. Bring back becomes available after
+a finished reply, once the thread is idle and its queue is clear. It reports back on its own only when a finding clearly changes the
 thread's current work.
 
 Close a side chat by closing its tab; the notice offers Undo. Settling or
@@ -318,7 +319,9 @@ archiving the thread, including automatic settlement, closes all of its side
 chats. Closed side chats stay listed under **+ → Closed side chats** in the
 thread's right panel, where you can reopen or delete them. They are never deleted
 automatically, except that deleting the thread deletes its side chats too. Side
-chats do not appear in the sidebar or under Settings → Archived.
+chats do not appear in the sidebar or under Settings → Archived. New side chats
+cannot be nested. Nested side chats from older builds remain available in the
+parent thread's tabs and closed-chat menu.
 
 **Fork from this response** is separate: it starts an ordinary thread that
 continues from that answer. While another active thread still uses a worktree,

@@ -250,10 +250,13 @@ export function makeSideChatContext(input: {
   readonly digest: ReadonlyArray<string | OrchestrationV2TurnItem>;
 }): string {
   const framing =
-    "You are in a side chat beside the main thread. The main thread may still be running in the same worktree. Answer the user's questions; do not continue or redo the main thread's task.";
+    "You are in a side chat beside the main thread. The main thread may still be running in the same worktree and does not know about this conversation. Answer the user's questions; do not continue or redo the main thread's task. Do not edit files or start long-running work unless the user asks.";
   const header = "Main thread activity since this side chat's starting point:";
   const truncated = "- Earlier items truncated.";
-  const footer = `Use t3_thread_read on thread ${input.parentThreadId} to see the main thread's live state.`;
+  const footer = [
+    `Report back only when the user asks, or a finding clearly changes its current work. Use t3_thread_send({threadId:${JSON.stringify(input.parentThreadId)},mode:"auto",message}) for a short report that steers a running turn or starts one if idle. Use t3_thread_transfer({action:"merge_back",targetThreadId:${JSON.stringify(input.parentThreadId)}}) to transfer this conversation with the user's next message there, without waking it; merging back requires the main thread to be idle with a clear queue.`,
+    `Use t3_thread_read on thread ${input.parentThreadId} to see the main thread's live state.`,
+  ].join(" ");
   const kept: Array<string> = [];
   let omitted = false;
   // The cap covers the whole block, so the fixed lines are reserved before any digest line.

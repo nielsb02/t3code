@@ -5485,12 +5485,14 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
 
       const legacyProjection = yield* projectionStore.getThreadProjection(legacySideChatThreadId);
       assert.isTrue(legacyProjection.thread.lineage.sideChat);
+      assert.isUndefined(legacyProjection.thread.sideChat);
       assert.deepEqual(legacyProjection.visibleTurnItems, []);
       assert.isTrue(
         shell.threads.find((thread) => thread.id === legacySideChatThreadId)?.lineage.sideChat,
       );
 
       const sideChatShell = shell.threads.find((thread) => thread.id === sideChatThreadId);
+      assert.isTrue(sideChatShell?.sideChat);
       assert.equal(sideChatShell?.visibleItemCount, 0);
       const sideChatProjection = yield* projectionStore.getThreadProjection(sideChatThreadId);
       assert.deepEqual(sideChatProjection.visibleTurnItems, []);

@@ -297,6 +297,10 @@ export function projectThreadProjectionForWire(
   };
   return {
     ...projection,
+    thread:
+      projection.thread.lineage.sideChat === true
+        ? { ...projection.thread, sideChat: true }
+        : projection.thread,
     checkpoints: projection.checkpoints.map(capCheckpointFiles),
     contextHandoffs: projection.contextHandoffs.map(projectContextHandoffForWire),
     turnItems: projection.turnItems.map(project),
@@ -310,6 +314,9 @@ export function projectThreadProjectionForWire(
 export function projectDomainEventForWire(
   event: OrchestrationV2DomainEvent,
 ): OrchestrationV2DomainEvent {
+  if ("lineage" in event.payload && event.payload.lineage.sideChat === true) {
+    return Object.assign({}, event, { payload: { ...event.payload, sideChat: true } });
+  }
   return event.type === "turn-item.updated"
     ? { ...event, payload: projectTurnItemForWire(event.payload) }
     : event.type === "context-handoff.updated"

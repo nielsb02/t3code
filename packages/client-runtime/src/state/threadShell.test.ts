@@ -239,6 +239,19 @@ describe("v2 thread shell lists", () => {
     expect(registry.get(parent)?.pendingSubagentRequest).toBeNull();
     expect(registry.get(sideChats).map((thread) => thread.pendingSubagentRequest)).toEqual([null]);
     expect(registry.get(inputs)).toEqual([]);
+    const historicalNested = {
+      ...sideChat,
+      id: ThreadId.make("historical-nested-side-chat"),
+      lineage: { ...sideChat.lineage, parentThreadId: sideChat.id },
+    };
+    registry.set(snapshotAtom(environmentId), {
+      ...v2ShellSnapshot,
+      threads: [root, sideChat, historicalNested],
+    });
+    expect(registry.get(sideChats).map((thread) => thread.id)).toEqual([
+      sideChat.id,
+      historicalNested.id,
+    ]);
     disposeSideChats();
     disposeNavigation();
     disposeInputs();

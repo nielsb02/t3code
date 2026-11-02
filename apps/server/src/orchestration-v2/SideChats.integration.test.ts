@@ -1,6 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import {
   CommandId,
+  EventId,
   MessageId,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ProviderCapabilities,
@@ -34,6 +35,7 @@ import * as Stream from "effect/Stream";
 
 import * as ServerSettings from "../serverSettings.ts";
 import * as CommandReceiptStore from "./CommandReceiptStore.ts";
+import * as EventSink from "./EventSink.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as Orchestrator from "./Orchestrator.ts";
@@ -237,6 +239,7 @@ const sideChatTest = <A, E>(
     | Orchestrator.OrchestratorV2
     | ThreadManagementService.ThreadManagementService
     | SqlClient.SqlClient
+    | EventSink.EventSinkV2
     | Scope.Scope
   >,
 ) =>
@@ -361,6 +364,30 @@ const createParentAndSideChat = (cwd: string) =>
     return sourceRun;
   });
 
+const createHistoricalNestedSideChat = (sourceRunId: RunId) =>
+  Effect.gen(function* () {
+    const nestedId = ThreadId.make("thread:side-chats:historical-nested");
+    yield* fork({
+      sourceThreadId: sideChatThreadId,
+      targetThreadId: nestedId,
+      sourcePoint: { type: "run", runId: sourceRunId },
+      sideChat: false,
+    });
+    const { thread } = yield* (yield* threads).getThreadRecords(nestedId, []);
+    yield* (yield* EventSink.EventSinkV2).write({
+      events: [
+        {
+          id: EventId.make("event:side-chats:historical-nested"),
+          threadId: nestedId,
+          type: "thread.metadata-updated",
+          occurredAt: yield* DateTime.now,
+          payload: { ...thread, sideChat: true },
+        },
+      ],
+    });
+    return nestedId;
+  });
+
 /** Sends `text` and returns once its provider turn is running. */
 const sendWhileRunning = (threadId: ThreadId, text: string) =>
   Effect.gen(function* () {
@@ -416,8 +443,8 @@ it.live(
 
         const first = yield* sendAndWait(sideChatThreadId, "side one");
         const firstText = turnText(yield* Ref.get(captured), first.id);
-        assert.include(firstText, `Side chat: this thread is a side chat of "Parent work"`);
-        assert.include(firstText, "forked after its run 1.");
+        assert.equal(firstText.split("You are in a side chat beside the main thread.").length, 2);
+        assert.notInclude(firstText, "Side chat: this thread is a side chat of");
         assert.isTrue(firstText.endsWith("User message:\nside one"));
 
         // The brief is already in this conversation.
@@ -479,15 +506,8 @@ it.live("closes open side chats when their main thread settles, and their own wh
         sourcePoint: { type: "run", runId: sourceRun.id },
         sideChat: false,
       });
-      // A side chat of the side chat closes when the side chat is archived.
-      yield* sendAndWait(sideChatThreadId, "side one");
-      const nestedThreadId = ThreadId.make("thread:side-chats:nested");
-      yield* fork({
-        sourceThreadId: sideChatThreadId,
-        targetThreadId: nestedThreadId,
-        sourcePoint: { type: "latest_stable" },
-        sideChat: true,
-      });
+      const childRun = yield* sendAndWait(sideChatThreadId, "side one");
+      const nestedThreadId = yield* createHistoricalNestedSideChat(childRun.id);
 
       const nestedArchived = yield* awaitEventAfter(
         nestedThreadId,
@@ -510,8 +530,9 @@ it.live("deletes a main thread's side chats with it, closed ones included, but n
   sideChatTest("side-chats-delete", ({ cwd }) =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
-      yield* (yield* SideChatReactor.make).start();
       const sourceRun = yield* createParentAndSideChat(cwd);
+      const childRun = yield* sendAndWait(sideChatThreadId, "side one");
+      const nestedId = yield* createHistoricalNestedSideChat(childRun.id);
       const closedThreadId = ThreadId.make("thread:side-chats:closed");
       yield* fork({
         targetThreadId: closedThreadId,
@@ -545,9 +566,67 @@ it.live("deletes a main thread's side chats with it, closed ones included, but n
       assert.isTrue(Option.isSome(closedDeleted));
       assert.isNull(yield* orchestrator.getThreadShell(sideChatThreadId));
       assert.isNull(yield* orchestrator.getThreadShell(closedThreadId));
+      assert.isNull(yield* orchestrator.getThreadShell(nestedId));
       const nativeFork = yield* orchestrator.getThreadShell(nativeForkThreadId);
       assert.isNotNull(nativeFork);
       assert.isNull(nativeFork?.deletedAt ?? null);
+    }),
+  ),
+);
+
+it.live("refuses a busy destination before deferring and records a later merge failure", () =>
+  sideChatTest("side-chats-deferred-merge-failure", ({ cwd, gates }) =>
+    Effect.gen(function* () {
+      const service = yield* threads;
+      yield* createParentAndSideChat(cwd);
+      const sideGate = yield* Deferred.make<void>();
+      gates.set("side report", sideGate);
+      const report = yield* sendWhileRunning(sideChatThreadId, "side report");
+      const mergeBack = (suffix: string) =>
+        service.mergeBack({
+          commandId: CommandId.make(`command:side-chats:deferred-${suffix}`),
+          sourceThreadId: sideChatThreadId,
+          targetThreadId: parentThreadId,
+          byOwnAgent: true,
+          createdBy: "agent",
+          creationSource: "mcp",
+        });
+      const parentGate = yield* Deferred.make<void>();
+      gates.set("parent busy", parentGate);
+      yield* sendWhileRunning(parentThreadId, "parent busy");
+      const rejected = yield* mergeBack("busy").pipe(Effect.flip);
+      assert.equal(rejected._tag, "OrchestratorDispatchError");
+      yield* Deferred.succeed(parentGate, undefined);
+      yield* service.waitForThread({ projectId, threadId: parentThreadId, timeoutMs: 60_000 });
+      assert.deepStrictEqual(yield* mergeBack("accepted"), {
+        mergesWhenTurnEnds: true,
+        sourceRunId: report.id,
+      });
+      gates.set("parent changed", yield* Deferred.make<void>());
+      yield* sendWhileRunning(parentThreadId, "parent changed");
+      const failure = yield* awaitEventAfter(
+        sideChatThreadId,
+        (event) =>
+          event.type === "turn-item.updated" &&
+          event.payload.type === "notification" &&
+          event.payload.outcome === "failed",
+        Deferred.succeed(sideGate, undefined),
+      );
+      assert.isTrue(Option.isSome(failure));
+      const child = yield* service.getThreadProjection(sideChatThreadId);
+      assert.isTrue(
+        child.visibleTurnItems.some(
+          ({ item }) => item.type === "notification" && item.outcome === "failed",
+        ),
+      );
+      const { contextTransfers } = yield* service.getThreadRecords(parentThreadId, [
+        "contextTransfers",
+      ]);
+      assert.isFalse(
+        contextTransfers.some(
+          (transfer) => transfer.type === "merge_back" && transfer.status === "pending",
+        ),
+      );
     }),
   ),
 );

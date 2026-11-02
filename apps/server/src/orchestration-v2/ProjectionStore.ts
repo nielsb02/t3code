@@ -1082,8 +1082,8 @@ const decodeStoredThreadPayload = Schema.decodeUnknownEffect(
 );
 const decodeThreadPayload = (payload: string) =>
   decodeStoredThreadPayload(payload).pipe(
-    Effect.map((thread) =>
-      thread.sideChat === true && thread.lineage.sideChat !== true
+    Effect.map(({ sideChat, ...thread }) =>
+      sideChat === true && thread.lineage.sideChat !== true
         ? { ...thread, lineage: { ...thread.lineage, sideChat: true } }
         : thread,
     ),
@@ -1518,7 +1518,7 @@ export function threadShellFromProjection(
       : { activeOrderKey: projection.thread.activeOrderKey }),
     lineage: projection.thread.lineage,
     forkedFrom: projection.thread.forkedFrom,
-    ...(projection.thread.sideChat === true ? { sideChat: true } : {}),
+    ...(projection.thread.lineage.sideChat === true ? { sideChat: true } : {}),
     activeProviderThreadId: projection.thread.activeProviderThreadId,
     ...(projection.thread.historyOrigin === undefined
       ? {}
@@ -1800,7 +1800,7 @@ function shellFromState(input: {
       : { activeOrderKey: input.state.thread.activeOrderKey }),
     lineage: input.state.thread.lineage,
     forkedFrom: input.state.thread.forkedFrom,
-    ...(input.state.thread.sideChat === true ? { sideChat: true } : {}),
+    ...(input.state.thread.lineage.sideChat === true ? { sideChat: true } : {}),
     activeProviderThreadId: input.state.thread.activeProviderThreadId,
     ...(input.state.thread.historyOrigin === undefined
       ? {}
