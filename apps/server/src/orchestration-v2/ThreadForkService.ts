@@ -125,7 +125,11 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
           cause: forkableSourceRunStatusError(sourceRun),
         });
       }
-      const { sideChat: _sourceSideChat, ...sourceThread } = input.sourceProjection.thread;
+      const {
+        sideChat: _sourceSideChat,
+        delegatedFrom: _delegatedFrom,
+        ...sourceThread
+      } = input.sourceProjection.thread;
       const targetThread: OrchestrationV2AppThread = {
         ...sourceThread,
         // PR context follows the conversation; watching remains the source thread's responsibility.
@@ -158,6 +162,11 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
         settledAt: null,
         snoozedUntil: null,
         snoozedAt: null,
+        autoSettleDisabledAt: null,
+        activeOrderKey: null,
+        pinOrderKey: null,
+        pinnedAt: null,
+        lastSnoozeWakeAt: null,
         // A guest link belongs to the thread it was made for.
         guestShare: null,
         lastVisitedAt: null,
