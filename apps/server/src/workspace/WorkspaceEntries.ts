@@ -423,7 +423,7 @@ export const make = Effect.gen(function* () {
                   relativePath: directoryPath,
                 })
                 .pipe(Effect.mapError(toError));
-        const { entries, throughSymlink, realRoot } = yield* Effect.tryPromise({
+        const { entries, throughSymlink, realRoot, nestedGitRoots } = yield* Effect.tryPromise({
           try: async () => {
             const root = await NodeFSP.realpath(normalizedCwd);
             const directory = await NodeFSP.realpath(target.absolutePath);
@@ -495,7 +495,17 @@ export const make = Effect.gen(function* () {
                 )),
               );
             }
+            const nestedGitRoots: Array<string> = [];
+            const segments = target.relativePath.split("/").filter(Boolean);
+            for (let index = 1; index <= segments.length; index += 1) {
+              const candidate = segments.slice(0, index).join("/");
+              const dotGit = await NodeFSP.lstat(path.join(root, candidate, ".git")).catch(
+                () => null,
+              );
+              if (dotGit) nestedGitRoots.push(candidate);
+            }
             return {
+              nestedGitRoots,
               entries: children.flatMap((child, index): ProjectEntry[] => {
                 const kind = kinds[index];
                 if (kind === undefined) return [];
@@ -513,16 +523,13 @@ export const make = Effect.gen(function* () {
           },
           catch: toError,
         });
-        // Use stdin so large directories cannot exceed the command-line argument limit.
-        // Ignore classification is optional in non-git workspaces or when git is unavailable.
-        // Git reports its top level with symlinks resolved (macOS's /var is /private/var), so
-        // paths are related through the resolved workspace root.
-        const gitRoot = yield* vcsProcess
+        // Canonical roots keep Git paths correct under symlinked workspace paths on macOS.
+        let gitRoot = yield* vcsProcess
           .run({
             operation: "WorkspaceEntries.list",
             command: "git",
             args: ["-c", "core.fsmonitor=false", "rev-parse", "--show-toplevel"],
-            cwd: target.absolutePath,
+            cwd: normalizedCwd,
             allowNonZeroExit: true,
             timeoutMs: 10_000,
           })
@@ -548,13 +555,21 @@ export const make = Effect.gen(function* () {
               maxOutputBytes: 16 * 1024 * 1024,
             })
             .pipe(Effect.orElseSucceed(() => undefined));
+        // Keep outer ignore rules for ignored clones; enter submodules and visible workspace repos.
+        for (const nestedGitRoot of nestedGitRoots) {
+          const result = yield* checkIgnore([`${nestedGitRoot}/.git`]);
+          if (result?.exitCode === 128 || result?.exitCode === 1) {
+            gitRoot = path.join(realRoot, nestedGitRoot);
+          }
+        }
+        const directoryGitPath = path.relative(gitRoot, path.join(realRoot, target.relativePath));
         // Check ignored folders once to avoid child index lookups; exit 0 guarantees no tracked descendants.
         // Symlinks and pathspec magic still need per-child checks.
         if (
           entries.length > IGNORE_CHECK_CHUNK_SIZE &&
-          target.relativePath !== "" &&
+          directoryGitPath !== "" &&
           !throughSymlink &&
-          !/^:|[*?[\\]/.test(target.relativePath) &&
+          !/^:|[*?[\\]/.test(directoryGitPath) &&
           (yield* checkIgnore([target.relativePath]))?.exitCode === 0
         ) {
           return {
