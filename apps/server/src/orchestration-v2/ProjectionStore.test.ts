@@ -6575,6 +6575,16 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
         shell.threads.find((thread) => thread.id === legacySideChatThreadId)?.lineage.sideChat,
       );
 
+      const awareness = yield* projectionStore.getAgentAwarenessSnapshot();
+      assert.isFalse(
+        awareness.threads.some(
+          (thread) => thread.id === sideChatThreadId || thread.id === legacySideChatThreadId,
+        ),
+      );
+      const targetedAwareness =
+        yield* projectionStore.getAgentAwarenessSnapshot(legacySideChatThreadId);
+      assert.isTrue(targetedAwareness.threads[0]?.lineage.sideChat);
+
       const sideChatShell = shell.threads.find((thread) => thread.id === sideChatThreadId);
       assert.isTrue(sideChatShell?.sideChat);
       assert.equal(sideChatShell?.visibleItemCount, 0);

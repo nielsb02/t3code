@@ -6315,7 +6315,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             WHERE t.deleted_at IS NULL${
               listedOnly
                 ? sql` AND json_extract(t.payload_json, '$.lineage.relationshipToParent') IS NOT 'subagent'
-                    AND json_extract(t.payload_json, '$.lineage.sideChat') IS NOT 1`
+                    AND COALESCE(json_extract(t.payload_json, '$.lineage.sideChat'), json_extract(t.payload_json, '$.sideChat')) IS NOT 1`
                 : sql``
             }${threadId === undefined ? sql`` : sql` AND t.thread_id = ${threadId}`}${
               projectId === undefined ? sql`` : sql` AND t.project_id = ${projectId}`
