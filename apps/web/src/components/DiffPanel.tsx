@@ -473,6 +473,8 @@ export default function DiffPanel({
     ? `${routeThreadRef.environmentId}:${routeThreadRef.threadId}`
     : null;
 
+  const preview = branchDiffPreview.data;
+
   const selectedGitSource = branchDiffPreview.data?.sources.find(
     (source) =>
       source.kind ===
@@ -617,7 +619,6 @@ export default function DiffPanel({
       ? Math.max(0, recordedToolCallFileCount - renderablePatch.files.length)
       : 0;
   const fileStats = new Map(lazySource?.files?.map((file) => [file.path, file]));
-  const preview = branchDiffPreview.data;
   const sourceLineStat =
     isGitSelection && selectedGitSource?.files
       ? selectedGitSource.files.reduce(
