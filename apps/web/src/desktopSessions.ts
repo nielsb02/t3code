@@ -49,6 +49,7 @@ export function desktopSessionStatus(
     case "approval":
     case "input":
       return "blocked";
+    case "preparing":
     case "working":
     case "waiting":
       return "working";
