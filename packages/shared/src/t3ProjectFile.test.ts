@@ -46,6 +46,7 @@ describe("buildT3ProjectFileJsonSchema", () => {
       "previewUrl",
       "runOnSettle",
       "runOnWorktreeCreate",
+      "stopOnSettle",
     ]);
   });
 });
@@ -56,12 +57,12 @@ describe("T3ProjectFileFromJson", () => {
       // team scripts
       "iconPath": "assets/logo.svg",
       "scripts": [
-        { "name": "Dev", "command": "pnpm dev", },
+        { "name": "Dev", "command": "pnpm dev", "stopOnSettle": true, },
       ],
     }`);
 
     expect(decoded.iconPath).toBe("assets/logo.svg");
-    expect(decoded.scripts?.[0]).toEqual({ name: "Dev", command: "pnpm dev" });
+    expect(decoded.scripts?.[0]).toEqual({ name: "Dev", command: "pnpm dev", stopOnSettle: true });
   });
 });
 

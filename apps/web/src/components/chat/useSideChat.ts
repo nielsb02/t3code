@@ -11,7 +11,7 @@ import { useRef } from "react";
 import { newMessageId, newThreadId } from "~/lib/utils";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { useRightPanelStore } from "../../rightPanelStore";
-import { waitForThreadShell } from "../../state/entities";
+import { readThreadShell, waitForThreadShell } from "../../state/entities";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
@@ -27,6 +27,7 @@ export function useSideChat(input: {
 }) {
   const pendingRef = useRef(false);
   const forkSideChat = useAtomCommand(threadEnvironment.forkSideChat, { reportFailure: false });
+  const deleteThread = useAtomCommand(threadEnvironment.delete, { reportFailure: false });
   const startThreadTurn = useOrchestrationCommand(threadEnvironment.startTurn, {
     reportFailure: false,
   });
@@ -56,30 +57,44 @@ export function useSideChat(input: {
       reportFailure(fork, "Could not start a side chat.");
       return false;
     }
-    if (!(await waitForThreadShell(scopeThreadRef(threadRef.environmentId, targetThreadId)))) {
+    // Drops the empty side chat a failed start leaves behind; one that got its message stays.
+    const discard = () =>
+      void deleteThread({
+        environmentId: threadRef.environmentId,
+        input: { threadId: targetThreadId, onlyIfUnused: true },
+      });
+    const targetRef = scopeThreadRef(threadRef.environmentId, targetThreadId);
+    if (!(await waitForThreadShell(targetRef))) {
       input.onError("The side chat was created, but it did not reach this client.");
+      discard();
       return false;
     }
-    useRightPanelStore.getState().openSideChat(threadRef, targetThreadId);
+    const sideChat = readThreadShell(targetRef);
+    if (sideChat === null) {
+      input.onError("The side chat is no longer available.");
+      discard();
+      return false;
+    }
     const text = options.prompt?.trim();
     if (text) {
-      // The server asks before edits on a side chat's first turn whatever mode is sent.
       const turn = await startThreadTurn({
         environmentId: threadRef.environmentId,
         input: {
           threadId: targetThreadId,
           message: { messageId: newMessageId(), role: "user", text, attachments: [] },
           titleSeed: deriveThreadTitleSeed({ text, attachments: [] }),
-          runtimeMode: "approval-required",
+          runtimeMode: sideChat.runtimeMode,
           interactionMode: "default",
           createdAt: new Date().toISOString(),
         },
       });
       if (turn._tag === "Failure") {
         reportFailure(turn, "Could not send the side chat message.");
+        discard();
         return false;
       }
     }
+    useRightPanelStore.getState().openSideChat(threadRef, targetThreadId);
     return true;
   };
   const open = async (
