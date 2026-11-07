@@ -76,7 +76,6 @@ export function useSideChat(input: {
       return false;
     }
     const text = options.prompt?.trim();
-    // Send before showing the tab: closing a tab whose side chat has no run deletes it.
     if (text) {
       const turn = await startThreadTurn({
         environmentId: threadRef.environmentId,
