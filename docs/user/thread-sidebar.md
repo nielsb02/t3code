@@ -167,7 +167,11 @@ and prevents automatic settlement until new activity resumes the usual rules.
 Manually settling an idle thread dismisses unanswered async questions without
 sending an answer or restarting the agent. Settling also closes the thread's
 terminals that wait at an idle prompt, and keeps their output. A terminal that
-runs a command, such as a dev server, stays open.
+runs a command, such as a dev server, stays open unless its action has **Stop this action
+when the thread settles** enabled in Settings > Projects > Actions. You can also set
+`"stopOnSettle": true` on a `t3.json` action and import it there. Start the command through
+that action so T3 can stop its terminal and child processes. Commands started through an
+agent's own shell tools are managed by the provider.
 
 To reclaim disk space from settled work, turn on **Run in the thread's worktree when the
 thread settles** for one of the project's actions, or set `"runOnSettle": true` on a
@@ -304,8 +308,11 @@ use any model; with a different provider it receives the conversation as a
 [portable handoff](./portable-handoffs.md).
 
 You can also start with `/side` or `/btw` followed by a question. On mobile, open
-a side chat from the row above the composer. The first reply asks before edits or
-commands; later replies use the permission mode you select.
+a side chat from the row above the composer.
+
+A side chat works in the same folder as the thread and inherits its permissions
+when created, including for its first reply. Change permissions for an individual
+side chat in its composer. Later changes to the parent do not change existing side chats.
 
 The side chat works in the same checkout, so its agent is asked not to edit files
 unless you ask it to. It reads the thread with `t3_thread_read` when it needs more
@@ -344,6 +351,8 @@ Choose **Snooze → Custom…** from a thread's menu to pick a date and time in 
 local time zone, or a duration in minutes, hours, or days. Durations start when
 you confirm; one day means 24 hours. On web and desktop, you can also snooze
 several selected threads together. Choose **Wake thread** to bring a thread back early.
+
 A snoozed thread keeps working and stays hidden until its wake time, even while
-its agent wakes itself for background work. It comes back early only when it needs
-an approval or answer from you, when a run fails, or when you send it a message.
+its agent wakes itself for background work. It comes back early for an approval,
+a new question, a failed run, or a message or answer you send. You can snooze an existing
+question and answer when the thread wakes; the question stays unanswered.
