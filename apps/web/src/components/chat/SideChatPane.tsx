@@ -14,7 +14,9 @@ import {
 import { Trash2Icon, XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { useComposerDraftStore } from "../../composerDraftStore";
 import { useClientSettings } from "../../hooks/useSettings";
+import { releaseComposerDraftUploads } from "../../lib/composerDraftUploads";
 import type { SideChatParentPanel } from "../../lib/sideChatPane";
 import { readLocalApi } from "../../localApi";
 import { hostRightPanel, useRightPanelStore } from "../../rightPanelStore";
@@ -128,6 +130,8 @@ export default function SideChatPane(props: {
     });
     setDeleting(false);
     if (result._tag === "Success") {
+      releaseComposerDraftUploads(threadRef);
+      useComposerDraftStore.getState().clearDraftThread(threadRef);
       useRightPanelStore.getState().closeSurface(parentRef, `side-chat:${threadId}`);
     } else if (!isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
