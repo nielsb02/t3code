@@ -253,7 +253,6 @@ it("lets the Micro dial pick reasoning in the combined model picker", async () =
                 models,
                 model: "model",
                 modelOptions: options,
-                planModeEnabled: false,
                 onModelOptionsChange: (next) => setOptions(next ?? []),
               }}
             />

@@ -104,11 +104,7 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
   };
 
   const startNewThread = () => {
-    if (
-      !getClientSettings().boringSidebarEnabled &&
-      !getClientSettings().legacySidebarEnabled &&
-      readProjectGroups().length > 1
-    ) {
+    if (!getClientSettings().boringSidebarEnabled && readProjectGroups().length > 1) {
       openCommandPalette({ open: "new-thread-in" });
       return true;
     }
@@ -169,10 +165,8 @@ export function installChatRouteCommands(router: AnyRouter): () => void {
         void scratch.startScratchThread(environmentId);
       },
       "chat.new": (event) => {
-        const { legacySidebarEnabled } = getClientSettings();
         const groups = readProjectGroups();
         if (
-          !legacySidebarEnabled &&
           !shouldCreateNewThreadInCurrentProject(
             false,
             groups.filter((group) => !group.archived).length,

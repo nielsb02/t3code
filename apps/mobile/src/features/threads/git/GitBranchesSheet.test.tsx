@@ -85,7 +85,7 @@ vi.mock("../../../state/use-selected-thread-git-actions", () => ({
     },
   }),
 }));
-vi.mock("../../../state/vcs", () => ({ vcsEnvironment: { status: (input: unknown) => input } }));
+vi.mock("../../../state/vcs", () => ({ vcsEnvironment: { branch: (input: unknown) => input } }));
 vi.mock("./gitSheetComponents", () => ({
   SheetActionButton: (props: ActionProps) => {
     state.actions.set(props.label, props);
