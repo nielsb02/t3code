@@ -40,7 +40,6 @@ import {
   useAdaptiveWorkspaceLayout,
   useWorkspacePaneState,
 } from "../layout/AdaptiveWorkspaceLayout";
-import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
 import { useWorkspaceRepositories } from "../../state/use-workspace-repositories";
 import { useReviewCacheForThread } from "./reviewState";
 import {
