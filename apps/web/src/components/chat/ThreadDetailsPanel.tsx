@@ -70,6 +70,7 @@ interface ThreadDetailsPanelProps extends Pick<
   syncThreadBranch?: boolean;
   /** Picks the repository for Git actions in a multi-repository checkout. */
   gitRepositorySelector?: ReactNode;
+  workspaceMutationId: string | null;
   isGitRepo: boolean;
   envLocked: boolean;
   availableEnvironments: readonly EnvironmentOption[];
@@ -242,6 +243,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                         showChanges={visible.changes}
                         gitCwd={gitActionsCwd}
                         syncThreadBranch={props.syncThreadBranch ?? true}
+                        workspaceMutationId={props.workspaceMutationId}
                         activeThreadRef={activeThreadRef}
                         {...(props.draftId ? { draftId: props.draftId } : {})}
                         {...(props.onOpenChanges ? { onOpenChanges: props.onOpenChanges } : {})}

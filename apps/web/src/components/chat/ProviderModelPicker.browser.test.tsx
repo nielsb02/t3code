@@ -1,4 +1,5 @@
 import {
+  DEFAULT_CLIENT_SETTINGS,
   ProviderDriverKind,
   ProviderInstanceId,
   type ModelSelection,
@@ -15,6 +16,7 @@ import { act, render } from "../../../test/render";
 import { useMicroControls } from "../../hooks/useMicroControls";
 import { executeMicroControl } from "../../microControls";
 import { ComposerEffortColumn } from "./ComposerModelEffort";
+import { __setClientSettingsForTests } from "../../hooks/useSettings";
 import { deriveProviderInstanceEntries } from "../../providerInstances";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 
@@ -276,4 +278,47 @@ it("lets the Micro dial pick reasoning in the combined model picker", async () =
   await expect.element(page.getByRole("radio", { name: "High", exact: true })).toHaveFocus();
   await act(() => executeMicroControl("dial-press"));
   await expect.element(screen.getByLabelText("Picked effort")).toHaveTextContent("high");
+});
+
+it("opens on the active provider when every favorite belongs to a disabled provider", async () => {
+  const entries = deriveProviderInstanceEntries(
+    ["Codex", "Claude"].map((name) => ({
+      instanceId: ProviderInstanceId.make(name.toLowerCase()),
+      driver: ProviderDriverKind.make(name.toLowerCase()),
+      enabled: name === "Codex",
+      installed: true,
+      version: null,
+      status: "ready" as const,
+      auth: { status: "authenticated" as const },
+      checkedAt: "2026-01-01T00:00:00.000Z",
+      models: [
+        { slug: name.toLowerCase(), name: `${name} model`, isCustom: false, capabilities: {} },
+      ],
+      slashCommands: [],
+      skills: [],
+    })),
+  );
+  const [codex, claude] = entries;
+  __setClientSettingsForTests({
+    ...DEFAULT_CLIENT_SETTINGS,
+    favorites: [{ provider: claude!.instanceId, model: "claude" }],
+  });
+  using _settings = {
+    [Symbol.dispose]: () => __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS),
+  };
+
+  await using screen = await render(
+    <ProviderModelPicker
+      environmentId={null}
+      activeInstanceId={codex!.instanceId}
+      model="codex"
+      lockedProvider={null}
+      instanceEntries={entries}
+      modelOptionsByInstance={new Map(entries.map((entry) => [entry.instanceId, entry.models]))}
+      triggerAriaLabel="Choose model"
+      onInstanceModelChange={() => {}}
+    />,
+  );
+  await screen.getByRole("button", { name: "Choose model" }).click();
+  await expect.element(page.getByRole("option", { name: /Codex model/ })).toBeVisible();
 });
