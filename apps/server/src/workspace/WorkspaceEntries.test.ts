@@ -275,7 +275,7 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceEntries", (it) => {
           useRegex: false,
         });
         yield* writeTextFile(cwd, "t3.json", '{"repositories":{"paths":["../escape"]}}');
-        const scan = vi.spyOn(FileFinder.prototype, "scanFiles");
+        const scan = vi.spyOn(FileFinder.prototype, "scanFilesAsync");
         yield* entries.refresh(`${cwd}/.`);
         expect(scan).toHaveBeenCalledTimes(2);
       }),
