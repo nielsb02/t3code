@@ -109,6 +109,7 @@ function ChatBeside({
 }) {
   useChatShortcuts({
     enabled: true,
+    ownsInput: () => true,
     keybindings: [],
     scriptKeybindings: [],
     getShortcutContext: () => ({
