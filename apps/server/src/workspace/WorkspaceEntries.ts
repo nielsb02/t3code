@@ -323,14 +323,25 @@ export const make = Effect.gen(function* () {
               input.kind,
               input.imageOnly,
             );
+            const worktreeFiles =
+              input.kind === "directory" || input.imageOnly
+                ? []
+                : yield* findNestedWorktreeFiles(repository.cwd, localQuery, result.entries);
+            const rankedEntries = [
+              ...worktreeFiles.map((entry) => ({ entry, score: Number.MAX_SAFE_INTEGER })),
+              ...result.entries.map((entry, index) => ({
+                entry,
+                score: result.scores[index] ?? 0,
+              })),
+            ];
             return {
               ...result,
-              entries: result.entries.flatMap((entry, index) =>
+              entries: rankedEntries.flatMap(({ entry, score }) =>
                 owns(entry.path)
                   ? [
                       {
                         entry: { ...entry, path: prefix(repository, entry.path) },
-                        score: result.scores[index] ?? 0,
+                        score,
                       },
                     ]
                   : [],
@@ -368,6 +379,68 @@ export const make = Effect.gen(function* () {
       };
     },
   );
+
+  // The index skips gitignored folders, where agents often put worktrees (`.worktrees/x`).
+  // A path relative to such a worktree is found only when it names an existing file exactly.
+  const findNestedWorktreeFiles = Effect.fn("WorkspaceEntries.findNestedWorktreeFiles")(function* (
+    cwd: string,
+    query: string,
+    indexed: ReadonlyArray<ProjectEntry>,
+  ) {
+    const relativePath = query.trim().replaceAll("\\", "/");
+    if (
+      !relativePath.includes("/") ||
+      relativePath.endsWith("/") ||
+      path.isAbsolute(relativePath) ||
+      isWindowsAbsolutePath(relativePath) ||
+      relativePath.split("/").some((segment) => segment === "..") ||
+      indexed.some(
+        (entry) =>
+          entry.kind === "file" &&
+          (entry.path === relativePath || entry.path.endsWith(`/${relativePath}`)),
+      )
+    ) {
+      return [];
+    }
+    const listed = yield* vcsProcess
+      .run({
+        operation: "WorkspaceEntries.listWorktrees",
+        command: "git",
+        args: ["worktree", "list", "--porcelain"],
+        cwd,
+        allowNonZeroExit: true,
+        timeoutMs: 5_000,
+      })
+      .pipe(Effect.orElseSucceed(() => undefined));
+    if (!listed || listed.exitCode !== 0) return [];
+    const realCwd = yield* Effect.promise(() => NodeFSP.realpath(cwd).catch(() => cwd));
+    const worktreeRoots = listed.stdout.split(/\n\s*\n/).flatMap((record) => {
+      const lines = record.split("\n");
+      const worktree = lines.find((line) => line.startsWith("worktree "));
+      // A `prunable` record's directory is gone; another checkout may now sit there.
+      if (worktree === undefined || lines.some((line) => line.startsWith("prunable"))) return [];
+      const root = worktree.slice("worktree ".length);
+      const relativeRoot = path.relative(realCwd, root);
+      return relativeRoot === "" ||
+        relativeRoot === ".." ||
+        relativeRoot.startsWith(`..${path.sep}`) ||
+        path.isAbsolute(relativeRoot)
+        ? []
+        : [relativeRoot.split(path.sep).join("/")];
+    });
+    const matches = yield* Effect.promise(() =>
+      Promise.all(
+        worktreeRoots.map(async (relativeRoot) => {
+          const candidate = `${relativeRoot}/${relativePath}`;
+          const stat = await NodeFSP.stat(path.join(realCwd, candidate)).catch(() => null);
+          return stat?.isFile() ? candidate : null;
+        }),
+      ),
+    );
+    return matches
+      .filter((candidate) => candidate !== null)
+      .map((candidate): ProjectEntry => ({ path: candidate, kind: "file" }));
+  });
 
   const searchContents: WorkspaceEntries["Service"]["searchContents"] = Effect.fn(
     "WorkspaceEntries.searchContents",
