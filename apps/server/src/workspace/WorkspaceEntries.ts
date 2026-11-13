@@ -305,6 +305,7 @@ export const make = Effect.gen(function* () {
     function* (input) {
       const all = yield* members(input.cwd);
       const query = normalizeSearchQuery(input.query, { trimLeadingPattern: /^[@./]+/ });
+      const exactQuery = input.query.trim().replaceAll("\\", "/");
       const results = yield* Effect.forEach(
         all,
         (repository) =>
@@ -326,7 +327,13 @@ export const make = Effect.gen(function* () {
             const worktreeFiles =
               input.kind === "directory" || input.imageOnly
                 ? []
-                : yield* findNestedWorktreeFiles(repository.cwd, localQuery, result.entries);
+                : yield* findNestedWorktreeFiles(
+                    repository.cwd,
+                    repository.path !== "." && exactQuery.startsWith(`${repository.path}/`)
+                      ? exactQuery.slice(repository.path.length + 1)
+                      : exactQuery,
+                    result.entries,
+                  );
             const rankedEntries = [
               ...worktreeFiles.map((entry) => ({ entry, score: Number.MAX_SAFE_INTEGER })),
               ...result.entries.map((entry, index) => ({

@@ -971,11 +971,11 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceEntries", (it) => {
         yield* git(nested, ["add", ".gitignore"]);
         yield* git(nested, ["commit", "-m", "init"], env);
         yield* git(nested, ["worktree", "add", "-b", "nested", ".worktrees/nested"]);
-        yield* writeTextFile(nested, ".worktrees/nested/src/bar.py", "print(2)");
-        for (const query of ["src/bar.py", "projects/app/src/bar.py"]) {
+        yield* writeTextFile(nested, ".worktrees/nested/src/Bar.py", "print(2)");
+        for (const query of ["src/Bar.py", "projects/app/src/Bar.py"]) {
           const result = yield* searchWorkspaceEntries({ cwd, query, limit: 25, kind: "file" });
           expect(result.entries).toEqual([
-            { path: "projects/app/.worktrees/nested/src/bar.py", kind: "file" },
+            { path: "projects/app/.worktrees/nested/src/Bar.py", kind: "file" },
           ]);
         }
       }),
