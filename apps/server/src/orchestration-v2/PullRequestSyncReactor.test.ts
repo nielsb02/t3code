@@ -695,6 +695,7 @@ describe("PullRequestSyncReactor", () => {
         assert.deepStrictEqual(yield* Ref.get(fixture.summaryCalls), [
           {
             projectId: PROJECT_ID,
+            workspace: { threadId: ThreadId.make("one") },
             host: "github.com",
             repository: "owner/repository",
             number: 42,

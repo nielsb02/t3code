@@ -282,6 +282,7 @@ function fakeSymlinkFinder(
         ok: true as const,
         value: {
           items: items.map((relativePath) => ({ relativePath })),
+          scores: items.map((_, index) => score(100 - index)),
           totalMatched: directories.length,
         },
       };
@@ -313,11 +314,22 @@ function fakeSymlinkFinder(
     directorySearchAsync: directorySearch,
     fileSearchAsync: async () => {
       const items = indexedItems.flatMap((entry) => (entry.type === "file" ? [entry.item] : []));
-      return { ok: true as const, value: { items, scores: [], totalMatched: items.length } };
+      return {
+        ok: true as const,
+        value: {
+          items,
+          scores: items.map((_, index) => score(100 - index)),
+          totalMatched: items.length,
+        },
+      };
     },
     mixedSearchAsync: async () => ({
       ok: true as const,
-      value: { items: indexedItems, totalMatched: indexedItems.length },
+      value: {
+        items: indexedItems,
+        scores: indexedItems.map((_, index) => score(100 - index)),
+        totalMatched: indexedItems.length,
+      },
     }),
   } as unknown as FileFinder;
   vi.spyOn(FileFinder, "create").mockReturnValueOnce({ ok: true, value: finder });
@@ -467,9 +479,11 @@ it.effect(
           { path: "src-link", kind: "directory" },
           { path: "link-file.ts", kind: "file" },
         ]);
+        expect(searched.scores).toEqual([99, 98]);
         // The dropped link does not take the only slot.
         expect(files).toEqual({
           entries: [{ path: "link-file.ts", kind: "file" }],
+          scores: [98],
           truncated: false,
         });
         expect(listed.entries).toEqual([

@@ -375,35 +375,40 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceEntries", (it) => {
           }
         }),
     );
-    it.effect("searches workspaces that declare no repositories without spawning Git", () =>
-      Effect.gen(function* () {
-        const cwd = yield* makeTempDir({ git: true });
-        yield* writeTextFile(cwd, "src/index.ts", "workspace needle");
-        const vcs = yield* VcsProcess.VcsProcess;
-        const calls = vi.spyOn(vcs, "run");
-        const entries = yield* WorkspaceEntries.WorkspaceEntries;
-        for (const config of [
-          undefined,
-          "{}",
-          '{"repositories":{}}',
-          '{"repositories":{"paths":[],"includeSubmodules":false}}',
-        ]) {
-          if (config !== undefined) yield* writeTextFile(cwd, "t3.json", config);
-          expect(
-            (yield* entries.search({ cwd, query: "index.ts", limit: 10 })).entries,
-          ).toContainEqual({ path: "src/index.ts", kind: "file" });
-          yield* entries.list({ cwd });
-          yield* entries.searchContents({
-            cwd,
-            query: "needle",
-            limit: 10,
-            caseSensitive: false,
-            wholeWord: false,
-            useRegex: false,
-          });
-        }
-        expect(calls).not.toHaveBeenCalled();
-      }),
+    it.effect(
+      "searches workspaces that declare no repositories without discovering repositories through Git",
+      () =>
+        Effect.gen(function* () {
+          const cwd = yield* makeTempDir({ git: true });
+          yield* writeTextFile(cwd, "src/index.ts", "workspace needle");
+          const vcs = yield* VcsProcess.VcsProcess;
+          const calls = vi.spyOn(vcs, "run");
+          const entries = yield* WorkspaceEntries.WorkspaceEntries;
+          for (const config of [
+            undefined,
+            "{}",
+            '{"repositories":{}}',
+            '{"repositories":{"paths":[],"includeSubmodules":false}}',
+          ]) {
+            if (config !== undefined) yield* writeTextFile(cwd, "t3.json", config);
+            expect(
+              (yield* entries.search({ cwd, query: "index.ts", limit: 10 })).entries,
+            ).toContainEqual({ path: "src/index.ts", kind: "file" });
+            yield* entries.list({ cwd });
+            yield* entries.searchContents({
+              cwd,
+              query: "needle",
+              limit: 10,
+              caseSensitive: false,
+              wholeWord: false,
+              useRegex: false,
+            });
+          }
+          expect(calls.mock.calls.map(([input]) => input.operation)).toEqual([
+            "WorkspaceSearchIndex.listGitIgnoredPaths",
+            "WorkspaceSearchIndex.listGitIgnoredPaths",
+          ]);
+        }),
     );
     it.effect("reuses repository membership across searches until t3.json changes", () =>
       Effect.gen(function* () {
