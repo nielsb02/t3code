@@ -2256,8 +2256,8 @@ effectIt.effect(
           }),
         ),
       );
-      const refused = yield* Effect.exit(harness.start);
-      expect(refused._tag).toBe("Failure");
+      yield* harness.start;
+      expect(harness.startTurn).toHaveBeenCalledTimes(1);
       expect(harness.projection().contextHandoffs[0]?.toProviderThreadId).toBe(
         "existing-native-provider-thread",
       );

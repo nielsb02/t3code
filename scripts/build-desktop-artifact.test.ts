@@ -1452,33 +1452,39 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     ),
   );
 
-  it.effect("packages the macOS preview's PR bundle as untrusted", () =>
+  it.effect("the fork release packages trusted main source rather than PR bundles", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const workflow = yield* fs.readFileString(
-        yield* path.fromFileUrl(
-          new URL("../.github/workflows/desktop-macos-preview-publish.yml", import.meta.url),
-        ),
+        yield* path.fromFileUrl(new URL("../.github/workflows/micro-desktop.yml", import.meta.url)),
       );
-      const { jobs } = yield* Schema.decodeEffect(
+      const { on: triggers, jobs } = yield* Schema.decodeEffect(
         fromYaml(
           Schema.Struct({
+            on: Schema.Record(Schema.String, Schema.Unknown),
             jobs: Schema.Record(
               Schema.String,
               Schema.Struct({
-                uses: Schema.optional(Schema.String),
-                with: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+                steps: Schema.Array(
+                  Schema.Struct({
+                    uses: Schema.optional(Schema.String),
+                    with: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+                  }),
+                ),
               }),
             ),
           }),
         ),
       )(workflow);
-      const packaging = Object.values(jobs).filter(
-        (job) => job.uses === "./.github/workflows/release-desktop.yml",
+      for (const trigger of ["pull_request", "pull_request_target", "workflow_run"]) {
+        assert.notProperty(triggers, trigger);
+      }
+      const checkouts = Object.values(jobs).flatMap((job) =>
+        job.steps.filter((step) => step.uses?.startsWith("actions/checkout@")),
       );
-      assert.isNotEmpty(packaging);
-      for (const job of packaging) assert.strictEqual(job.with?.untrusted_bundle, true);
+      assert.isNotEmpty(checkouts);
+      for (const checkout of checkouts) assert.strictEqual(checkout.with?.ref, "main");
     }),
   );
 
