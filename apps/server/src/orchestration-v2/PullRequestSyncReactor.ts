@@ -42,8 +42,8 @@ const SLOW_SYNC_INTERVAL_MS = 15 * 60 * 1_000;
 // Every server polls every open linked pull request, and most of them sit untouched for days.
 // One nobody has updated for QUIET_AFTER_MS is read on the quiet cadence instead of each sweep;
 // requested refreshes, watches and a host CLI's merge command still read it at once.
-const QUIET_AFTER_MS = 30 * 60 * 1_000;
-const QUIET_SYNC_INTERVAL_MS = 5 * 60 * 1_000;
+export const QUIET_AFTER_MS = 30 * 60 * 1_000;
+export const QUIET_SYNC_INTERVAL_MS = 5 * 60 * 1_000;
 // A pull request closed this long ago is rarely reopened, so the sweep stops reading it, as it
 // does merged ones. A reader that sees it open, or a requested refresh, still reads it at once.
 const CLOSED_FINAL_AFTER_MS = 24 * 60 * 60 * 1_000;
@@ -366,7 +366,8 @@ export const make = Effect.gen(function* () {
   // linking dozens of pull requests) is read together and shares the summary batches.
   let requestedSweepQueued = false;
   const retryStacks = new Set<string>();
-  // Group keys the host answered not-found for; they are read on the slow cadence until found.
+  // Group keys the host answered not-found for, or this server cannot read (no CLI, signed out,
+  // unsupported host); they are read on the slow cadence until a read succeeds.
   const missing = new Set<string>();
   // Pause per project and host because credentials are project-specific; leave paused PRs due until reset.
   const pausedUntil = new Map<string, number>();
@@ -536,9 +537,22 @@ export const make = Effect.gen(function* () {
             return { ref, result };
           }),
         ),
+      ).pipe(
+        Effect.tapError((error) =>
+          error._tag === "PullRequestUnavailableError"
+            ? Effect.sync(() => {
+                missing.add(key);
+                lastSyncedAt.set(key, nowMs);
+                requested.delete(key);
+              })
+            : Effect.void,
+        ),
       );
       if (result._tag === "Failure") {
-        if (result.failure.reason === "not-found") {
+        if (
+          result.failure.reason === "not-found" ||
+          result.failure._tag === "PullRequestUnavailableError"
+        ) {
           missing.add(key);
           lastSyncedAt.set(key, nowMs);
           requested.delete(key);
