@@ -19,6 +19,7 @@ import * as Sink from "effect/Sink";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import { fromYaml } from "@t3tools/shared/schemaYaml";
 
 import {
   buildDesktopBundles,
@@ -1428,6 +1429,63 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         yield* validateMacPackagedPayload({ stageDistDir: fixture.stageDistDir });
       }),
     ),
+  );
+
+  it.effect("never runs an untrusted macOS bundle", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const marker = path.join(yield* fs.makeTempDirectoryScoped(), "ran");
+        const fixture = yield* makePackagedAppFixture({
+          serverEntrySource: `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marker)}, "");\n`,
+        });
+        yield* validateMacPackagedPayload({ stageDistDir: fixture.stageDistDir });
+        assert.isFalse(yield* fs.exists(marker));
+      }),
+    ).pipe(
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({ env: { T3CODE_DESKTOP_UNTRUSTED_BUNDLE: "true" } }),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("the fork release packages trusted main source rather than PR bundles", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const workflow = yield* fs.readFileString(
+        yield* path.fromFileUrl(new URL("../.github/workflows/micro-desktop.yml", import.meta.url)),
+      );
+      const { on: triggers, jobs } = yield* Schema.decodeEffect(
+        fromYaml(
+          Schema.Struct({
+            on: Schema.Record(Schema.String, Schema.Unknown),
+            jobs: Schema.Record(
+              Schema.String,
+              Schema.Struct({
+                steps: Schema.Array(
+                  Schema.Struct({
+                    uses: Schema.optional(Schema.String),
+                    with: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+                  }),
+                ),
+              }),
+            ),
+          }),
+        ),
+      )(workflow);
+      for (const trigger of ["pull_request", "pull_request_target", "workflow_run"]) {
+        assert.notProperty(triggers, trigger);
+      }
+      const checkouts = Object.values(jobs).flatMap((job) =>
+        job.steps.filter((step) => step.uses?.startsWith("actions/checkout@")),
+      );
+      assert.isNotEmpty(checkouts);
+      for (const checkout of checkouts) assert.strictEqual(checkout.with?.ref, "main");
+    }),
   );
 
   it.effect("rejects a macOS stage without a packaged app", () =>
