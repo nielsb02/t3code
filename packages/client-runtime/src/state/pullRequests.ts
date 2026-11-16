@@ -356,13 +356,14 @@ function settleEdit(
 }
 
 function pullRequestReference(input: PullRequestRef): PullRequestRef {
-  const { projectId, host, repository, number, expectedAccountId } = input;
+  const { projectId, host, repository, number, expectedAccountId, workspace } = input;
   return {
     projectId,
     ...(host === undefined ? {} : { host }),
     repository,
     number,
     ...(expectedAccountId === undefined ? {} : { expectedAccountId }),
+    ...(workspace === undefined ? {} : { workspace }),
   };
 }
 
@@ -404,7 +405,9 @@ function samePullRequest(reader: PullRequestRef, acted: PullRequestRef) {
     reader.host?.toLowerCase() === acted.host?.toLowerCase() &&
     reader.repository.toLowerCase() === acted.repository.toLowerCase() &&
     reader.number === acted.number &&
-    reader.expectedAccountId === acted.expectedAccountId
+    reader.expectedAccountId === acted.expectedAccountId &&
+    reader.workspace?.threadId === acted.workspace?.threadId &&
+    reader.workspace?.repositoryPath === acted.workspace?.repositoryPath
   );
 }
 

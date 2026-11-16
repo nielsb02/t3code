@@ -3863,7 +3863,6 @@ export const make = Effect.gen(function* () {
       input.commit === undefined
         ? (lastGoodSummary.peek(refCacheKey(input))?.updatedAt ?? null)
         : null,
-      input.workspace ?? null,
       input.path ?? null,
     ]);
     const evictDiffs = Cache.entries(diffCache).pipe(
