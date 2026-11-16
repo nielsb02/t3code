@@ -7,6 +7,7 @@ import {
   preventRepeatedTerminalCloseShortcut,
   preventTerminalCloseShortcut,
 } from "../../lib/terminalCloseShortcut";
+import { isInSideChatPane } from "../../lib/sideChatPane";
 import { getTerminalFocusOwner, type TerminalFocusOwner } from "../../lib/terminalFocus";
 import type { ComposerHandleRef } from "../../composerHandleContext";
 import type { BranchToolbarHandle } from "../BranchToolbar";
@@ -21,8 +22,16 @@ type ChatShortcutHandler = (context: {
 
 export type ChatShortcutCommands = Partial<Record<KeybindingCommand, ChatShortcutHandler>>;
 
+/** Window-level commands the main chat still runs while focus is in its side chat pane. */
+const SIDE_CHAT_PANE_COMMANDS: ReadonlySet<KeybindingCommand> = new Set([
+  "rightPanel.toggle",
+  "rightPanel.close",
+  "rightPanel.toggleMaximized",
+]);
+
 interface ChatShortcutsInput {
   readonly enabled: boolean;
+  readonly embedded?: boolean;
   readonly ownsInput: (target: EventTarget | null) => boolean;
   readonly keybindings: ResolvedKeybindingsConfig;
   readonly scriptKeybindings: ResolvedKeybindingsConfig;
@@ -46,7 +55,9 @@ interface ChatShortcutsInput {
  */
 export function useChatShortcuts(input: ChatShortcutsInput) {
   const handleShortcut = useEffectEvent((event: KeyboardEvent) => {
-    if (!input.ownsInput(event.target)) return;
+    const ownsInput = input.ownsInput(event.target);
+    const ownsSideChatPanel = input.embedded !== true && isInSideChatPane(event.target);
+    if (!ownsInput && !ownsSideChatPanel) return;
     const { keybindings } = input;
     if (preventRepeatedTerminalCloseShortcut(event, keybindings)) {
       event.stopPropagation();
@@ -63,6 +74,7 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
     const shortcutContext = input.getShortcutContext(event.target);
 
     if (
+      ownsInput &&
       !shortcutContext.terminalFocus &&
       !shortcutContext.modelPickerOpen &&
       shouldTypeToFocusComposer(event) &&
@@ -76,7 +88,7 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
     const command = resolveChatShortcutCommand(event, keybindings, input.scriptKeybindings, {
       context: shortcutContext,
     });
-    if (!command) return;
+    if (!command || (!ownsInput && !SIDE_CHAT_PANE_COMMANDS.has(command))) return;
     const run =
       input.commands[command] ??
       composerShortcutCommands(input.composerRef, input.branchToolbarRef)[command] ??
