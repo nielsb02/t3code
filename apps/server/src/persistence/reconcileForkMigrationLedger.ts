@@ -20,16 +20,17 @@ const upstreamRows = new Map([
 
 export const reconcileForkMigrationLedger = Effect.fn("reconcileForkMigrationLedger")(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const tables = yield* sql`
+      SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
+    `;
+  if (tables.length === 0) return [];
+  const history = yield* sql<{ readonly migration_id: number; readonly name: string }>`
+      SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id IN (50, 53, 55)
+    `;
+  const forkHistory = history.filter((row) => forkRows.get(row.migration_id) === row.name);
+  if (forkHistory.length === 0) return [];
   return yield* sql.withTransaction(
     Effect.gen(function* () {
-      const tables = yield* sql`
-          SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
-        `;
-      if (tables.length === 0) return [];
-      const history = yield* sql<{ readonly migration_id: number; readonly name: string }>`
-          SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id IN (50, 53, 55)
-        `;
-      const forkHistory = history.filter((row) => forkRows.get(row.migration_id) === row.name);
       const executed: Array<readonly [number, string]> = [];
       for (const row of forkHistory) {
         const upstream = upstreamRows.get(row.migration_id);
