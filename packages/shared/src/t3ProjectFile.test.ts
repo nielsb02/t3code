@@ -29,6 +29,7 @@ describe("buildT3ProjectFileJsonSchema", () => {
       // Micro fork: workspace repositories (feat(repos), 0e8eaa8504).
       "repositories",
       "scripts",
+      "worktreeSparsePatternsPath",
       "worktreeSubmodules",
     ]);
     expect(schema.required).toBeUndefined();
