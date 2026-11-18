@@ -2268,7 +2268,7 @@ function ChatViewContent(props: ChatViewProps) {
           if (document.querySelector("[data-mcp-app-fullscreen]") !== null) return;
           if (
             ownsChatPaneInput(routeThreadKey) &&
-            shouldRefocusComposerOnWindowFocus(document.activeElement)
+            shouldRefocusComposerOnWindowFocus(document.activeElement, document.getSelection())
           ) {
             focusComposerStable();
           }
@@ -3353,6 +3353,7 @@ function ChatViewContent(props: ChatViewProps) {
             ? addPullRequestsSurfaceStable
             : undefined,
       }}
+      issuesSupported={serverConfig?.environment.capabilities.issues === true}
       files={{
         projectId: activeProject?.id,
         projectName: activeProject?.title ?? null,
