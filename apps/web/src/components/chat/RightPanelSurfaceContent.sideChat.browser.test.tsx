@@ -52,6 +52,7 @@ function Workspace({ child }: { child: string | null }) {
     <>
       <PaneComposer threadId={parentRef.threadId} />
       <RightPanelSurfaceContent
+        issuesSupported={false}
         sideChatParentPanel={{ openToolDiff: () => {}, runShellCommand: () => {} }}
         surface={
           child
