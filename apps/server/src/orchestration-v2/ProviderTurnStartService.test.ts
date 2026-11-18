@@ -1124,7 +1124,9 @@ function makeLocalCommandHarness(input: {
       ),
     ensureThread: fallbackEnsureThread,
   };
-  const startTurn = vi.fn((_turn: ProviderAdapter.ProviderAdapterV2TurnInput) => Effect.void);
+  const startTurn = vi.fn<ProviderAdapter.ProviderAdapterV2SessionRuntime["startTurn"]>(
+    () => Effect.void,
+  );
   const sideChatThread = {
     ...providerThread,
     nativeThreadRef: {

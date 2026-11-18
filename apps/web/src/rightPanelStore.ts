@@ -83,7 +83,6 @@ export type RightPanelSurface =
   | { id: "pull-requests"; kind: "pull-requests" }
   /** One tab per workspace repository branch, for checkouts that declare several repositories. */
   | { id: "workspace-pull-requests"; kind: "workspace-pull-requests" }
-  /** A side chat of this thread (Micro fork); the server's open side chats decide the set. */
   /**
    * An issue opened in the issues list's shared panel, or beside a thread. Like `pull-request`,
    * the reference lives in the id so several issues can stay open as peer tabs.
@@ -99,6 +98,7 @@ export type RightPanelSurface =
       key: string;
       url?: string;
     }
+  /** A side chat of this thread (Micro fork); the server's open side chats decide the set. */
   | { id: `side-chat:${string}`; kind: "side-chat"; threadId: ThreadId };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
