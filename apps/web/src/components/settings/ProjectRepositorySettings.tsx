@@ -1,3 +1,5 @@
+import { T, msg, useGT, useMessages } from "gt-react";
+import { m, type MessageResolver } from "../../i18n/messages";
 import { useAtomValue } from "@effect/atom-react";
 import { executeAtomQuery, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
@@ -22,14 +24,20 @@ import {
   updateRepositoryConfig,
 } from "./ProjectRepositorySettings.logic";
 
-function readContents(result: AsyncResult.AsyncResult<ProjectReadFileResult, unknown>): string {
+function readContents(
+  result: AsyncResult.AsyncResult<ProjectReadFileResult, unknown>,
+  resolve: MessageResolver = m,
+): string {
   if (result._tag === "Failure") {
     const error = Cause.squash(result.cause);
     if (isMissingProjectConfig(error)) return "{}\n";
-    throw new Error("Could not read t3.json. Check access to this checkout and reload.");
+    throw new Error(
+      resolve(msg("Could not read t3.json. Check access to this checkout and reload.")),
+    );
   }
-  if (result._tag !== "Success") throw new Error("Loading t3.json…");
-  if (result.value.truncated) throw new Error("t3.json is too large to edit in settings.");
+  if (result._tag !== "Success") throw new Error(resolve(msg("Loading t3.json…")));
+  if (result.value.truncated)
+    throw new Error(resolve(msg("t3.json is too large to edit in settings.")));
   return result.value.contents;
 }
 
@@ -40,6 +48,8 @@ export function ProjectRepositorySettings({
   environmentId: EnvironmentId;
   cwd: string;
 }) {
+  const gt = useGT();
+  const messages = useMessages();
   const fileAtom = projectEnvironment.readFile({
     environmentId,
     input: { cwd, relativePath: T3_PROJECT_FILE_NAME },
@@ -54,13 +64,13 @@ export function ProjectRepositorySettings({
   let contents = "{}";
   let loadError: string | null = null;
   try {
-    contents = readContents(result);
+    contents = readContents(result, messages);
   } catch (error) {
-    loadError = error instanceof Error ? error.message : "Could not read t3.json.";
+    loadError = error instanceof Error ? error.message : gt("Could not read t3.json.");
   }
   const file = parseT3ProjectFile(contents);
   if (!loadError && file === null)
-    loadError = "Fix the invalid t3.json before editing repository settings.";
+    loadError = gt("Fix the invalid t3.json before editing repository settings.");
   const paths = pathsDraft ?? file?.repositories?.paths?.join("\n") ?? "";
   const includeSubmodules = submodulesDraft ?? file?.repositories?.includeSubmodules ?? false;
   const dirty = pathsDraft !== null || submodulesDraft !== null;
@@ -93,7 +103,7 @@ export function ProjectRepositorySettings({
       if (written._tag !== "Success") {
         const error = squashAtomCommandFailure(written);
         setSaveError(
-          error instanceof Error ? error.message : "Could not save repository settings.",
+          error instanceof Error ? error.message : gt("Could not save repository settings."),
         );
       } else {
         appAtomRegistry.refresh(fileAtom);
@@ -107,21 +117,25 @@ export function ProjectRepositorySettings({
         appAtomRegistry.refresh(projectEnvironment.listEntries({ environmentId, input: { cwd } }));
         setPathsDraft(null);
         setSubmodulesDraft(null);
-        setSaveMessage("Saved to this checkout’s t3.json.");
+        setSaveMessage(gt("Saved to this checkout’s t3.json."));
       }
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "Could not save repository settings.");
+      setSaveError(
+        error instanceof Error ? error.message : gt("Could not save repository settings."),
+      );
     }
     setSaving(false);
   };
   return (
     <>
       <SettingsRow
-        title="Repository paths"
-        description="One relative path per line. Use projects/* to include immediate child repositories. Saved in this checkout’s t3.json; other worktrees are not discovered."
+        title={gt("Repository paths")}
+        description={gt(
+          "One relative path per line. Use projects/* to include immediate child repositories. Saved in this checkout’s t3.json; other worktrees are not discovered.",
+        )}
         control={
           <Textarea
-            aria-label="Repository paths"
+            aria-label={gt("Repository paths")}
             placeholder="projects/*"
             value={paths}
             disabled={disabled}
@@ -136,11 +150,13 @@ export function ProjectRepositorySettings({
         }
       />
       <SettingsRow
-        title="Include Git submodules"
-        description="Include repositories declared in .gitmodules. Uninitialized submodules appear as unavailable."
+        title={gt("Include Git submodules")}
+        description={gt(
+          "Include repositories declared in .gitmodules. Uninitialized submodules appear as unavailable.",
+        )}
         control={
           <Switch
-            aria-label="Include Git submodules"
+            aria-label={gt("Include Git submodules")}
             checked={includeSubmodules}
             disabled={disabled}
             onCheckedChange={(value) => {
@@ -173,10 +189,10 @@ export function ProjectRepositorySettings({
             appAtomRegistry.refresh(fileAtom);
           }}
         >
-          Reload
+          <T>Reload</T>
         </Button>
         <Button size="sm" disabled={disabled || !dirty} onClick={() => void save()}>
-          {saving ? "Saving…" : "Save repository settings"}
+          {saving ? gt("Saving…") : gt("Save repository settings")}
         </Button>
       </div>
     </>

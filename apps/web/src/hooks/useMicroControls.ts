@@ -1,3 +1,4 @@
+import { msg, useGT, useMessages } from "gt-react";
 import { useEffect, useEffectEvent, useState } from "react";
 import { flushSync } from "react-dom";
 
@@ -6,14 +7,14 @@ import { markOpenToEffort } from "../components/chat/composerEventScope";
 import { isTerminalFocused } from "../lib/terminalFocus";
 
 const CONTROL_LABELS = new Map([
-  ["project", "Project"],
-  ["environment", "Environment"],
-  ["workspace", "Workspace"],
-  ["branch", "Source branch"],
-  ["model", "Model"],
-  ["reasoning", "Reasoning"],
-  ["permissions", "Permissions"],
-  ["options", "Model and permissions"],
+  ["project", msg("Project")],
+  ["environment", msg("Environment")],
+  ["workspace", msg("Workspace")],
+  ["branch", msg("Source branch")],
+  ["model", msg("Model")],
+  ["reasoning", msg("Reasoning")],
+  ["permissions", msg("Permissions")],
+  ["options", msg("Model and permissions")],
 ]);
 const CONTROL_SELECTOR = "[data-micro-dial-control]";
 const POPUP_SELECTOR = "[data-micro-dial-popup]";
@@ -42,6 +43,8 @@ export function useMicroControls(options: {
   settleThread: () => boolean;
   toggleTerminal: () => boolean;
 }) {
+  const gt = useGT();
+  const messages = useMessages();
   const [hint, updateHint] = useState<{ scope: string | null; text: string } | null>(null);
   const focusComposer = useEffectEvent(options.focusComposer);
   const scroll = useEffectEvent(options.scroll);
@@ -160,7 +163,7 @@ export function useMicroControls(options: {
         }
         blurFrame = null;
       });
-      setHint("Dial: scroll · Press for latest message");
+      setHint(gt("Dial: scroll · Press for latest message"));
     }
 
     const controller = createMicroDialController({
@@ -175,7 +178,11 @@ export function useMicroControls(options: {
         const control = controls().find((candidate) => candidate.id === id)?.element;
         if (control) {
           control.dataset.microDialHighlighted = "true";
-          setHint(`${CONTROL_LABELS.get(id ?? "") ?? "Settings"} · Press to choose`);
+          setHint(
+            gt("{control} · Press to choose", {
+              control: messages(CONTROL_LABELS.get(id ?? "") ?? msg("Settings")),
+            }),
+          );
         } else {
           setHint(null);
         }
@@ -187,14 +194,18 @@ export function useMicroControls(options: {
         if (id === "reasoning" && control.dataset.microDialControl === "model")
           markOpenToEffort(control);
         flushSync(() => control.click());
-        setHint(`${CONTROL_LABELS.get(id) ?? "Settings"} · Turn to choose · Press to confirm`);
+        setHint(
+          gt("{control} · Turn to choose · Press to confirm", {
+            control: messages(CONTROL_LABELS.get(id) ?? msg("Settings")),
+          }),
+        );
       },
       movePicker: (direction) => pickerKey(direction === 1 ? "ArrowDown" : "ArrowUp"),
       confirmPicker: () => {
         pickerKey("Enter");
         if (!popup()) {
           focusComposer();
-          setHint("Turn to choose a setting · Down to scroll");
+          setHint(gt("Turn to choose a setting · Down to scroll"));
         }
       },
       closePicker: () => {
@@ -213,16 +224,16 @@ export function useMicroControls(options: {
         focusComposer();
         const editor = root.querySelector<HTMLElement>(EDITOR_SELECTOR);
         if (!editor || !available(editor)) controls()[0]?.element.focus({ preventScroll: true });
-        setHint("Turn to choose a setting · Down to scroll");
+        setHint(gt("Turn to choose a setting · Down to scroll"));
       },
       blurComposer: leaveSettings,
       scroll: (direction) => {
         scroll(direction);
-        setHint("Dial: scroll · Press for latest message");
+        setHint(gt("Dial: scroll · Press for latest message"));
       },
       latest: () => {
         latest();
-        setHint("Latest message · Down to focus chat");
+        setHint(gt("Latest message · Down to focus chat"));
       },
     });
 
@@ -270,7 +281,7 @@ export function useMicroControls(options: {
       switch (action) {
         case "latest-message":
           latest();
-          setHint("Latest message · Down to focus chat");
+          setHint(gt("Latest message · Down to focus chat"));
           return true;
         case "settle-thread":
           return settleThread();
@@ -289,7 +300,7 @@ export function useMicroControls(options: {
       if (blurFrame !== null) window.cancelAnimationFrame(blurFrame);
       clearHighlight();
     };
-  }, [options.scope, options.root]);
+  }, [options.scope, options.root, gt, messages]);
 
   return hint?.scope === options.scope ? hint.text : null;
 }

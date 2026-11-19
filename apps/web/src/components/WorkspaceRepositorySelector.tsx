@@ -1,3 +1,5 @@
+import { msg, useGT, useMessages } from "gt-react";
+import { m, type MessageResolver } from "../i18n/messages";
 import type { WorkspaceRepository, VcsStatusResult } from "@t3tools/contracts";
 import { FolderGit2Icon } from "lucide-react";
 
@@ -21,6 +23,8 @@ export function WorkspaceRepositorySelector({
   selectedPath: string | null;
   onSelect: (path: string) => void;
 }) {
+  const gt = useGT();
+  const messages = useMessages();
   if (repositories.length === 0 || (repositories.length === 1 && selectedPath !== null))
     return null;
   const statusesByPath = new Map(statuses.map((entry) => [entry.repository.path, entry]));
@@ -30,10 +34,10 @@ export function WorkspaceRepositorySelector({
       <MenuTrigger
         render={<ThreadDetailsControl part="select" />}
         className="min-w-0 max-w-full"
-        aria-label="Git repository"
+        aria-label={gt("Git repository")}
       >
         <FolderGit2Icon className={THREAD_DETAILS_PANEL_ICON_CLASS} />
-        <span className="min-w-0 truncate">{selected?.name ?? "Select repository"}</span>
+        <span className="min-w-0 truncate">{selected?.name ?? gt("Select repository")}</span>
       </MenuTrigger>
       <MenuPopup align="start">
         {repositories.map((repository) => {
@@ -46,13 +50,14 @@ export function WorkspaceRepositorySelector({
             >
               <span className="min-w-0 flex-1 truncate">
                 {repository.name}
-                {repository.kind === "root" ? " (workspace)" : ""}
+                {repository.kind === "root" ? gt(" (workspace)") : ""}
               </span>
               <span className="ml-3 text-xs text-muted-foreground">
                 {repositoryStatusLabel(
                   repository.available,
                   state?.status ?? null,
                   state?.error ?? null,
+                  messages,
                 )}
               </span>
             </MenuItem>
@@ -67,9 +72,11 @@ function repositoryStatusLabel(
   available: boolean,
   status: VcsStatusResult | null,
   error: string | null,
+  resolve: MessageResolver = m,
 ): string {
-  if (!available) return "Unavailable";
-  if (error) return "Status unavailable";
-  if (status) return `${status.refName ?? "Detached"} · ${status.workingTree.files.length}`;
-  return "Loading…";
+  if (!available) return resolve(msg("Unavailable"));
+  if (error) return resolve(msg("Status unavailable"));
+  if (status)
+    return `${status.refName ?? resolve(msg("Detached"))} · ${status.workingTree.files.length}`;
+  return resolve(msg("Loading…"));
 }

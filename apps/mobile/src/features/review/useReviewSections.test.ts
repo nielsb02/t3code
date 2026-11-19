@@ -37,6 +37,10 @@ vi.mock("@t3tools/client-runtime/state/thread-checkpoints", async (original) => 
   ...(await original<typeof import("@t3tools/client-runtime/state/thread-checkpoints")>()),
   deriveThreadCheckpointSummaries: () => state.checkpoints,
 }));
+vi.mock("gt-react-native", async (importOriginal) => {
+  const gt = await importOriginal<typeof import("gt-react-native")>();
+  return { ...gt, useMessages: () => gt.mFallback };
+});
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => state.turnDiffs }));
 vi.mock("react", () => ({
   useCallback: <A>(callback: A) => callback,
