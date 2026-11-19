@@ -1,3 +1,4 @@
+import { T, Var, useGT } from "gt-react";
 import type {
   ProjectId,
   ScopedThreadRef,
@@ -42,6 +43,7 @@ export function WorkspacePullRequestsPanel({
   isPending: boolean;
   onRefresh: () => void;
 }) {
+  const gt = useGT();
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const statusesByPath = new Map(statuses.map((entry) => [entry.repository.path, entry]));
   const initial = initialRepositoryPath ? statusesByPath.get(initialRepositoryPath) : undefined;
@@ -63,14 +65,14 @@ export function WorkspacePullRequestsPanel({
     content = (
       <p className="p-4 text-xs text-muted-foreground">
         {isPending
-          ? "Loading workspace repositories…"
-          : "This repository is no longer in the workspace."}
+          ? gt("Loading workspace repositories…")
+          : gt("This repository is no longer in the workspace.")}
       </p>
     );
   } else if (!repository.available) {
     content = (
       <p className="p-4 text-xs text-muted-foreground">
-        This repository is unavailable. Initialize it in the workspace, then refresh.
+        <T>This repository is unavailable. Initialize it in the workspace, then refresh.</T>
       </p>
     );
   } else if (state?.error) {
@@ -100,11 +102,13 @@ export function WorkspacePullRequestsPanel({
       />
     );
   } else {
-    let message = "Checking this branch for a pull request…";
+    let message = gt("Checking this branch for a pull request…");
     if (state?.status) {
       message = pr
-        ? "The repository remote could not be resolved."
-        : `No pull request for ${state.status.refName ?? "this checkout"}.`;
+        ? gt("The repository remote could not be resolved.")
+        : gt("No pull request for {branch}.", {
+            branch: state.status.refName ?? gt("this checkout"),
+          });
     }
     content = (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center text-xs text-muted-foreground">
@@ -115,8 +119,10 @@ export function WorkspacePullRequestsPanel({
         {state?.status && !pr && (
           <>
             <p className="max-w-xs">
-              Use Git actions to open a pull request for {repository.name}, or choose another
-              repository above.
+              <T>
+                Use Git actions to open a pull request for <Var>{repository.name}</Var>, or choose
+                another repository above.
+              </T>
             </p>
             <GitActionsControl
               key={repository.cwd}
@@ -137,7 +143,7 @@ export function WorkspacePullRequestsPanel({
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-2">
         <Tabs.List
-          aria-label="Workspace pull requests"
+          aria-label={gt("Workspace pull requests")}
           className="flex min-w-0 flex-1 overflow-x-auto"
         >
           {repositories.map((entry) => {
@@ -155,7 +161,7 @@ export function WorkspacePullRequestsPanel({
           })}
         </Tabs.List>
         <Button size="xs" variant="ghost" onClick={onRefresh}>
-          Refresh
+          <T>Refresh</T>
         </Button>
       </div>
       {error && (

@@ -1,7 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFSP from "node:fs/promises";
 
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as FileSystem from "effect/FileSystem";
@@ -205,6 +207,18 @@ export const make = Effect.gen(function* () {
     };
   };
 
+  // Refreshing goes through `get`, which restarts the map's idle timer, so idleness is measured
+  // from the last search, not the last refresh.
+  const lastSearchedAt = new Map<string, number>();
+  const indexIdleMillis = Duration.toMillis(WorkspaceSearchIndex.WORKSPACE_INDEX_IDLE_TTL);
+  const markSearched = (indexKey: string, now: number) => {
+    // A record older than the timeout counts the same as none, so it can go.
+    for (const [key, searchedAt] of lastSearchedAt) {
+      if (now - searchedAt >= indexIdleMillis) lastSearchedAt.delete(key);
+    }
+    lastSearchedAt.set(indexKey, now);
+  };
+
   const refresh: WorkspaceEntries["Service"]["refresh"] = Effect.fn("WorkspaceEntries.refresh")(
     function* (cwd) {
       const normalizedCwd = yield* normalizeWorkspaceRoot(cwd).pipe(
@@ -219,6 +233,12 @@ export const make = Effect.gen(function* () {
         for (const variant of WorkspaceSearchIndex.WORKSPACE_SEARCH_INDEX_VARIANTS) {
           const indexKey = WorkspaceSearchIndex.workspaceSearchIndexKey(memberCwd, variant);
           if (!(yield* RcMap.has(workspaceSearchIndexes.rcMap, indexKey))) {
+            continue;
+          }
+          const searchedAt = lastSearchedAt.get(indexKey) ?? 0;
+          if ((yield* Clock.currentTimeMillis) - searchedAt >= indexIdleMillis) {
+            lastSearchedAt.delete(indexKey);
+            yield* workspaceSearchIndexes.invalidate(indexKey);
             continue;
           }
           const recoverRefreshFailure = Effect.fn("WorkspaceEntries.recoverRefreshFailure")(
@@ -308,6 +328,10 @@ export const make = Effect.gen(function* () {
         all,
         (repository) =>
           Effect.gen(function* () {
+            markSearched(
+              WorkspaceSearchIndex.workspaceSearchIndexKey(repository.cwd, "paths"),
+              yield* Clock.currentTimeMillis,
+            );
             const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
             const owns = ownership(repository, all);
             const repositoryPrefix = repository.path.toLowerCase();
@@ -462,6 +486,10 @@ export const make = Effect.gen(function* () {
       all,
       (repository) =>
         Effect.gen(function* () {
+          markSearched(
+            WorkspaceSearchIndex.workspaceSearchIndexKey(repository.cwd, "content"),
+            yield* Clock.currentTimeMillis,
+          );
           const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
           const owns = ownership(repository, all);
           const result = yield* searchIndex.searchContents(input);
@@ -691,6 +719,10 @@ export const make = Effect.gen(function* () {
         all,
         (repository) =>
           Effect.gen(function* () {
+            markSearched(
+              WorkspaceSearchIndex.workspaceSearchIndexKey(repository.cwd, "paths"),
+              yield* Clock.currentTimeMillis,
+            );
             const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
             const owns = ownership(repository, all);
             const result = yield* searchIndex.list();

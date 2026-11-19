@@ -1,3 +1,4 @@
+import { T, Var, useGT } from "gt-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { presentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { ScopedThreadRef } from "@t3tools/contracts";
@@ -25,7 +26,7 @@ export function SideChatMenuItems(props: { readonly parentRef: ScopedThreadRef }
       <MenuSub>
         <MenuSubTrigger>
           <HistoryIcon />
-          Closed side chats
+          <T>Closed side chats</T>
         </MenuSubTrigger>
         <MenuSubPopup className="w-72 max-w-72">
           <ClosedSideChats parentRef={props.parentRef} />
@@ -38,6 +39,7 @@ export function SideChatMenuItems(props: { readonly parentRef: ScopedThreadRef }
 /** Mounted only while the submenu is open, so the archive is read on demand. */
 function ClosedSideChats(props: { readonly parentRef: ScopedThreadRef }) {
   const { parentRef } = props;
+  const gt = useGT();
   const environmentIds = (() => [parentRef.environmentId])();
   const { snapshots, isLoading, error } = useArchivedThreadSnapshots(environmentIds);
   const live = useThreadShells();
@@ -71,10 +73,10 @@ function ClosedSideChats(props: { readonly parentRef: ScopedThreadRef }) {
     return (
       <MenuItem disabled>
         {isLoading
-          ? "Loading…"
+          ? gt("Loading…")
           : error
-            ? "Could not load closed side chats"
-            : "No closed side chats"}
+            ? gt("Could not load closed side chats")
+            : gt("No closed side chats")}
       </MenuItem>
     );
   }
@@ -83,16 +85,17 @@ function ClosedSideChats(props: { readonly parentRef: ScopedThreadRef }) {
     const localApi = readLocalApi();
     if (confirmThreadDelete && localApi) {
       const confirmed = await localApi.dialogs.confirm(
-        [`Delete side chat "${title}"?`, "This permanently clears its conversation history."].join(
-          "\n",
-        ),
+        [
+          gt('Delete side chat "{title}"?', { title }),
+          gt("This permanently clears its conversation history."),
+        ].join("\n"),
         { variant: "destructive" },
       );
       if (!confirmed) return;
     }
     const result = await deleteThread(sideChatRef);
     if (result._tag === "Failure") {
-      toastManager.add({ type: "error", title: "Could not delete the side chat" });
+      toastManager.add({ type: "error", title: gt("Could not delete the side chat") });
     }
   };
 
@@ -108,7 +111,7 @@ function ClosedSideChats(props: { readonly parentRef: ScopedThreadRef }) {
     for (const threadId of chain.toReversed()) {
       const result = await unarchiveThread(scopeThreadRef(sideChatRef.environmentId, threadId));
       if (result._tag === "Failure") {
-        toastManager.add({ type: "error", title: "Could not reopen the side chat" });
+        toastManager.add({ type: "error", title: gt("Could not reopen the side chat") });
         return;
       }
     }
@@ -117,7 +120,7 @@ function ClosedSideChats(props: { readonly parentRef: ScopedThreadRef }) {
     } else {
       toastManager.add({
         type: "error",
-        title: "The reopened side chat did not reach this client",
+        title: gt("The reopened side chat did not reach this client"),
       });
     }
   };
@@ -129,12 +132,14 @@ function ClosedSideChats(props: { readonly parentRef: ScopedThreadRef }) {
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate">{sideChat.title}</span>
           <span className="text-muted-foreground text-xs">
-            Closed {formatRelativeTimeLabel(sideChat.archivedAt ?? sideChat.createdAt)}
+            <T>
+              Closed <Var>{formatRelativeTimeLabel(sideChat.archivedAt ?? sideChat.createdAt)}</Var>
+            </T>
           </span>
         </span>
         <button
           type="button"
-          aria-label={`Delete ${sideChat.title}`}
+          aria-label={gt("Delete {title}", { title: sideChat.title })}
           className="text-muted-foreground hover:text-destructive -me-1 rounded p-1"
           onClick={(event) => {
             // Deleting is the only way a side chat goes away; it keeps the menu open.

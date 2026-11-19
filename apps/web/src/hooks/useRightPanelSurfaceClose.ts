@@ -4,10 +4,12 @@ import {
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
+import { getTerminalLabel } from "@t3tools/shared/terminalLabelsCopy";
 import { agentControlledBrowserCloseConfirmation } from "../components/ChatView.logic";
 import { closePreviewSession } from "../components/preview/closePreviewSession";
 import { useThreadTerminalActions } from "../components/terminal/useThreadTerminalActions";
+import { msg } from "gt-react";
+import { m } from "../i18n/messages";
 import { confirmTerminalClose } from "../lib/terminalCloseConfirm";
 import { focusPanelTerminalAfterClose } from "../lib/terminalFocus";
 import { readLocalApi } from "../localApi";
@@ -105,8 +107,8 @@ export function useRightPanelSurfaceClose(input: {
             } else {
               toastManager.add({
                 type: "error",
-                title: "Could not close the side chat",
-                description: "Stop its running turn first.",
+                title: m(msg("Could not close the side chat")),
+                description: m(msg("Stop its running turn first.")),
               });
             }
           },
@@ -126,7 +128,7 @@ export function useRightPanelSurfaceClose(input: {
     focusPanelTerminalAfterClose(threadRef, activeId);
   };
   const labelFor = (terminalId: string) =>
-    terminalLabelsById.get(terminalId) ?? getTerminalLabel(terminalId);
+    terminalLabelsById.get(terminalId) ?? getTerminalLabel(terminalId, m);
   const closeSurfaces = (toClose: readonly RightPanelSurface[]) => {
     if (!threadRef) return;
     closeAfterAgentBrowserConfirmation(toClose, () => {

@@ -1,3 +1,4 @@
+import { m, type MessageResolver } from "../../i18n/messages";
 import { buildReviewParsedDiff, type ReviewParsedDiff } from "./reviewModel";
 
 export interface WorkspaceReviewDiff {
@@ -9,6 +10,7 @@ export interface WorkspaceReviewDiff {
 export function buildWorkspaceReviewDiff(
   entries: readonly WorkspaceReviewDiff[],
   cacheScope: string,
+  resolve: MessageResolver = m,
 ): ReviewParsedDiff {
   const files: Extract<ReviewParsedDiff, { kind: "files" }>["files"][number][] = [];
   const notices: string[] = [];
@@ -18,7 +20,7 @@ export function buildWorkspaceReviewDiff(
       notices.push(
         `${entry.path}: preview is incomplete. Select this repository to load its full diff.`,
       );
-    const parsed = buildReviewParsedDiff(entry.diff, `${cacheScope}:${entry.path}`);
+    const parsed = buildReviewParsedDiff(entry.diff, `${cacheScope}:${entry.path}`, resolve);
     if (parsed.kind === "raw") {
       hasRawPatch = true;
       notices.push(`${entry.path}: ${parsed.reason}`);
