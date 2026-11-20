@@ -334,8 +334,9 @@ Close a side chat by closing its tab; the notice offers Undo. Settling or
 archiving the thread, including automatic settlement, closes all of its side
 chats. Closed side chats stay listed under **+ → Closed side chats** in the
 thread's right panel, where you can reopen or delete them. They are never deleted
-automatically, except that deleting the thread deletes its side chats too. Side
-chats do not appear in the sidebar or under Settings → Archived. New side chats
+automatically, except that deleting the thread deletes its side chats too. Reopening
+an archived thread also reopens the side chats archived with it, while ones closed
+earlier stay closed. Side chats do not appear in the sidebar or under Settings → Archived. New side chats
 cannot be nested. Nested side chats from older builds remain available in the
 parent thread's tabs and closed-chat menu.
 
