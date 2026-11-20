@@ -232,6 +232,7 @@ export const make = Effect.gen(function* () {
       workspacePullRequestLinks: true,
       issues: true,
       linkedThreadRefreshes: true,
+      issueLinkedThreads: true,
       sideChats: true,
       vcsBranchStatus: true,
       inlineMessageContext: true,
