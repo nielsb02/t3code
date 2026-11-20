@@ -3071,10 +3071,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "on the computer that opened this page"
-      ]
+      "c": [" ", "on the computer that opened this page"]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3086,10 +3083,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "· whoever runs it gets this access"
-      ]
+      "c": [" ", "· whoever runs it gets this access"]
     }
   ],
   "c54cc9c75db9dc58": "Only approve a sign-in you just started.",
@@ -11446,7 +11440,6 @@
   "3af3a34e376082c7": "Project defaults and overrides",
   "d740ad2790bbe164": "model workspace environments projects inheritance checkout",
   "67cd0f5e8f1978a9": "Project overview",
-  "91073ab45df5a1af": "name icon emoji image checkout remove delete",
   "955eee00b277a087": "Default model",
   "a4b39948180f0b96": "new thread project provider reasoning effort",
   "a4946fb2bb1e9537": "fallback agent provider out of usage new threads",

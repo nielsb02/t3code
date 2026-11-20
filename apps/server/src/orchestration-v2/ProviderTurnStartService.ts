@@ -593,10 +593,12 @@ export const layer: Layer.Layer<
       );
       const sideChatHandoff = run.freshContext === true ? undefined : carriedSideChatHandoffs[0];
       const sideChatFrameHandoff =
-        sideChatHandoff ??
-        projection.contextHandoffs.findLast(
-          (handoff) => isSideChatHandoff(handoff) && handoff.status === "ready",
-        );
+        run.freshContext === true
+          ? undefined
+          : (sideChatHandoff ??
+            projection.contextHandoffs.findLast(
+              (handoff) => isSideChatHandoff(handoff) && handoff.status === "ready",
+            ));
       const nativeForkTransfer = projection.contextTransfers.find(
         (transfer) =>
           transfer.type === "fork" &&

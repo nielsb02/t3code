@@ -3071,10 +3071,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "no computador que abriu esta página"
-      ]
+      "c": [" ", "no computador que abriu esta página"]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3086,10 +3083,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "· quem executar recebe este acesso"
-      ]
+      "c": [" ", "· quem executar recebe este acesso"]
     }
   ],
   "c54cc9c75db9dc58": "Aprove apenas um login que você acabou de iniciar.",
@@ -11435,7 +11429,6 @@
   "3af3a34e376082c7": "Padrões e substituições do projeto",
   "d740ad2790bbe164": "modelo workspace ambientes projetos herança checkout",
   "67cd0f5e8f1978a9": "Visão geral do projeto",
-  "91073ab45df5a1af": "nome ícone emoji imagem checkout remover excluir",
   "955eee00b277a087": "Modelo padrão",
   "a4b39948180f0b96": "nova thread projeto provedor esforço de raciocínio",
   "a4946fb2bb1e9537": "agente alternativo provedor limite de uso novas threads",

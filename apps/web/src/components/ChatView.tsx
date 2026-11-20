@@ -2975,7 +2975,7 @@ function ChatViewContent(props: ChatViewProps) {
                 : null;
   const openSideChatStable = useStableCallback(() => void sideChat.open());
   const sendSideChatStable = useStableCallback((message: SideChatMessage | undefined) =>
-    sideChat.open({ message }),
+    sideChat.open(message === undefined ? {} : { message }),
   );
   const { onConfirmRevertStable, onForkFromRunStable, onRevertTimelineTurnStable } =
     useTimelineRewind({

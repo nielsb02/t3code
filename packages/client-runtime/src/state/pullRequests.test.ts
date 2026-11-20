@@ -3183,7 +3183,7 @@ it.effect("keeps workspace reads and cached edits isolated to their thread", () 
       expect(
         (yield* AtomRegistry.getResult(registry, explicit, { suspendOnWaiting: true })).title,
       ).toBe("one");
-      const added = yield* Effect.promise(() =>
+      const added = yield* Effect.exit(
         atoms.setLabels.run(registry, {
           ...target,
           input: { ...target.input, labels: ["new"], applied: true },

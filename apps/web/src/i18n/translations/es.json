@@ -3071,10 +3071,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "en el ordenador que abrió esta página"
-      ]
+      "c": [" ", "en el ordenador que abrió esta página"]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3086,10 +3083,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "· quien lo ejecute obtiene este acceso"
-      ]
+      "c": [" ", "· quien lo ejecute obtiene este acceso"]
     }
   ],
   "c54cc9c75db9dc58": "Aprueba solo un inicio de sesión que acabes de iniciar.",
@@ -11431,7 +11425,6 @@
   "3af3a34e376082c7": "Valores predeterminados y anulaciones del proyecto",
   "d740ad2790bbe164": "modelo espacio de trabajo entornos proyectos herencia checkout",
   "67cd0f5e8f1978a9": "Resumen del proyecto",
-  "91073ab45df5a1af": "nombre icono emoji imagen checkout quitar eliminar",
   "955eee00b277a087": "Modelo predeterminado",
   "a4b39948180f0b96": "hilo nuevo proyecto proveedor esfuerzo de razonamiento",
   "a4946fb2bb1e9537": "alternativo agente proveedor sin uso hilos nuevos",

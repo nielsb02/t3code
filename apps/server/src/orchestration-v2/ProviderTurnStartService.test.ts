@@ -2492,7 +2492,15 @@ effectIt.effect.each([
 
       yield* harness.start;
 
-      expect(harness.startTurn.mock.calls[0]?.[0].message.text).toBe("Start over");
+      expect(harness.startTurn.mock.calls[0]?.[0].message.text).toBe(
+        withInlineContext(
+          ContextHandoffService.makeSideChatContext({
+            parentThreadId: ThreadId.make("side-chat-parent"),
+            digest: [],
+          }),
+          "Start over",
+        ),
+      );
       expect(
         harness.projection().contextHandoffs.map((handoff) => [handoff.status, handoff.delivery]),
       ).toEqual([

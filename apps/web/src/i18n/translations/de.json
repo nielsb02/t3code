@@ -3072,10 +3072,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "auf dem Computer, der diese Seite geöffnet hat"
-      ]
+      "c": [" ", "auf dem Computer, der diese Seite geöffnet hat"]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3087,10 +3084,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "· wer es ausführt, erhält diesen Zugriff"
-      ]
+      "c": [" ", "· wer es ausführt, erhält diesen Zugriff"]
     }
   ],
   "c54cc9c75db9dc58": "Genehmige nur eine Anmeldung, die du gerade selbst gestartet hast.",
@@ -11438,7 +11432,6 @@
   "3af3a34e376082c7": "Projektstandards und Überschreibungen",
   "d740ad2790bbe164": "modell arbeitsbereich umgebungen projekte vererbung checkout",
   "67cd0f5e8f1978a9": "Projektübersicht",
-  "91073ab45df5a1af": "name symbol emoji bild checkout entfernen löschen",
   "955eee00b277a087": "Standardmodell",
   "a4b39948180f0b96": "neuer thread projekt anbieter reasoning aufwand",
   "a4946fb2bb1e9537": "ausweich agent anbieter nutzung aufgebraucht neue threads",
