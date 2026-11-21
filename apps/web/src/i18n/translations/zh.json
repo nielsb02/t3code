@@ -12309,5 +12309,11 @@
   "741333e29e26c86d": "Include repositories declared in .gitmodules. Uninitialized submodules appear as unavailable.",
   "08bae184381ed208": "Save repository settings",
   "a5548762d723a85b": "Repositories · {path}",
-  "2738b1d431e18323": "name icon emoji image checkout remove delete repositories repository paths polyrepo submodules t3.json"
+  "2738b1d431e18323": "name icon emoji image checkout remove delete repositories repository paths polyrepo submodules t3.json",
+  "55390eede35b4c5b": "主会话空闲时可用。",
+  "adb7e02a95cde08e": "有完整回复后可用。",
+  "528a915a5a8da499": "已带回",
+  "cadee16eb4a6a398": "你下次在主会话发消息时，会附带这段侧聊。",
+  "46e115f4d73fdaad": "无法带回侧聊",
+  "9bd31b8911a11607": "带回主会话"
 }

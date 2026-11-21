@@ -12291,5 +12291,11 @@
   "741333e29e26c86d": "Include repositories declared in .gitmodules. Uninitialized submodules appear as unavailable.",
   "08bae184381ed208": "Save repository settings",
   "a5548762d723a85b": "Repositories · {path}",
-  "2738b1d431e18323": "name icon emoji image checkout remove delete repositories repository paths polyrepo submodules t3.json"
+  "2738b1d431e18323": "name icon emoji image checkout remove delete repositories repository paths polyrepo submodules t3.json",
+  "55390eede35b4c5b": "Tillgängligt när huvudtråden är inaktiv.",
+  "adb7e02a95cde08e": "Tillgängligt efter ett färdigt svar.",
+  "528a915a5a8da499": "Hämtad tillbaka",
+  "cadee16eb4a6a398": "Huvudtråden får den här sidochatten med ditt nästa meddelande där.",
+  "46e115f4d73fdaad": "Kunde inte hämta tillbaka sidochatten",
+  "9bd31b8911a11607": "Hämta tillbaka"
 }

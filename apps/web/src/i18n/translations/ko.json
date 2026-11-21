@@ -12228,5 +12228,11 @@
   "741333e29e26c86d": "Include repositories declared in .gitmodules. Uninitialized submodules appear as unavailable.",
   "08bae184381ed208": "Save repository settings",
   "a5548762d723a85b": "Repositories · {path}",
-  "2738b1d431e18323": "name icon emoji image checkout remove delete repositories repository paths polyrepo submodules t3.json"
+  "2738b1d431e18323": "name icon emoji image checkout remove delete repositories repository paths polyrepo submodules t3.json",
+  "55390eede35b4c5b": "기본 스레드가 유휴 상태일 때 사용할 수 있습니다.",
+  "adb7e02a95cde08e": "답변이 끝난 후 사용할 수 있습니다.",
+  "528a915a5a8da499": "다시 가져옴",
+  "cadee16eb4a6a398": "기본 스레드에서 다음 메시지를 보낼 때 이 사이드 채팅이 함께 전달됩니다.",
+  "46e115f4d73fdaad": "사이드 채팅을 다시 가져올 수 없습니다",
+  "9bd31b8911a11607": "다시 가져오기"
 }

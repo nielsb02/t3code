@@ -108,7 +108,9 @@ function setup(branch: string | null = null) {
   state.child = false;
   state.status = null;
   state.checkoutDisabled = null;
-  state.branches = [{ name: "release/stable", current: false, isDefault: false, worktreePath: null }];
+  state.branches = [
+    { name: "release/stable", current: false, isDefault: false, worktreePath: null },
+  ];
   state.branch = branch;
   state.inputs.clear();
   state.actions.clear();

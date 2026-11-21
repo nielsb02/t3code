@@ -327,8 +327,14 @@ When a side chat finds something the thread should know, ask it to report back.
 Its agent can send the thread a short message, which steers a running turn or
 starts one. You can also choose **Bring back** in the side chat to give the thread
 this conversation with your next message there. Bring back becomes available after
-a finished reply, once the thread is idle and its queue is clear. It reports back on its own only when a finding clearly changes the
-thread's current work.
+a finished reply, once the thread is idle and its queue is clear. It reports back
+on its own only when a finding clearly changes the thread's current work.
+
+You can also type `@` and a word from the side chat's title in the main thread's
+composer. The message gets a link to the side chat, and the agent reads as much of
+it as it needs. This works while the thread is busy, once you have sent a message
+in the side chat. An agent on an external OpenCode server cannot read the link, so
+put the details in your message instead.
 
 Close a side chat by closing its tab; the notice offers Undo. Settling or
 archiving the thread, including automatic settlement, closes all of its side

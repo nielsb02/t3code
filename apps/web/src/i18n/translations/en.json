@@ -12293,5 +12293,11 @@
   "741333e29e26c86d": "Include repositories declared in .gitmodules. Uninitialized submodules appear as unavailable.",
   "08bae184381ed208": "Save repository settings",
   "a5548762d723a85b": "Repositories · {path}",
-  "2738b1d431e18323": "name icon emoji image checkout remove delete repositories repository paths polyrepo submodules t3.json"
+  "2738b1d431e18323": "name icon emoji image checkout remove delete repositories repository paths polyrepo submodules t3.json",
+  "55390eede35b4c5b": "Available when the main thread is idle.",
+  "adb7e02a95cde08e": "Available after a finished reply.",
+  "528a915a5a8da499": "Brought back",
+  "cadee16eb4a6a398": "The main thread gets this side chat with your next message there.",
+  "46e115f4d73fdaad": "Could not bring back the side chat",
+  "9bd31b8911a11607": "Bring back"
 }
