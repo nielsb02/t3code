@@ -18,14 +18,22 @@ const state = vi.hoisted(() => ({
     name: string;
     current: boolean;
     isDefault: boolean;
-    worktreePath: string;
+    worktreePath: string | null;
   }>,
   inputs: new Map<string, InputProps>(),
   actions: new Map<string, ActionProps>(),
   worktrees: [] as Array<{ baseBranch: string; newBranch: string }>,
+  focused: true,
+  goBackCalls: 0,
+  gitResult: Promise.resolve<object | null>(null),
 }));
 
-vi.mock("@react-navigation/native", () => ({ useNavigation: () => ({ goBack() {} }) }));
+vi.mock("@react-navigation/native", () => ({
+  useNavigation: () => ({
+    goBack: () => state.goBackCalls++,
+    isFocused: () => state.focused,
+  }),
+}));
 vi.mock("../../../components/ui/SheetHeader", () => ({ SheetHeader: () => null }));
 vi.mock("../../../components/ui/FitSheet", () => ({
   FitSheet: ({ children }: { children: ReactNode }) => children,
@@ -42,8 +50,9 @@ vi.mock("../../../components/ui/ListSection", () => ({
   ListSection: ({ children }: { children: ReactNode }) => children,
 }));
 vi.mock("../../../components/ui/ListChoiceRow", () => ({
-  ListChoiceRow: ({ disabled }: { disabled: boolean }) => {
-    state.checkoutDisabled = disabled;
+  ListChoiceRow: (props: ActionProps) => {
+    state.actions.set(props.label, props);
+    state.checkoutDisabled = props.disabled;
     return null;
   },
 }));
@@ -75,9 +84,11 @@ vi.mock("../../../state/use-selected-thread-git-state", () => ({
 vi.mock("../../../state/use-selected-thread-git-actions", () => ({
   useSelectedThreadGitActions: () => ({
     canChangeThreadBranch: true,
-    onCreateSelectedThreadWorktree: async (input: { baseBranch: string; newBranch: string }) => {
+    onCreateSelectedThreadBranch: () => state.gitResult,
+    onCheckoutSelectedThreadBranch: () => state.gitResult,
+    onCreateSelectedThreadWorktree: (input: { baseBranch: string; newBranch: string }) => {
       state.worktrees.push(input);
-      return null;
+      return state.gitResult;
     },
   }),
 }));
@@ -97,11 +108,16 @@ function setup(branch: string | null = null) {
   state.child = false;
   state.status = null;
   state.checkoutDisabled = null;
-  state.branches = [];
+  state.branches = [
+    { name: "release/stable", current: false, isDefault: false, worktreePath: null },
+  ];
   state.branch = branch;
   state.inputs.clear();
   state.actions.clear();
   state.worktrees = [];
+  state.gitResult = Promise.resolve(null);
+  state.focused = true;
+  state.goBackCalls = 0;
   const root = createRoot(document.createElement("div"));
   const render = () =>
     act(() => {
@@ -114,11 +130,11 @@ function setup(branch: string | null = null) {
   render();
   return {
     render,
+    press(label: string) {
+      act(() => state.actions.get(label)!.onPress());
+    },
     edit(label: string, value: string) {
       act(() => state.inputs.get(label)!.onChangeText(value));
-    },
-    create() {
-      act(() => state.actions.get("Create worktree")!.onPress());
     },
     [Symbol.dispose]() {
       act(() => root.unmount());
@@ -133,7 +149,7 @@ it.each([null, "stale-branch"])(
     screen.edit("Worktree branch name", "feature/new-worktree");
     state.refName = "release/stable";
     screen.render();
-    screen.create();
+    screen.press("Create worktree");
     expect(state.worktrees).toEqual([
       { baseBranch: "release/stable", newBranch: "feature/new-worktree" },
     ]);
@@ -148,7 +164,7 @@ it.each(["custom-base", ""])("preserves an edited base %j when status arrives", 
   screen.render();
   expect(state.inputs.get("Worktree base branch")!.value).toBe(base);
   expect(state.actions.get("Create worktree")!.disabled).toBe(base === "");
-  screen.create();
+  screen.press("Create worktree");
   expect(state.worktrees).toEqual(
     base === "" ? [] : [{ baseBranch: base, newBranch: "feature/new-worktree" }],
   );
@@ -178,3 +194,22 @@ it("treats a child checkout as another worktree when selecting the workspace roo
   expect(state.checkoutDisabled).toBe(true);
   expect(state.status).toEqual({ environmentId: "environment", input: { cwd: "/repo" } });
 });
+
+it.each(["Create worktree", "Create & checkout", "release/stable"])(
+  "does not navigate back when %s finishes after the sheet lost focus",
+  async (action) => {
+    using screen = setup();
+    const gitResult = Promise.withResolvers<object>();
+    state.gitResult = gitResult.promise;
+    screen.edit("New branch name", "feature/new-branch");
+    screen.edit("Worktree branch name", "feature/new-worktree");
+    screen.press(action);
+    state.focused = false;
+
+    await act(async () => {
+      gitResult.resolve({ refName: "feature/ready" });
+      await gitResult.promise;
+    });
+    expect(state.goBackCalls).toBe(0);
+  },
+);
