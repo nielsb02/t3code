@@ -46,7 +46,8 @@ export function useSideChatActions(input: {
       .surfaces) {
       if (
         surface.kind === "thread" &&
-        readThreadShell(scopeThreadRef(activeThreadRef.environmentId, surface.threadId))?.lineage.sideChat === true
+        readThreadShell(scopeThreadRef(activeThreadRef.environmentId, surface.threadId))?.lineage
+          .sideChat === true
       ) {
         knownIds.add(surface.threadId);
       }
