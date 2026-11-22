@@ -1,8 +1,9 @@
-import type { EnvironmentId, ScopedThreadRef, RunId } from "@t3tools/contracts";
+import type { EnvironmentId, ScopedThreadRef, RunId, ThreadId } from "@t3tools/contracts";
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
-import { useEffect } from "react";
-import { useRightPanelStore } from "../../rightPanelStore";
-import { useSideChats } from "../../state/entities";
+import { useEffect, useRef } from "react";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { selectThreadRightPanelState, useRightPanelStore } from "../../rightPanelStore";
+import { readThreadShell, useSideChats } from "../../state/entities";
 import { readEnvironmentScope } from "../../state/session";
 import { requestSideChatStart, subscribeSideChatStart } from "./sideChatActionBus";
 import { SideChatMenuItems } from "./SideChatMenu";
@@ -25,6 +26,7 @@ export function useSideChatActions(input: {
     onStartSideChat,
   } = input;
   const sideChats = useSideChats(isServerThread && !embedded ? activeThreadRef : null);
+  const knownSideChats = useRef<{ key: string; ids: ReadonlySet<ThreadId> } | null>(null);
   const sideChatTitlesById = new Map(sideChats.map((sideChat) => [sideChat.id, sideChat.title]));
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- reconciles mounted side-chat tabs with the server thread shells
   useEffect(() => {
@@ -32,10 +34,26 @@ export function useSideChatActions(input: {
     if (!activeThreadRef || embedded || !isServerThread || !activeEnvironmentBootstrapComplete) {
       return;
     }
-    useRightPanelStore.getState().reconcileSideChatSurfaces(
-      activeThreadRef,
-      sideChats.map((sideChat) => sideChat.id),
-    );
+    const store = useRightPanelStore.getState();
+    const key = scopedThreadKey(activeThreadRef);
+    const openIds = sideChats.map((sideChat) => sideChat.id);
+    const knownIds = new Set([
+      ...(knownSideChats.current?.key === key ? knownSideChats.current.ids : []),
+      ...openIds,
+    ]);
+    // Shell lineage also identifies saved tabs whose side chat was archived while the app was closed.
+    for (const surface of selectThreadRightPanelState(store.byThreadKey, activeThreadRef)
+      .surfaces) {
+      if (
+        surface.kind === "thread" &&
+        readThreadShell(scopeThreadRef(activeThreadRef.environmentId, surface.threadId))?.lineage
+          .sideChat === true
+      ) {
+        knownIds.add(surface.threadId);
+      }
+    }
+    knownSideChats.current = { key, ids: knownIds };
+    store.reconcileSideChatSurfaces(activeThreadRef, openIds, knownIds);
   }, [activeEnvironmentBootstrapComplete, activeThreadRef, embedded, isServerThread, sideChats]);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes the mounted parent chat to the global side-chat command
   useEffect(() => {

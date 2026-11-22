@@ -127,6 +127,7 @@ export function WorkspacePullRequestsPanel({
             <GitActionsControl
               key={repository.cwd}
               gitCwd={repository.cwd}
+              name={repository.name}
               activeThreadRef={threadRef}
               syncThreadBranch={repository.path === "."}
             />

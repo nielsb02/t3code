@@ -92,7 +92,11 @@ vi.mock("../../state/query", () => ({
 vi.mock("../../state/queries", () => ({
   useCheckpointDiff: () => ({ data: null, error: null, isPending: false, refresh: vi.fn() }),
 }));
+vi.mock("../../state/use-thread-selection", () => ({
+  useThreadSelection: () => ({ selectedThreadProject: null }),
+}));
 vi.mock("../../state/review", () => ({
+  lastReviewGitSectionsAtom: () => ({}),
   reviewEnvironment: { diffPreview: vi.fn() },
 }));
 vi.mock("./reviewState", () => ({
