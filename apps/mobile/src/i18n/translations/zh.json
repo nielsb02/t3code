@@ -5451,8 +5451,5 @@
   "856812e7e1fc445e": "聊天中的工具调用",
   "8d545d54c0a9e950": "隐藏智能体执行的命令、编辑和搜索。“隐藏成功的调用”仍保留失败项；“专注模式”仅显示最终回答。审批、提问和错误始终显示。",
   "6f4efbd4ae04efbe": " (unavailable)",
-  "ec8405978d6fb737": "All workspace repositories",
-  "15ad0159a826b290": null,
-  "3cdda4bfc05d6bf5": null,
-  "0752b8ccc7dfba04": null
+  "ec8405978d6fb737": "All workspace repositories"
 }

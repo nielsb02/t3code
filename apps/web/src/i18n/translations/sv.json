@@ -3155,10 +3155,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "på datorn som öppnade den här sidan"
-      ]
+      "c": [" ", "på datorn som öppnade den här sidan"]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3170,10 +3167,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "· den som kör den får den här åtkomsten"
-      ]
+      "c": [" ", "· den som kör den får den här åtkomsten"]
     }
   ],
   "c54cc9c75db9dc58": "Godkänn bara en inloggning som du själv precis har startat.",
@@ -11759,7 +11753,6 @@
   "3af3a34e376082c7": "Projektstandarder och åsidosättningar",
   "d740ad2790bbe164": "modell arbetsyta miljöer projekt arv utcheckning checkout",
   "67cd0f5e8f1978a9": "Projektöversikt",
-  "91073ab45df5a1af": "namn ikon emoji bild utcheckning ta bort radera",
   "955eee00b277a087": "Standardmodell",
   "a4b39948180f0b96": "ny tråd projekt leverantör resonemang ansträngning reasoning effort",
   "a4946fb2bb1e9537": "reserv agent leverantör slut på användning nya trådar fallback",
@@ -12474,12 +12467,6 @@
   "9e91e9a77b664e4e": "Kunde inte starta en granskningsguide",
   "d8aaf932f90429c4": "Flytta det här kommandot först i kön ({shortcut})",
   "425ab15036aec8a4": "Flytta det här kommandot först i kön",
-  "1a6f6154d1cb51a9": null,
-  "7fe7d5ae5fb4a655": null,
-  "68060b380fe53942": null,
-  "15ad0159a826b290": null,
-  "e63611bd62fad8d8": null,
-  "7f8d6d1af69829d8": null,
   "14489d24ecc096b0": "Repositories unavailable",
   "b27e585acbecf3a7": "New side chat",
   "5276094c7894c922": "Ask about this thread without interrupting it",

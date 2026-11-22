@@ -69,6 +69,7 @@ vi.mock("~/state/vcs", () => ({
   },
 }));
 vi.mock("~/state/entities", () => ({
+  readThreadShell: () => null,
   useQuietThreadShell: () => state.thread,
   useProject: () => state.project,
   useThreadCheckpointSummaries: () => state.checkpoints,

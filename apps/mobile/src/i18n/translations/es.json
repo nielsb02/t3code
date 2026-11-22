@@ -5460,8 +5460,5 @@
   "856812e7e1fc445e": "Llamadas a herramientas en el chat",
   "8d545d54c0a9e950": "Oculta los comandos, ediciones y búsquedas que ejecutan los agentes. Ocultar las correctas mantiene los fallos. Zen solo muestra las respuestas finales. Las aprobaciones, preguntas y errores siempre se muestran.",
   "6f4efbd4ae04efbe": " (unavailable)",
-  "ec8405978d6fb737": "All workspace repositories",
-  "15ad0159a826b290": null,
-  "3cdda4bfc05d6bf5": null,
-  "0752b8ccc7dfba04": null
+  "ec8405978d6fb737": "All workspace repositories"
 }

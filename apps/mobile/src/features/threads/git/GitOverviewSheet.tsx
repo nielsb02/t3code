@@ -103,7 +103,7 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
   const workspace = useWorkspaceRepositories();
   const threadWorktree = useSelectedThreadWorktree();
   const { selectedThreadWorktreePath } = threadWorktree;
-  const { repositories, selectedPath, selectRepository, repositoryError, refreshRepositories } = workspace;
+  const { refreshRepositories } = workspace;
   const selectedThreadCwd = repository?.cwd ?? workspace.selectedThreadCwd;
   const threadRef = { environmentId, threadId };
   const pinnedRepositories = useThreadRepositoryPins(threadRef);
@@ -369,32 +369,35 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
         <RefreshControl refreshing={isRefreshing} onRefresh={() => void handleRefresh()} />
       }
     >
-      {repository === undefined ? <>
-      {workspace.repositoryError ? <Text>{workspace.repositoryError}</Text> : null}
-      {workspace.repositories.length > 1 || (workspace.repositories.length === 1 && workspace.selectedPath !== ".") ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {workspace.repositories.map((repository) => (
-            <Pressable
-              key={repository.path}
-              accessibilityRole="button"
-              accessibilityState={{
-                selected: workspace.selectedPath === repository.path,
-                disabled: busy || !repository.available,
-              }}
-              disabled={busy || !repository.available}
-              onPress={() => workspace.selectRepository(repository.path)}
-              className="mr-2 rounded-xl border border-border bg-card px-3 py-2"
-            >
-              <Text>
-                {workspace.selectedPath === repository.path ? "✓ " : ""}
-                {repository.path === "." ? gt("Workspace") : repository.path}
-                {repository.available ? "" : gt(" (unavailable)")}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+      {repository === undefined ? (
+        <>
+          {workspace.repositoryError ? <Text>{workspace.repositoryError}</Text> : null}
+          {workspace.repositories.length > 1 ||
+          (workspace.repositories.length === 1 && workspace.selectedPath !== ".") ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {workspace.repositories.map((repository) => (
+                <Pressable
+                  key={repository.path}
+                  accessibilityRole="button"
+                  accessibilityState={{
+                    selected: workspace.selectedPath === repository.path,
+                    disabled: busy || !repository.available,
+                  }}
+                  disabled={busy || !repository.available}
+                  onPress={() => workspace.selectRepository(repository.path)}
+                  className="mr-2 rounded-xl border border-border bg-card px-3 py-2"
+                >
+                  <Text>
+                    {workspace.selectedPath === repository.path ? "✓ " : ""}
+                    {repository.path === "." ? gt("Workspace") : repository.path}
+                    {repository.available ? "" : gt(" (unavailable)")}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : null}
+        </>
       ) : null}
-      </> : null}
       {sheetMenuItems.length > 0 || behindCount > 0 ? (
         <ListSection>
           {sheetMenuItems.map(({ item, disabledReason }) => (

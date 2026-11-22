@@ -96,7 +96,11 @@ export function useSelectedThreadGitActions(repository?: GitRepositoryTarget) {
     { reportFailure: false },
   );
 
-  const selectedThreadGitRootCwd = repository?.cwd ?? (workspace.isChildRepository ? selectedThreadCwd : selectedThreadProject?.workspaceRoot ?? null);
+  const selectedThreadGitRootCwd =
+    repository?.cwd ??
+    (workspace.isChildRepository
+      ? selectedThreadCwd
+      : (selectedThreadProject?.workspaceRoot ?? null));
   const branchTarget = {
     environmentId: selectedThread?.environmentId ?? null,
     cwd: selectedThreadGitRootCwd,

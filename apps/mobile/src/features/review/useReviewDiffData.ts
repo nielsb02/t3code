@@ -160,16 +160,23 @@ export function useReviewDiffData(input: {
   const locale = useLocale();
   const selectedSectionId = selectedSection?.id ?? null;
   const source = selectedSection?.source;
-  const lazySource = !selectedSection?.repositoryDiffs && source?.truncated && source.files ? source : null;
+  const lazySource =
+    !selectedSection?.repositoryDiffs && source?.truncated && source.files ? source : null;
   const sectionDiff: ReviewParsedDiff = lazySource
     ? { kind: "empty" }
-    : selectedSection?.repositoryDiffs ? buildWorkspaceReviewDiff(selectedSection.repositoryDiffs, `${threadKey}:${selectedSection.id}:${locale}`, messages) : getCachedReviewParsedDiff({
-        threadKey,
-        sectionId: selectedSection?.id ?? null,
-        diff: selectedSection?.diff,
-        resolve: messages,
-        locale,
-      });
+    : selectedSection?.repositoryDiffs
+      ? buildWorkspaceReviewDiff(
+          selectedSection.repositoryDiffs,
+          `${threadKey}:${selectedSection.id}:${locale}`,
+          messages,
+        )
+      : getCachedReviewParsedDiff({
+          threadKey,
+          sectionId: selectedSection?.id ?? null,
+          diff: selectedSection?.diff,
+          resolve: messages,
+          locale,
+        });
   const repositoryFolder = input.repositoryFilter?.folder ?? null;
   const repositoryFolders = input.repositoryFilter?.folders ?? "";
   const previewDiff = useMemo(

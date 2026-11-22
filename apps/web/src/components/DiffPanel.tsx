@@ -513,7 +513,9 @@ export default function DiffPanel({
         )
       : null;
   const primaryBranchDiffPreview = useEnvironmentQuery(primaryBranchDiffPreviewAtom, messages);
-  const branchDiffPreviewIsPending = useEnvironmentQueryRefresh(primaryBranchDiffPreviewAtom).isPending;
+  const branchDiffPreviewIsPending = useEnvironmentQueryRefresh(
+    primaryBranchDiffPreviewAtom,
+  ).isPending;
   const branchDiffPreview =
     hasWorkspaceRepositories && selectedCommitSha === null
       ? {
@@ -706,15 +708,17 @@ export default function DiffPanel({
       (workspaceDiff.files.length > 0
         ? { kind: "files" as const, files: workspaceDiff.files, sourceFiles: workspaceDiff.files }
         : null))
-    : shownSections.length > 0 ? getRenderablePatchSections(shownSections, `diff-panel:${resolvedTheme}`) : getRenderablePatch(
-        lazySource ? undefined : selectedPatch,
-        `diff-panel:${resolvedTheme}`,
-        {
-          compactPartialHunkOffsets: isGitSelection,
-          ...(toolCallSelection ? { ignoreWhitespace: diffIgnoreWhitespace } : {}),
-        },
-        messages,
-      );
+    : shownSections.length > 0
+      ? getRenderablePatchSections(shownSections, `diff-panel:${resolvedTheme}`)
+      : getRenderablePatch(
+          lazySource ? undefined : selectedPatch,
+          `diff-panel:${resolvedTheme}`,
+          {
+            compactPartialHunkOffsets: isGitSelection,
+            ...(toolCallSelection ? { ignoreWhitespace: diffIgnoreWhitespace } : {}),
+          },
+          messages,
+        );
   const recordedToolCallFileCount =
     toolCallSelection && toolCallItem?.type === "file_change"
       ? (toolCallItem.changes?.length ?? 0)

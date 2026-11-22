@@ -3155,10 +3155,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "no computador que abriu esta página"
-      ]
+      "c": [" ", "no computador que abriu esta página"]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3170,10 +3167,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "· quem executar recebe este acesso"
-      ]
+      "c": [" ", "· quem executar recebe este acesso"]
     }
   ],
   "c54cc9c75db9dc58": "Aprove apenas um login que você acabou de iniciar.",
@@ -11751,7 +11745,6 @@
   "3af3a34e376082c7": "Padrões e substituições do projeto",
   "d740ad2790bbe164": "modelo workspace ambientes projetos herança checkout",
   "67cd0f5e8f1978a9": "Visão geral do projeto",
-  "91073ab45df5a1af": "nome ícone emoji imagem checkout remover excluir",
   "955eee00b277a087": "Modelo padrão",
   "a4b39948180f0b96": "nova thread projeto provedor esforço de raciocínio",
   "a4946fb2bb1e9537": "agente alternativo provedor limite de uso novas threads",
@@ -12467,12 +12460,6 @@
   "9e91e9a77b664e4e": "Não foi possível iniciar um guia de revisão",
   "d8aaf932f90429c4": "Mover este comando para o início da fila ({shortcut})",
   "425ab15036aec8a4": "Mover este comando para o início da fila",
-  "1a6f6154d1cb51a9": null,
-  "7fe7d5ae5fb4a655": null,
-  "68060b380fe53942": null,
-  "15ad0159a826b290": null,
-  "e63611bd62fad8d8": null,
-  "7f8d6d1af69829d8": null,
   "14489d24ecc096b0": "Repositories unavailable",
   "b27e585acbecf3a7": "New side chat",
   "5276094c7894c922": "Ask about this thread without interrupting it",

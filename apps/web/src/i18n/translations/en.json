@@ -3155,10 +3155,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "on the computer that opened this page"
-      ]
+      "c": [" ", "on the computer that opened this page"]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3170,10 +3167,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "· whoever runs it gets this access"
-      ]
+      "c": [" ", "· whoever runs it gets this access"]
     }
   ],
   "c54cc9c75db9dc58": "Only approve a sign-in you just started.",
@@ -11761,7 +11755,6 @@
   "3af3a34e376082c7": "Project defaults and overrides",
   "d740ad2790bbe164": "model workspace environments projects inheritance checkout",
   "67cd0f5e8f1978a9": "Project overview",
-  "91073ab45df5a1af": "name icon emoji image checkout remove delete",
   "955eee00b277a087": "Default model",
   "a4b39948180f0b96": "new thread project provider reasoning effort",
   "a4946fb2bb1e9537": "fallback agent provider out of usage new threads",
@@ -12476,12 +12469,6 @@
   "9e91e9a77b664e4e": "Could not start a review guide",
   "d8aaf932f90429c4": "Move this command to the front of the queue ({shortcut})",
   "425ab15036aec8a4": "Move this command to the front of the queue",
-  "1a6f6154d1cb51a9": null,
-  "7fe7d5ae5fb4a655": null,
-  "68060b380fe53942": null,
-  "15ad0159a826b290": null,
-  "e63611bd62fad8d8": null,
-  "7f8d6d1af69829d8": null,
   "14489d24ecc096b0": "Repositories unavailable",
   "b27e585acbecf3a7": "New side chat",
   "5276094c7894c922": "Ask about this thread without interrupting it",

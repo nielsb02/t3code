@@ -3156,10 +3156,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "auf dem Computer, der diese Seite geöffnet hat"
-      ]
+      "c": [" ", "auf dem Computer, der diese Seite geöffnet hat"]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3171,10 +3168,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "· wer es ausführt, erhält diesen Zugriff"
-      ]
+      "c": [" ", "· wer es ausführt, erhält diesen Zugriff"]
     }
   ],
   "c54cc9c75db9dc58": "Genehmige nur eine Anmeldung, die du gerade selbst gestartet hast.",
@@ -11753,7 +11747,6 @@
   "3af3a34e376082c7": "Projektstandards und Überschreibungen",
   "d740ad2790bbe164": "modell arbeitsbereich umgebungen projekte vererbung checkout",
   "67cd0f5e8f1978a9": "Projektübersicht",
-  "91073ab45df5a1af": "name symbol emoji bild checkout entfernen löschen",
   "955eee00b277a087": "Standardmodell",
   "a4b39948180f0b96": "neuer thread projekt anbieter reasoning aufwand",
   "a4946fb2bb1e9537": "ausweich agent anbieter nutzung aufgebraucht neue threads",
@@ -12467,12 +12460,6 @@
   "9e91e9a77b664e4e": "Review-Leitfaden konnte nicht gestartet werden",
   "d8aaf932f90429c4": "Diesen Befehl an den Anfang der Warteschlange verschieben ({shortcut})",
   "425ab15036aec8a4": "Diesen Befehl an den Anfang der Warteschlange verschieben",
-  "1a6f6154d1cb51a9": null,
-  "7fe7d5ae5fb4a655": null,
-  "68060b380fe53942": null,
-  "15ad0159a826b290": null,
-  "e63611bd62fad8d8": null,
-  "7f8d6d1af69829d8": null,
   "14489d24ecc096b0": "Repositories unavailable",
   "b27e585acbecf3a7": "New side chat",
   "5276094c7894c922": "Ask about this thread without interrupting it",

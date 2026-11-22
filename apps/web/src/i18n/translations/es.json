@@ -3155,10 +3155,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "en el ordenador que abrió esta página"
-      ]
+      "c": [" ", "en el ordenador que abrió esta página"]
     }
   ],
   "b2d53b4d1d48fbef": [
@@ -3170,10 +3167,7 @@
     {
       "t": "span",
       "i": 2,
-      "c": [
-        " ",
-        "· quien lo ejecute obtiene este acceso"
-      ]
+      "c": [" ", "· quien lo ejecute obtiene este acceso"]
     }
   ],
   "c54cc9c75db9dc58": "Aprueba solo un inicio de sesión que acabes de iniciar.",
@@ -11746,7 +11740,6 @@
   "3af3a34e376082c7": "Valores predeterminados y anulaciones del proyecto",
   "d740ad2790bbe164": "modelo espacio de trabajo entornos proyectos herencia checkout",
   "67cd0f5e8f1978a9": "Resumen del proyecto",
-  "91073ab45df5a1af": "nombre icono emoji imagen checkout quitar eliminar",
   "955eee00b277a087": "Modelo predeterminado",
   "a4b39948180f0b96": "hilo nuevo proyecto proveedor esfuerzo de razonamiento",
   "a4946fb2bb1e9537": "alternativo agente proveedor sin uso hilos nuevos",
@@ -12462,12 +12455,6 @@
   "9e91e9a77b664e4e": "No se pudo iniciar una guía de revisión",
   "d8aaf932f90429c4": "Mover este comando al principio de la cola ({shortcut})",
   "425ab15036aec8a4": "Mover este comando al principio de la cola",
-  "1a6f6154d1cb51a9": null,
-  "7fe7d5ae5fb4a655": null,
-  "68060b380fe53942": null,
-  "15ad0159a826b290": null,
-  "e63611bd62fad8d8": null,
-  "7f8d6d1af69829d8": null,
   "14489d24ecc096b0": "Repositories unavailable",
   "b27e585acbecf3a7": "New side chat",
   "5276094c7894c922": "Ask about this thread without interrupting it",

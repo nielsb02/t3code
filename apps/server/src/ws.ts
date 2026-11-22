@@ -3312,12 +3312,20 @@ export const layerWsRpc = (
         [WS_METHODS.vcsRemoveWorktree]: (input) =>
           // A thread's worktree may be a task folder: its repositories' worktrees go with it.
           threadManagement.getShellSnapshot({ location: "active" }).pipe(
-            Effect.mapError((cause) => new GitCommandError({
-              operation: "removeWorktree", command: "git worktree remove", cwd: input.cwd,
-              detail: "Unable to check which threads still use this worktree.", cause,
-            })),
+            Effect.mapError(
+              (cause) =>
+                new GitCommandError({
+                  operation: "removeWorktree",
+                  command: "git worktree remove",
+                  cwd: input.cwd,
+                  detail: "Unable to check which threads still use this worktree.",
+                  cause,
+                }),
+            ),
             Effect.flatMap(({ threads }) => refuseRemovingWorktreeInUse(input, threads)),
-            Effect.andThen(taskFolders.removeIfTaskFolder({ path: input.path, force: input.force === true })),
+            Effect.andThen(
+              taskFolders.removeIfTaskFolder({ path: input.path, force: input.force === true }),
+            ),
             Effect.mapError(
               (cause) =>
                 new GitCommandError({
