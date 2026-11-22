@@ -12,6 +12,8 @@ import type {
 } from "@t3tools/contracts";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { lazy, Suspense } from "react";
+import { LinkedThreadPane } from "./LinkedThreadPane";
+import SideThreadPane from "./SideThreadPane";
 import type { ComposerImageAttachment, DraftId } from "../../composerDraftStore";
 import type { ShortcutMatchContext } from "../../keybindings";
 import type { SideChatParentPanel } from "../../lib/sideChatPane";
@@ -31,7 +33,7 @@ import type { useWorkspaceRepositories } from "../../hooks/useWorkspaceRepositor
 
 // Keep composer creation in the opening commit. A lazy Suspense retry can yield
 // past Tiptap's unmounted-editor disposal timer before its layout effects run.
-import SideChatPane from "./SideChatPane";
+
 
 const PreviewPanel = lazy(() =>
   import("../preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
@@ -80,6 +82,8 @@ export function RightPanelSurfaceContent(props: {
   readonly keybindings: ResolvedKeybindingsConfig;
   readonly configuredPreviewUrls: ReadonlyArray<string>;
   readonly workspaceMutationId: string | null;
+  /** What the diff is read under, as the Changes totals are; see `useWorkspaceRevision`. */
+  readonly workspaceRevision: string | null;
   readonly getShortcutContext: () => ShortcutMatchContext;
   readonly onSendAnnotation: (
     annotation: PreviewAnnotationPayload,
@@ -96,16 +100,6 @@ export function RightPanelSurfaceContent(props: {
   const gt = useGT();
   if (surface === null) return null;
   switch (surface.kind) {
-    case "side-chat":
-      return (
-        <SideChatPane
-          key={surface.threadId}
-          parentRef={threadRef}
-          threadId={surface.threadId}
-          parentPanel={props.sideChatParentPanel}
-          onClose={() => props.onCloseSurface(surface)}
-        />
-      );
     case "workspace-pull-requests": {
       const workspace = props.workspaceRepositories;
       if (!workspace || !props.pullRequest.projectId) return null;
@@ -156,7 +150,7 @@ export function RightPanelSurfaceContent(props: {
             key={scopedThreadKey(threadRef)}
             mode="embedded"
             composerDraftTarget={props.composerDraftTarget}
-            workspaceMutationId={props.workspaceMutationId}
+            workspaceMutationId={props.workspaceRevision}
             visible={visible}
             {...(props.workspaceRepositories
               ? {
@@ -266,6 +260,26 @@ export function RightPanelSurfaceContent(props: {
       );
     case "pull-requests":
       return <ThreadPullRequestsPanel threadRef={threadRef} />;
+    case "thread":
+      // Not lazy: revealing a suspended tiptap editor tears down its view and crashes the composer.
+      return (
+        <SideThreadPane
+          key={surface.id}
+          parentRef={threadRef}
+          surface={surface}
+          parentPanel={props.sideChatParentPanel}
+          onClose={() => onCloseSurface(surface)}
+        />
+      );
+    case "linked-thread":
+      return (
+        <LinkedThreadPane
+          key={surface.id}
+          panelRef={threadRef}
+          surface={surface}
+          visible={visible && props.activeSurfaceId === surface.id}
+        />
+      );
     case "device":
       return (
         <Suspense fallback={null}>

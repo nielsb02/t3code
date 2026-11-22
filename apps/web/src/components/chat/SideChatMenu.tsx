@@ -116,7 +116,7 @@ function ClosedSideChats(props: { readonly parentRef: ScopedThreadRef }) {
       }
     }
     if (await waitForThreadShell(sideChatRef)) {
-      useRightPanelStore.getState().openSideChat(parentRef, sideChatRef.threadId);
+      useRightPanelStore.getState().openThread(parentRef, sideChatRef.threadId);
     } else {
       toastManager.add({
         type: "error",

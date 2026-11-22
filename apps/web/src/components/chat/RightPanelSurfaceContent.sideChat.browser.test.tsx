@@ -53,13 +53,13 @@ function Workspace({ child }: { child: string | null }) {
       <PaneComposer threadId={parentRef.threadId} />
       <RightPanelSurfaceContent
         issuesSupported={false}
-        sideChatParentPanel={{ openToolDiff: () => {}, runShellCommand: () => {} }}
+        sideChatParentPanel={{ hostRef: parentRef, openToolDiff: () => {}, runShellCommand: () => {} }}
         surface={
           child
-            ? { kind: "side-chat", id: `side-chat:${child}`, threadId: ThreadId.make(child) }
+            ? { kind: "thread", id: `thread:${child}`, threadId: ThreadId.make(child) }
             : null
         }
-        activeSurfaceId={child ? `side-chat:${child}` : null}
+        activeSurfaceId={child ? `thread:${child}` : null}
         threadRef={parentRef}
         environmentId={environmentId}
         visible
@@ -67,6 +67,7 @@ function Workspace({ child }: { child: string | null }) {
         keybindings={[]}
         configuredPreviewUrls={[]}
         workspaceMutationId={null}
+        workspaceRevision={null}
         getShortcutContext={() => ({
           terminalFocus: false,
           terminalOpen: false,

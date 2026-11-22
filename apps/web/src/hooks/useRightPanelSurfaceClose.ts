@@ -1,3 +1,4 @@
+import { readThreadShell } from "../state/entities";
 import {
   AuthPreviewOperateScope,
   AuthTerminalOperateScope,
@@ -99,7 +100,7 @@ export function useRightPanelSurfaceClose(input: {
     for (const surface of ordered) {
       // Releasing a browser drops its session, which prunes the tab automatically; close it
       // first so the close stays a user action that hides the panel after the last tab.
-      if (surface.kind === "side-chat") {
+      if (surface.kind === "thread" && readThreadShell(scopeThreadRef(threadRef.environmentId, surface.threadId))?.lineage.sideChat === true) {
         void archiveThread(scopeThreadRef(threadRef.environmentId, surface.threadId)).then(
           (result) => {
             if (result._tag === "Success") {
