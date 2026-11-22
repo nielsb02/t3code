@@ -246,6 +246,7 @@ interface RightPanelStoreState {
   activateSurface: (ref: ScopedThreadRef, surfaceId: string) => void;
   /** Agent-driven activation. Not a user action, so it does not move keyboard focus. */
   revealSurface: (ref: ScopedThreadRef, surfaceId: string) => void;
+  /** `remember: false` keeps archive and delete actions out of generic closed-view history. */
   closeSurface: (
     ref: ScopedThreadRef,
     surfaceId: string,
@@ -1475,7 +1476,6 @@ useRightPanelStore.subscribe((next, previous) => {
       ...removed.filter((surface) => surface.id === before.activeSurfaceId),
     ];
     for (const surface of closedInOrder.map(withoutReveal)) {
-      // A closed side chat is archived; its archive notice offers the undo.
       if (
         surface.kind === "terminal" ||
         (surface.kind === "preview" && surface.resourceId !== null)
