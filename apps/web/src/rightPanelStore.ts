@@ -314,7 +314,6 @@ const singletonSurface = (
   }
 };
 
-
 const browserSurface = (tabId: string | null): RightPanelSurface =>
   tabId
     ? { id: `browser:${tabId}`, kind: "preview", resourceId: tabId }
@@ -1305,8 +1304,11 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           automaticUpdate(state, scopedThreadKey(ref), (current) => {
             const openIds = new Set(openSideChatIds.map((threadId) => `thread:${threadId}`));
             const kept = current.surfaces.filter(
-              (surface) => surface.kind !== "thread" ||
-                readThreadShell(scopeThreadRef(ref.environmentId, surface.threadId))?.lineage.sideChat !== true || openIds.has(surface.id),
+              (surface) =>
+                surface.kind !== "thread" ||
+                readThreadShell(scopeThreadRef(ref.environmentId, surface.threadId))?.lineage
+                  .sideChat !== true ||
+                openIds.has(surface.id),
             );
             const knownIds = new Set(kept.map((surface) => surface.id));
             const added = openSideChatIds
@@ -1468,7 +1470,9 @@ useRightPanelStore.subscribe((next, previous) => {
       // A closed side chat is archived; its archive notice offers the undo.
       if (
         surface.kind === "terminal" ||
-        (surface.kind === "thread" && readThreadShell(scopeThreadRef(ref.environmentId, surface.threadId))?.lineage.sideChat === true) ||
+        (surface.kind === "thread" &&
+          readThreadShell(scopeThreadRef(threadRef.environmentId, surface.threadId))?.lineage
+            .sideChat === true) ||
         (surface.kind === "preview" && surface.resourceId !== null)
       )
         continue;

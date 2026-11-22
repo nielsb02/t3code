@@ -1,6 +1,6 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { EnvironmentId, RunId, ThreadId } from "@t3tools/contracts";
-import { beforeEach, describe, expect, it } from "vite-plus/test";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { useClosedViewStore } from "./closedViewStore";
 import { linkedThreadTitle } from "./linkedThreadSurface";
@@ -16,6 +16,11 @@ import {
   selectThreadRightPanelState,
   useRightPanelStore,
 } from "./rightPanelStore";
+
+vi.mock("./state/entities", () => ({
+  readThreadShell: (ref: { threadId: string }) =>
+    ref.threadId.startsWith("side-chat") ? { lineage: { sideChat: true } } : null,
+}));
 
 const refA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
 const refB = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-B"));
@@ -62,14 +67,16 @@ describe("rightPanelStore", () => {
     expect(state.isOpen).toBe(true);
     expect(state.activeSurfaceId).toBe(`thread:${second}`);
 
-    // Settling the main thread closed the active side chat on the server.
+    store.openThread(refA, ThreadId.make("subagent"));
+    // Settling the main thread closes side chats without removing subagent tabs.
     store.reconcileSideChatSurfaces(refA, [first]);
     state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
     expect(state.surfaces.map((surface) => surface.id)).toEqual([
       "file:src/app.ts",
       `thread:${first}`,
+      "thread:subagent",
     ]);
-    expect(state.activeSurfaceId).toBe(`thread:${first}`);
+    expect(state.activeSurfaceId).toBe("thread:subagent");
   });
 
   it("does not offer a closed side chat tab for reopening", () => {

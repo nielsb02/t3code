@@ -71,6 +71,9 @@ export function useReviewSections(input: {
     }, [enabled, refreshRepositories]),
   );
   const repositoryFilter = workspace.repositoryFilter;
+  const hasDeclaredRepositories = workspace.repositories.some(
+    (repository) => repository.path !== ".",
+  );
   // Live and branch review read every declared repository; a plain checkout is its only one.
   const repositories = useMemo(
     () =>
@@ -84,7 +87,7 @@ export function useReviewSections(input: {
   const diffPreview = useWorkspaceReviewSources(
     environmentId,
     repositories,
-    canReadFiles && enabled,
+    canReadFiles && enabled && hasDeclaredRepositories,
   );
   const selectedEntries = useMemo(
     () =>
@@ -113,9 +116,12 @@ export function useReviewSections(input: {
     [selectedEntries],
   );
 
-  const hasDeclaredRepositories = workspace.repositories.some((repository) => repository.path !== ".");
   const diffPreviewQuery = (sourceKind: ReviewGitSectionKind) =>
-    !hasDeclaredRepositories && canReadFiles && enabled && environmentId !== undefined && selectedThreadCwd !== null
+    !hasDeclaredRepositories &&
+    canReadFiles &&
+    enabled &&
+    environmentId !== undefined &&
+    selectedThreadCwd !== null
       ? reviewEnvironment.diffPreview({
           environmentId,
           input: { cwd: selectedThreadCwd, sourceKind },
@@ -129,17 +135,19 @@ export function useReviewSections(input: {
       : NO_GIT_SECTIONS_ATOM,
   );
 
-  const gitSections = hasDeclaredRepositories ? workspaceGitSections : (
-    [
-      ["working-tree", workingTreePreview],
-      ["branch-range", branchPreview],
-    ] as const
-  ).flatMap(([kind, preview]) =>
-    (preview.data?.incomplete
-      ? lastGitSections
-      : (preview.data?.sources ?? lastGitSections)
-    ).filter((source) => source.kind === kind),
-  );
+  const gitSections = hasDeclaredRepositories
+    ? workspaceGitSections
+    : (
+        [
+          ["working-tree", workingTreePreview],
+          ["branch-range", branchPreview],
+        ] as const
+      ).flatMap(([kind, preview]) =>
+        (preview.data?.incomplete
+          ? lastGitSections
+          : (preview.data?.sources ?? lastGitSections)
+        ).filter((source) => source.kind === kind),
+      );
 
   const lastTurnDiffs = useAtomValue(
     environmentId !== undefined && threadId !== undefined
@@ -160,8 +168,14 @@ export function useReviewSections(input: {
     gitSections: canReadFiles || fileAccess.isPending ? gitSections : [],
     turnDiffById: reviewTurnDiffsBySectionId(readyCheckpoints, lastTurnDiffs),
     gitSectionStates: {
-      "working-tree": gitSectionState(fileAccess.isPending, hasDeclaredRepositories ? diffPreview : workingTreePreview),
-      "branch-range": gitSectionState(fileAccess.isPending, hasDeclaredRepositories ? diffPreview : branchPreview),
+      "working-tree": gitSectionState(
+        fileAccess.isPending,
+        hasDeclaredRepositories ? diffPreview : workingTreePreview,
+      ),
+      "branch-range": gitSectionState(
+        fileAccess.isPending,
+        hasDeclaredRepositories ? diffPreview : branchPreview,
+      ),
     },
     ...(selectedThreadProject ? { rootName: selectedThreadProject.title } : {}),
     resolve: messages,
@@ -264,14 +278,18 @@ export function useReviewSections(input: {
       workspace.repositoryError ??
       (selectedSection?.kind === "turn"
         ? activeTurnDiff.error
-        : (hasDeclaredRepositories ? diffPreview.error : selectedGitPreview?.error ?? null)) ??
+        : hasDeclaredRepositories
+          ? diffPreview.error
+          : (selectedGitPreview?.error ?? null)) ??
       (selectedSection === null && !fileAccess.isPending && !canReadFiles
         ? (fileAccess.error ?? messages(msg("This connection cannot read local diffs.")))
         : null),
     isSelectedSectionPending:
       selectedSection?.kind === "turn"
         ? activeTurnDiff.isPending
-        : (hasDeclaredRepositories ? diffPreview.isPending : selectedGitPreview?.isPending ?? false),
+        : hasDeclaredRepositories
+          ? diffPreview.isPending
+          : (selectedGitPreview?.isPending ?? false),
     reviewSections,
     selectedSection,
     refreshSelectedSection,

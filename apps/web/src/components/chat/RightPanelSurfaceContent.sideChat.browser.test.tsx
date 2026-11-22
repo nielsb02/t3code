@@ -19,7 +19,10 @@ import { RightPanelSurfaceContent } from "./RightPanelSurfaceContent";
 vi.mock("../ChatView", () => ({ default: PaneComposer }));
 vi.mock("../../state/entities", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../state/entities")>()),
-  useQuietThreadShell: () => ({ lineage: { parentThreadId: "parent" } }),
+  useQuietThreadShell: () => ({
+    lineage: { parentThreadId: "parent", sideChat: true },
+    deletedAt: null,
+  }),
   useQuietThreadProjection: () => null,
 }));
 
@@ -53,11 +56,13 @@ function Workspace({ child }: { child: string | null }) {
       <PaneComposer threadId={parentRef.threadId} />
       <RightPanelSurfaceContent
         issuesSupported={false}
-        sideChatParentPanel={{ hostRef: parentRef, openToolDiff: () => {}, runShellCommand: () => {} }}
+        sideChatParentPanel={{
+          hostRef: parentRef,
+          openToolDiff: () => {},
+          runShellCommand: () => {},
+        }}
         surface={
-          child
-            ? { kind: "thread", id: `thread:${child}`, threadId: ThreadId.make(child) }
-            : null
+          child ? { kind: "thread", id: `thread:${child}`, threadId: ThreadId.make(child) } : null
         }
         activeSurfaceId={child ? `thread:${child}` : null}
         threadRef={parentRef}

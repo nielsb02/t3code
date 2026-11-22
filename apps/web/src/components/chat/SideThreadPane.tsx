@@ -198,7 +198,9 @@ export default function SideThreadPane(props: {
                 <Button
                   variant="ghost"
                   size="xs"
-                  aria-disabled={bringBackBlockedReason !== null || bringingBack || deleting || undefined}
+                  aria-disabled={
+                    bringBackBlockedReason !== null || bringingBack || deleting || undefined
+                  }
                   onClick={() => void bringBack()}
                 >
                   <T>Bring back</T>
@@ -206,7 +208,8 @@ export default function SideThreadPane(props: {
               }
             />
             <TooltipPopup side="bottom">
-              {bringBackBlockedReason ?? gt("Adds this side chat to the main thread's next message.")}
+              {bringBackBlockedReason ??
+                gt("Adds this side chat to the main thread's next message.")}
             </TooltipPopup>
           </Tooltip>
           <Button
@@ -237,15 +240,13 @@ export default function SideThreadPane(props: {
           )}
         </p>
       ) : renderState === "loading" && thread === null ? null : (
-
-            <ChatView
-              environmentId={parentRef.environmentId}
-              threadId={threadId}
-              routeKind="server"
-              embedded={props.parentPanel}
-              onCloseSideChat={isSideChat ? props.onClose : undefined}
-            />
-
+        <ChatView
+          environmentId={parentRef.environmentId}
+          threadId={threadId}
+          routeKind="server"
+          embedded={props.parentPanel}
+          {...(isSideChat ? { onCloseSideChat: props.onClose } : {})}
+        />
       )}
     </div>
   );

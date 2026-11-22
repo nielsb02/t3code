@@ -167,7 +167,7 @@ interface GitActionsControlProps extends GitActionsViewProps {
   /** The work the actions belong to: its settings apply, and a created pull request links to it. */
   owner?: { readonly threadId?: ThreadId; readonly projectId?: ProjectId };
   /** Absent when no thread's branch follows this folder; a new branch then needs no thread. */
-  branchFollower?: GitActionsBranchFollower;
+  branchFollower?: GitActionsBranchFollower | undefined;
   /** Hides the action and changes rows until there is something to commit, push, or review. */
   quietUntilWork?: boolean;
   /** The ref the Changes row compares against, when the viewer picked one. */
@@ -2183,13 +2183,17 @@ export default function ThreadGitActionsControl({
         ...(activeServerThread ? { threadId: activeServerThread.id } : {}),
         ...(activeDraftThread ? { projectId: activeDraftThread.projectId } : {}),
       }}
-      branchFollower={syncThreadBranch ? {
-        canFollow: () =>
-          isLocalDraftThread ||
-          (activeEnvironmentId !== null &&
-            readEnvironmentScope(activeEnvironmentId, AuthOrchestrationOperateScope)),
-        follow: (branch) => persistThreadBranchSync(branch, true),
-      } : undefined}
+      branchFollower={
+        syncThreadBranch
+          ? {
+              canFollow: () =>
+                isLocalDraftThread ||
+                (activeEnvironmentId !== null &&
+                  readEnvironmentScope(activeEnvironmentId, AuthOrchestrationOperateScope)),
+              follow: (branch) => persistThreadBranchSync(branch, true),
+            }
+          : undefined
+      }
       quietUntilWork={draftId !== undefined || activeServerThreadShell?.latestRun === null}
       changesBaseRef={changesBaseRef}
     />

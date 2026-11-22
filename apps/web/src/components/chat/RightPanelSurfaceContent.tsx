@@ -34,7 +34,6 @@ import type { useWorkspaceRepositories } from "../../hooks/useWorkspaceRepositor
 // Keep composer creation in the opening commit. A lazy Suspense retry can yield
 // past Tiptap's unmounted-editor disposal timer before its layout effects run.
 
-
 const PreviewPanel = lazy(() =>
   import("../preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
 );
@@ -268,7 +267,7 @@ export function RightPanelSurfaceContent(props: {
           parentRef={threadRef}
           surface={surface}
           parentPanel={props.sideChatParentPanel}
-          onClose={() => onCloseSurface(surface)}
+          onClose={() => props.onCloseSurface(surface)}
         />
       );
     case "linked-thread":
