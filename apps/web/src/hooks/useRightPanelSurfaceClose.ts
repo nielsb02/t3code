@@ -108,7 +108,7 @@ export function useRightPanelSurfaceClose(input: {
         void archiveThread(scopeThreadRef(threadRef.environmentId, surface.threadId)).then(
           (result) => {
             if (result._tag === "Success") {
-              store.closeSurface(threadRef, surface.id);
+              store.closeSurface(threadRef, surface.id, { remember: false });
             } else {
               toastManager.add({
                 type: "error",

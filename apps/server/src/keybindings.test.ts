@@ -15,6 +15,12 @@ import * as Keybindings from "./keybindings.ts";
 import * as SharedKeybindings from "@t3tools/shared/keybindings";
 import { KeybindingsConfigError, MAX_KEYBINDINGS_COUNT } from "@t3tools/contracts";
 
+// Keep these visibility fixtures at the same boundary when the fork adds a default shortcut.
+const newChatVisibilityBoundary =
+  MAX_KEYBINDINGS_COUNT -
+  SharedKeybindings.DEFAULT_KEYBINDINGS.length +
+  SharedKeybindings.DEFAULT_KEYBINDINGS.findIndex((rule) => rule.command === "chat.new");
+
 const KeybindingsConfigJson = Schema.fromJsonString(KeybindingsConfig);
 const encodeKeybindingsConfigJson = Schema.encodeEffect(KeybindingsConfigJson);
 const decodeKeybindingsConfigJson = Schema.decodeUnknownEffect(KeybindingsConfigJson);
@@ -523,7 +529,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       const keybindings = yield* Keybindings.Keybindings;
       yield* writeKeybindingsConfig(
         keybindingsConfigPath,
-        Array.from({ length: 210 }, (_, index) => ({
+        Array.from({ length: newChatVisibilityBoundary + 1 }, (_, index) => ({
           key: "mod+alt+f1",
           command: `script.filler-${index}.run` as const,
         })),
@@ -556,7 +562,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         const keybindings = yield* Keybindings.Keybindings;
         yield* writeKeybindingsConfig(
           keybindingsConfigPath,
-          Array.from({ length: 209 }, (_, index) => ({
+          Array.from({ length: newChatVisibilityBoundary }, (_, index) => ({
             key: "mod+alt+f1",
             command: `script.filler-${index}.run` as const,
           })),

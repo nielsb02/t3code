@@ -1,6 +1,6 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { EnvironmentId, RunId, ThreadId } from "@t3tools/contracts";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { useClosedViewStore } from "./closedViewStore";
 import { linkedThreadTitle } from "./linkedThreadSurface";
@@ -16,11 +16,6 @@ import {
   selectThreadRightPanelState,
   useRightPanelStore,
 } from "./rightPanelStore";
-
-vi.mock("./state/entities", () => ({
-  readThreadShell: (ref: { threadId: string }) =>
-    ref.threadId.startsWith("side-chat") ? { lineage: { sideChat: true } } : null,
-}));
 
 const refA = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-A"));
 const refB = scopeThreadRef("env-1" as EnvironmentId, ThreadId.make("thread-B"));
@@ -53,7 +48,7 @@ describe("rightPanelStore", () => {
     store.openFile(refA, "src/app.ts");
     store.close(refA);
 
-    store.reconcileSideChatSurfaces(refA, [first, second]);
+    store.reconcileSideChatSurfaces(refA, [first, second], new Set([first, second]));
     let state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
     expect(state.isOpen).toBe(false);
     expect(state.surfaces.map((surface) => surface.id)).toEqual([
@@ -69,7 +64,7 @@ describe("rightPanelStore", () => {
 
     store.openThread(refA, ThreadId.make("subagent"));
     // Settling the main thread closes side chats without removing subagent tabs.
-    store.reconcileSideChatSurfaces(refA, [first]);
+    store.reconcileSideChatSurfaces(refA, [first], new Set([first, second]));
     state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
     expect(state.surfaces.map((surface) => surface.id)).toEqual([
       "file:src/app.ts",
@@ -83,7 +78,7 @@ describe("rightPanelStore", () => {
     const store = useRightPanelStore.getState();
     const sideChat = ThreadId.make("side-chat-1");
     store.openThread(refA, sideChat);
-    store.closeSurface(refA, `thread:${sideChat}`);
+    store.closeSurface(refA, `thread:${sideChat}`, { remember: false });
     expect(useClosedViewStore.getState().entries).toEqual([]);
   });
 

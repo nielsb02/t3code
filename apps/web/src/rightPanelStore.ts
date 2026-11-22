@@ -1,4 +1,3 @@
-import { readThreadShell } from "./state/entities";
 import {
   parseScopedThreadKey,
   scopedThreadKey,
@@ -247,7 +246,11 @@ interface RightPanelStoreState {
   activateSurface: (ref: ScopedThreadRef, surfaceId: string) => void;
   /** Agent-driven activation. Not a user action, so it does not move keyboard focus. */
   revealSurface: (ref: ScopedThreadRef, surfaceId: string) => void;
-  closeSurface: (ref: ScopedThreadRef, surfaceId: string) => void;
+  closeSurface: (
+    ref: ScopedThreadRef,
+    surfaceId: string,
+    options?: { readonly remember?: boolean },
+  ) => void;
   closeOtherSurfaces: (ref: ScopedThreadRef, surfaceId: string) => void;
   closeSurfacesToRight: (ref: ScopedThreadRef, surfaceId: string) => void;
   closeAllSurfaces: (ref: ScopedThreadRef) => void;
@@ -262,6 +265,7 @@ interface RightPanelStoreState {
   reconcileSideChatSurfaces: (
     ref: ScopedThreadRef,
     openSideChatIds: ReadonlyArray<ThreadId>,
+    knownSideChatIds: ReadonlySet<ThreadId>,
   ) => void;
   show: (ref: ScopedThreadRef) => void;
   close: (ref: ScopedThreadRef) => void;
@@ -1175,26 +1179,31 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         set((state) =>
           automaticUpdate(state, scopedThreadKey(ref), (current) => activated(current, surfaceId)),
         ),
-      closeSurface: (ref, surfaceId) =>
+      closeSurface: (ref, surfaceId, options) =>
         set((state) =>
-          closeAction(state, scopedThreadKey(ref), (current) => {
-            const index = current.surfaces.findIndex((surface) => surface.id === surfaceId);
-            if (index < 0) return current;
-            const surfaces = current.surfaces.filter((surface) => surface.id !== surfaceId);
-            const next = {
-              ...current,
-              isOpen: surfaces.length > 0 && current.isOpen,
-              surfaces,
-            };
-            if (current.activeSurfaceId !== surfaceId) {
-              return next;
-            }
-            const fallback = surfaces[Math.min(index, surfaces.length - 1)] ?? null;
-            return {
-              ...next,
-              activeSurfaceId: fallback?.id ?? null,
-            };
-          }),
+          userAction(
+            state,
+            scopedThreadKey(ref),
+            (current) => {
+              const index = current.surfaces.findIndex((surface) => surface.id === surfaceId);
+              if (index < 0) return current;
+              const surfaces = current.surfaces.filter((surface) => surface.id !== surfaceId);
+              const next = {
+                ...current,
+                isOpen: surfaces.length > 0 && current.isOpen,
+                surfaces,
+              };
+              if (current.activeSurfaceId !== surfaceId) {
+                return next;
+              }
+              const fallback = surfaces[Math.min(index, surfaces.length - 1)] ?? null;
+              return {
+                ...next,
+                activeSurfaceId: fallback?.id ?? null,
+              };
+            },
+            options?.remember !== false,
+          ),
         ),
       closeOtherSurfaces: (ref, surfaceId) =>
         set((state) =>
@@ -1299,15 +1308,14 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             };
           }),
         ),
-      reconcileSideChatSurfaces: (ref, openSideChatIds) =>
+      reconcileSideChatSurfaces: (ref, openSideChatIds, knownSideChatIds) =>
         set((state) =>
           automaticUpdate(state, scopedThreadKey(ref), (current) => {
             const openIds = new Set(openSideChatIds.map((threadId) => `thread:${threadId}`));
             const kept = current.surfaces.filter(
               (surface) =>
                 surface.kind !== "thread" ||
-                readThreadShell(scopeThreadRef(ref.environmentId, surface.threadId))?.lineage
-                  .sideChat !== true ||
+                !knownSideChatIds.has(surface.threadId) ||
                 openIds.has(surface.id),
             );
             const knownIds = new Set(kept.map((surface) => surface.id));
@@ -1470,9 +1478,6 @@ useRightPanelStore.subscribe((next, previous) => {
       // A closed side chat is archived; its archive notice offers the undo.
       if (
         surface.kind === "terminal" ||
-        (surface.kind === "thread" &&
-          readThreadShell(scopeThreadRef(threadRef.environmentId, surface.threadId))?.lineage
-            .sideChat === true) ||
         (surface.kind === "preview" && surface.resourceId !== null)
       )
         continue;

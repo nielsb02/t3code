@@ -163,7 +163,7 @@ export default function SideThreadPane(props: {
     if (result._tag === "Success") {
       releaseComposerDraftUploads(threadRef);
       useComposerDraftStore.getState().clearDraftThread(threadRef);
-      useRightPanelStore.getState().closeSurface(parentRef, surface.id);
+      useRightPanelStore.getState().closeSurface(parentRef, surface.id, { remember: false });
     } else if (!isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
       toastManager.add({

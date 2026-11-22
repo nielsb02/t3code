@@ -1728,6 +1728,7 @@ export default function DiffPanel({
           <T>Select a thread to inspect turn diffs.</T>
         </div>
       ) : !isGitRepo &&
+        !hasRepositoryChanges &&
         !toolCallSelection &&
         (selectedRunId !== null || selectedCommitSha !== null || !hasWorkspaceRepositories) ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
