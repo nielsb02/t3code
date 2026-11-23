@@ -36,7 +36,11 @@ import {
 } from "./use-remote-environment-registry";
 import { useAtomCommand } from "./use-atom-command";
 import type { GitRepositoryTarget } from "./thread-git-target";
-import { noteRepositoryGitAction, showGitActionResult } from "./use-vcs-action-state";
+import {
+  noteRepositoryGitAction,
+  showGitActionResult,
+  type GitActionResultNotification,
+} from "./use-vcs-action-state";
 import { useThreadSelection } from "./use-thread-selection";
 import { useWorkspaceRepositories } from "./use-workspace-repositories";
 
@@ -71,6 +75,12 @@ export function useSelectedThreadGitActions(repository?: GitRepositoryTarget) {
   const createWorktree = useAtomCommand(vcsEnvironment.createWorktree, { reportFailure: false });
   const pull = useAtomCommand(vcsEnvironment.pull, { reportFailure: false });
   const { selectedThread, selectedThreadProject } = useThreadSelection();
+  const threadRef = selectedThread
+    ? { environmentId: selectedThread.environmentId, threadId: selectedThread.id }
+    : null;
+  const reportGitActionResult = (result: GitActionResultNotification) => {
+    if (threadRef !== null) showGitActionResult({ ...result, threadRef });
+  };
   const canWriteSourceControl = useEnvironmentScope(
     selectedThread?.environmentId ?? null,
     AuthSourceControlWriteScope,
@@ -228,7 +238,7 @@ export function useSelectedThreadGitActions(repository?: GitRepositoryTarget) {
       const error = Cause.squash(result.cause);
       const message = errorDisplayMessage(error, m) ?? m(msg("Git action failed."));
       setPendingConnectionError(message);
-      showGitActionResult({
+      reportGitActionResult({
         type: "error",
         title: m(msg("Git action failed")),
         description: message,
@@ -249,7 +259,7 @@ export function useSelectedThreadGitActions(repository?: GitRepositoryTarget) {
       const error = Cause.squash(result.cause);
       const message = errorDisplayMessage(error, m) ?? m(msg("Failed to refresh branches."));
       setPendingConnectionError(message);
-      showGitActionResult({
+      reportGitActionResult({
         type: "error",
         title: m(msg("Git action failed")),
         description: message,
@@ -383,7 +393,7 @@ export function useSelectedThreadGitActions(repository?: GitRepositoryTarget) {
           return result;
         }
         await refreshSelectedThreadGitStatus({ quiet: true, cwd });
-        showGitActionResult({
+        reportGitActionResult({
           type: "success",
           title:
             result.value.status === "skipped_up_to_date"
@@ -430,7 +440,7 @@ export function useSelectedThreadGitActions(repository?: GitRepositoryTarget) {
         } else {
           await refreshSelectedThreadGitStatus({ quiet: true, cwd });
         }
-        showGitActionResult({
+        reportGitActionResult({
           type: "success",
           title: result.value.toast.title,
           description: result.value.toast.description,
