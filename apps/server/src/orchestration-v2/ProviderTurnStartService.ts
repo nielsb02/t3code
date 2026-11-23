@@ -1191,8 +1191,7 @@ export const layer: Layer.Layer<
                   (hasLegacyNativeInput && legacyInputRunIds.has(source.id))) &&
                 !projection.messages.some(
                   (previous) =>
-                    previous.id === source.userMessageId &&
-                    isSlashCommandMessage(previous),
+                    previous.id === source.userMessageId && isSlashCommandMessage(previous),
                 ),
             ));
         // A new native conversation needs the identity again, without replaying the old activity digest.
@@ -2164,7 +2163,9 @@ export const layer: Layer.Layer<
                 ? { ...handoff, status: "superseded" as const }
                 : handoff,
             ),
-            ...(sideChatContext === "" || sideChatFrameHandoff === undefined ? [] : [sideChatFrameHandoff]),
+            ...(sideChatContext === "" || sideChatFrameHandoff === undefined
+              ? []
+              : [sideChatFrameHandoff]),
           ];
           const context = [delivery.context, sideChatContext, restartNote]
             .filter((part) => part !== "")
