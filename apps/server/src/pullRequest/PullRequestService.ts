@@ -1314,6 +1314,7 @@ export const make = Effect.gen(function* () {
       return {
         cursorKey: listCursorKey(host, hostRepositoryKey ?? repository),
         project,
+        kind,
         repository,
         host,
         api: withRateLimitBackoff(api, host, rateLimits),
