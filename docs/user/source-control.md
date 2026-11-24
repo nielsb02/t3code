@@ -10,6 +10,12 @@ rebases, the files Git brought in are left out. A file stays in the list when th
 committed it, or fixed a conflict in it. Use the branch comparison to review everything that changed
 against your base branch. Restore still returns the complete saved workspace.
 
+In a [project with several repositories](multi-repo-projects.md),
+the Diff pane shows every repository the turn changed. Use the repository picker next to the source picker to narrow the diff to one of
+them. Paths in the diff start at the thread's folder, so the same file name in two repositories
+stays apart. This works when the project folder itself is not a Git repository; the branch
+comparison and uncommitted changes read one repository at a time, chosen from the same picker.
+
 ## Work with several repositories
 
 A checkout can declare the repositories it contains, such as a workspace folder with one clone per
@@ -448,7 +454,9 @@ To list Linear issues beside a project's, connect Linear with an API key under
 Settings → Source control & issues, then pick one or more teams for that project there. Pick
 another team at any time to add it; uncheck every team to unbind the project. Each team's
 issues appear in the Linear group of the issue list, sorted with the rest by last update, and
-each can be loaded further on its own. Agents file new issues in the first team picked unless you name another bound team.
+each can be loaded further on its own. Agents file new issues in the first team picked unless you name another bound team. To
+connect another Linear workspace or user, add another account in the same place; each project
+reads its teams through the account you picked them under.
 
 Select an issue to open it beside the list: description, comments, state changes, linked pull
 requests, labels, assignees, and reactions. Linked pull requests open in the same panel. You can
