@@ -2,6 +2,7 @@ import { m } from "../i18n/messages";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { useGT, useMessages } from "gt-react";
 import { ChildThreadApprovals } from "./chat/ChildThreadApprovals";
+import { draftSupportedRuntimeModes } from "./chat/runtimeModeConfig";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { useSideChatActions } from "./chat/useSideChatActions";
@@ -104,6 +105,7 @@ import {
   deriveRunlessWorkStartedAt,
   deriveThreadActivityRun,
   deriveLatestThreadRun,
+  presentProviderStarting,
   deriveThreadStructureRuntime,
   limitRecoveryOwnsSnooze,
 } from "@t3tools/client-runtime/state/thread-execution";
@@ -424,6 +426,13 @@ import {
 } from "./ChatView.logic";
 
 const EMPTY_PROVIDERS: ServerProvider[] = [];
+const ACTIVE_RUN_STATUSES: ReadonlySet<string> = new Set([
+  "preparing",
+  "queued",
+  "starting",
+  "running",
+  "waiting",
+]);
 const EMPTY_PROVIDER_MODELS: ServerProvider["models"] = [];
 const EMPTY_USAGE_LIMIT_SOURCES: UsageLimitSourceSnapshots = [];
 import type { CodexArtifactTemplate } from "@t3tools/shared/codexArtifactTemplates";
@@ -889,7 +898,14 @@ function ChatViewContent(props: ChatViewProps) {
   const serverLatestRun =
     serverProjection === null ? null : deriveLatestThreadRun(serverProjection);
   const serverActivityRun =
-    serverProjection === null ? null : deriveThreadActivityRun(serverProjection);
+    serverProjection === null
+      ? null
+      : deriveThreadActivityRun(
+          serverProjection,
+          serverThread === null
+            ? undefined
+            : providersByEnvironment.get(serverThread.environmentId),
+        );
   const serverRuntime =
     serverProjection === null ? null : deriveThreadStructureRuntime(serverProjection);
   const runlessWorkStartedAt =
@@ -1615,6 +1631,18 @@ function ChatViewContent(props: ChatViewProps) {
   const activeWorkStartedAt =
     deriveActiveWorkStartedAt(activeActivityRun, activeRuntime, localDispatchStartedAt) ??
     runlessWorkStartedAt;
+  // Until the server has the run, a send shows the provider it is starting, not the thinking brain.
+  const providerStartingRun =
+    activeActivityRun?.providerStartingLabelMsg !== undefined
+      ? activeActivityRun
+      : isSendBusy &&
+          selectedProviderEntry !== undefined &&
+          (activeActivityRun === null || !ACTIVE_RUN_STATUSES.has(activeActivityRun.status))
+        ? presentProviderStarting({
+            instanceId: selectedProviderEntry.instanceId,
+            driver: selectedProviderEntry.driverKind,
+          })
+        : null;
   const activeRunPreparing = activeActivityRun?.status === "preparing";
   const sendQueuesBehindSetup =
     isServerThread && (activeRunPreparing || activeActivityRun?.status === "starting");
@@ -2995,6 +3023,7 @@ function ChatViewContent(props: ChatViewProps) {
 
   useChatShortcuts({
     embedded,
+    composerElement: composerOverlayElement,
     enabled: activeThreadId !== null && !backgroundThread,
     ownsInput: (target) => ownsChatPaneInput(routeThreadKey, target),
     keybindings,
@@ -3735,13 +3764,13 @@ function ChatViewContent(props: ChatViewProps) {
                   }
                   activeTurnStartedAt={activeWorkStartedAt}
                   providerStartingLabel={
-                    activeActivityRun?.providerStartingLabelMsg
-                      ? messages(activeActivityRun.providerStartingLabelMsg)
+                    providerStartingRun?.providerStartingLabelMsg
+                      ? messages(providerStartingRun.providerStartingLabelMsg)
                       : null
                   }
                   providerStarting={
-                    activeActivityRun?.providerStartingLabelMsg
-                      ? (activeActivityRun.providerStarting ?? null)
+                    providerStartingRun?.providerStartingLabelMsg
+                      ? (providerStartingRun.providerStarting ?? null)
                       : null
                   }
                   worktreeSetup={worktreeSetup}
@@ -4121,9 +4150,11 @@ function ChatViewContent(props: ChatViewProps) {
                                           <ComposerContextPermissions
                                             environmentId={environmentId}
                                             runtimeMode={runtimeMode}
-                                            supportedRuntimeModes={
-                                              activeProviderStatus?.supportedRuntimeModes
-                                            }
+                                            supportedRuntimeModes={draftSupportedRuntimeModes(
+                                              activeProviderStatus?.supportedRuntimeModes,
+                                              multipleModelSelections,
+                                              providerStatuses,
+                                            )}
                                             onRuntimeModeChange={handleRuntimeModeChangeStable}
                                           />
                                         ),

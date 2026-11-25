@@ -705,7 +705,7 @@ export const make = Effect.gen(function* () {
               command: "git",
               args: ["-c", "core.fsmonitor=false", "check-ignore", "-z", "--stdin"],
               cwd: gitRoot,
-              stdin: `${paths.map((relative) => path.relative(gitRoot, path.join(realRoot, relative)) || ".").join("\0")}\0`,
+              stdin: `${paths.map((relative) => `./${path.relative(gitRoot, path.join(realRoot, relative))}`).join("\0")}\0`,
               allowNonZeroExit: true,
               timeoutMs: 10_000,
               maxOutputBytes: 16 * 1024 * 1024,
@@ -720,12 +720,12 @@ export const make = Effect.gen(function* () {
         }
         const directoryGitPath = path.relative(gitRoot, path.join(realRoot, target.relativePath));
         // Check ignored folders once to avoid child index lookups; exit 0 guarantees no tracked descendants.
-        // Symlinks and pathspec magic still need per-child checks.
+        // Symlinks and glob characters still need per-child checks.
         if (
           entries.length > IGNORE_CHECK_CHUNK_SIZE &&
           directoryGitPath !== "" &&
           !throughSymlink &&
-          !/^:|[*?[\\]/.test(directoryGitPath) &&
+          !/[*?[\\]/.test(directoryGitPath) &&
           (yield* checkIgnore([target.relativePath]))?.exitCode === 0
         ) {
           return {
@@ -742,7 +742,10 @@ export const make = Effect.gen(function* () {
           for (const ignoredPath of result.stdout.split("\0")) {
             if (!ignoredPath) continue;
             ignored.add(
-              path.relative(realRoot, path.join(gitRoot, ignoredPath)).split(path.sep).join("/"),
+              path
+                .relative(realRoot, path.join(gitRoot, ignoredPath.replace(/^\.\//, "")))
+                .split(path.sep)
+                .join("/"),
             );
           }
         }
