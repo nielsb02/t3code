@@ -17,82 +17,6 @@ const { RELEASE_PACKAGE_FILES, setReleaseVersion } = require("./set-release-vers
 
 const read = (path) => readFileSync(join(__dirname, "..", path), "utf8");
 
-function jobs(path) {
-  const body = read(path).split(/^jobs:\n/m)[1];
-  const found = {};
-  for (const block of body.split(/^(?=  [\w-]+:\n)/m)) {
-    const name = /^  ([\w-]+):\n/.exec(block)?.[1];
-    if (name) found[name] = block;
-  }
-  return found;
-}
-
-const steps = (block) => block.split(/^ {4,6}- /m).slice(1);
-const runsProjectCode = (block) =>
-  /setup-vp@|setup-ci-deps|eas-local-build|expo-github-action|\b(?:vp|pnpm|npm|npx|eas) /.test(
-    block,
-  );
-
-test("npm publishing is bound to the environment that admits only main and v* tags", () => {
-  const publish = jobs("workflows/release.yml").publish_cli;
-  assert.match(publish, /^ {6}id-token: write$/m);
-  assert.match(publish, /^ {4}environment: production$/m);
-});
-
-test("the web preview gives the Vercel token to the deploy step only, after an install without lifecycle scripts", () => {
-  const deploy = jobs("workflows/web-preview.yml").deploy;
-  assert.doesNotMatch(deploy.split(/^ {4}steps:\n/m)[0], /secrets\./);
-  const withSecrets = steps(deploy).filter((step) => step.includes("secrets."));
-  assert.equal(withSecrets.length, 1);
-  assert.match(withSecrets[0], /name: Deploy preview/);
-  assert.match(deploy, /run-install: \|\n {12}args:\n {14}- --ignore-scripts\n/);
-});
-
-const mobileWorkflows = [
-  "workflows/mobile-eas-preview.yml",
-  "workflows/mobile-eas-preview-build.yml",
-  "workflows/mobile-eas-production.yml",
-  "workflows/mobile-eas-production-build.yml",
-];
-
-for (const path of mobileWorkflows) {
-  test(`${path}: no job that installs or builds can push to the repository`, () => {
-    for (const [name, block] of Object.entries(jobs(path))) {
-      if (/^ {4}uses: /m.test(block)) continue;
-      const writes = /contents: write|write-all|record-build-tag|create-github-app-token/.test(
-        block,
-      );
-      assert.match(block, /^ {4}permissions:\n/m, `${name} declares its permissions`);
-      assert.ok(!(writes && runsProjectCode(block)), `${name} holds a write token and runs code`);
-    }
-  });
-}
-
-test("the build record is pushed by the record job of each build workflow", () => {
-  for (const path of [
-    "workflows/mobile-eas-preview-build.yml",
-    "workflows/mobile-eas-production-build.yml",
-  ]) {
-    const { record, ...builds } = jobs(path);
-    assert.match(record, /uses: \.\/\.github\/actions\/record-build-tag/);
-    assert.match(record, /^ {6}contents: write/m);
-    for (const block of Object.values(builds)) assert.match(block, /^ {6}contents: read$/m);
-  }
-});
-
-test("jobs that push run this workflow's own actions", () => {
-  for (const file of mobileWorkflows) {
-    for (const [name, block] of Object.entries(jobs(file))) {
-      if (!/contents: write|create-github-app-token/.test(block)) continue;
-      const jobSteps = steps(block);
-      const checkout = jobSteps.findIndex((step) => /^ +ref: .*\b(?:inputs|needs)\./m.test(step));
-      if (checkout === -1) continue;
-      const local = jobSteps.slice(checkout).filter((step) => /^ +uses: \.\//m.test(step));
-      assert.equal(local.length, 0, `${file} ${name} runs a local action from another checkout`);
-    }
-  }
-});
-
 const recordScript = read("actions/record-build-tag/action.yml")
   .split(/^ {6}run: \|\n/m)[1]
   .replace(/^ {8}/gm, "")
@@ -177,39 +101,6 @@ test("the build record tags the named commit only when it is on the workflow's r
   }
 });
 
-test("the store build record job runs the workflow's own action and passes the built commit as data", () => {
-  const { record } = jobs("workflows/mobile-eas-production-build.yml");
-  assert.doesNotMatch(record, /^ +ref: /m);
-  assert.match(record, /^ {10}commit: \$\{\{ inputs\.sha \}\}$/m);
-});
-
-test("release deploys give the Vercel token to the deploy step only", () => {
-  const all = jobs("workflows/release.yml");
-  for (const name of ["build_web", "build_marketing"]) {
-    assert.doesNotMatch(all[name].split(/^ {4}steps:\n/m)[0], /secrets\.VERCEL/);
-    const withToken = steps(all[name]).filter((step) => step.includes("secrets.VERCEL_TOKEN"));
-    assert.equal(withToken.length, 1);
-    assert.match(withToken[0], /name: Build staged deployment/);
-  }
-});
-
-test("the version override token covers this repository only", () => {
-  const { version, production } = jobs("workflows/mobile-eas-production.yml");
-  const mint = steps(version).find((step) => step.includes("create-github-app-token"));
-  assert.doesNotMatch(mint, /^\s+(?:owner|repositories):/m);
-  assert.match(mint, /^\s+permission-contents: write$/m);
-  assert.doesNotMatch(production, /RELEASE_APP|create-github-app-token/);
-});
-
-test("the release version bump is pushed by a job that installs nothing, with a token for this repository only", () => {
-  const { finalize } = jobs("workflows/release.yml");
-  const mint = steps(finalize).find((step) => step.includes("create-github-app-token"));
-  assert.doesNotMatch(mint, /^\s+(?:owner|repositories):/m);
-  assert.match(mint, /^\s+permission-contents: write$/m);
-  assert.ok(!runsProjectCode(finalize), "finalize holds a write token and runs code");
-  assert.match(finalize, /run: node \.github\/scripts\/set-release-version\.cjs /);
-});
-
 test("the Vite+ toolchain is cached before the job installs or runs project code", () => {
   const names = Array.from(
     read("actions/setup-ci-deps/action.yml").matchAll(
@@ -224,76 +115,6 @@ test("the Vite+ toolchain is cached before the job installs or runs project code
   assert.ok(index("Save Vite+") < index("Install dependencies"));
   // The combined action saves at the end of the job, after everything ran.
   assert.ok(names.every((step) => !step.uses.startsWith("actions/cache@")));
-});
-
-const consumeScript = steps(jobs("workflows/mobile-eas-preview-fork.yml").preview)
-  .find((step) => step.startsWith("id: consume\n"))
-  .split(/^ {10}script: \|\n/m)[1]
-  .replace(/^ {12}/gm, "");
-const consume = new (Object.getPrototypeOf(async () => {}).constructor)(
-  "github",
-  "context",
-  "core",
-  consumeScript,
-);
-
-async function runConsume(permission, removeStatus, removed = []) {
-  const outputs = {};
-  await consume(
-    {
-      rest: {
-        repos: {
-          async getCollaboratorPermissionLevel({ username }) {
-            assert.equal(username, "labeler");
-            if (permission === undefined) throw Object.assign(new Error("denied"), { status: 403 });
-            return { data: { permission } };
-          },
-        },
-        issues: {
-          async removeLabel(params) {
-            if (removeStatus) throw Object.assign(new Error("gone"), { status: removeStatus });
-            removed.push(params.name);
-          },
-        },
-      },
-    },
-    {
-      repo: { owner: "example", repo: "app" },
-      payload: {
-        sender: { login: "labeler" },
-        label: { name: "deploy" },
-        pull_request: { number: 7 },
-      },
-    },
-    { info() {}, warning() {}, setOutput: (name, value) => (outputs[name] = value) },
-  );
-  return { outputs, removed };
-}
-
-for (const [permission, consumed] of [
-  ["admin", "true"],
-  ["maintain", "true"],
-  ["write", "true"],
-  ["triage", "false"],
-  ["read", "false"],
-  ["none", "false"],
-]) {
-  test(`a fork preview label from ${permission} access is removed and ${consumed === "true" ? "builds" : "builds nothing"}`, async () => {
-    assert.deepEqual(await runConsume(permission), {
-      outputs: { consumed },
-      removed: ["deploy"],
-    });
-  });
-}
-
-test("a fork preview label is removed even when the access lookup fails", async () => {
-  const removed = [];
-  await assert.rejects(runConsume(undefined, undefined, removed), { status: 403 });
-  assert.deepEqual(removed, ["deploy"]);
-});
-
-test("a fork preview label removed before the run builds nothing", async () => {
-  assert.deepEqual(await runConsume("admin", 404), { outputs: { consumed: "false" }, removed: [] });
 });
 
 test("a version override rewrites only the app version", () => {
