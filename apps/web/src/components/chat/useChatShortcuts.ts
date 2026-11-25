@@ -32,6 +32,7 @@ const SIDE_CHAT_PANE_COMMANDS: ReadonlySet<KeybindingCommand> = new Set([
 interface ChatShortcutsInput {
   readonly enabled: boolean;
   readonly embedded?: boolean;
+  readonly composerElement?: HTMLElement | null;
   readonly ownsInput: (target: EventTarget | null) => boolean;
   readonly keybindings: ResolvedKeybindingsConfig;
   readonly scriptKeybindings: ResolvedKeybindingsConfig;
@@ -111,17 +112,21 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
     const context = input.getShortcutContext(event.target);
     if (context.terminalFocus || context.previewFocus || context.modelPickerOpen) return;
     event.preventDefault();
+    event.stopPropagation();
     input.closeThreadFind();
   });
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- attaches window keydown listeners for chat shortcuts and find dismissal for the component's lifetime
+  const findTarget = input.embedded
+    ? (input.composerElement?.closest<HTMLElement>("[data-side-chat-pane]") ?? null)
+    : window;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- attaches window shortcuts and pane-local find dismissal before the panel sheet handles Escape
   useEffect(() => {
     const onKeyDownCapture = (event: KeyboardEvent) => handleShortcut(event);
     const onKeyDown = (event: KeyboardEvent) => dismissFind(event);
     window.addEventListener("keydown", onKeyDownCapture, true);
-    window.addEventListener("keydown", onKeyDown);
+    findTarget?.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("keydown", onKeyDownCapture, true);
-      window.removeEventListener("keydown", onKeyDown);
+      findTarget?.removeEventListener("keydown", onKeyDown);
     };
-  }, []);
+  }, [findTarget]);
 }

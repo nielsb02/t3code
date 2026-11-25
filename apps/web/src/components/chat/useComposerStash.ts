@@ -68,7 +68,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { BackgroundThreadContext } from "./backgroundThread";
+import { HiddenThreadContext } from "./backgroundThread";
 import { useStableCallback } from "../../hooks/useStableCallback";
 
 /**
@@ -785,7 +785,7 @@ export function useComposerStash(input: {
   });
   // Capture phase while the composer is mounted, so Mod+S never reaches the browser's save
   // dialog even when a focused widget (the model picker search) stops the key.
-  const backgroundThread = use(BackgroundThreadContext);
+  const hiddenThread = use(HiddenThreadContext);
   const readShortcutContext = useStableCallback(() => ({
     terminalOpen: Boolean(
       selectThreadTerminalUiState(
@@ -796,7 +796,7 @@ export function useComposerStash(input: {
   }));
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- registers the capture-phase stash shortcut with the command registry while the composer is mounted
   useEffect(() => {
-    if (backgroundThread) return;
+    if (hiddenThread) return;
     return registerCommands(
       { "composer.stash": handleStashShortcut },
       {
@@ -805,7 +805,7 @@ export function useComposerStash(input: {
         when: (event) => ownsChatPaneInput(chatPaneKey, event.target),
       },
     );
-  }, [backgroundThread, chatPaneKey, handleStashShortcut, readShortcutContext]);
+  }, [hiddenThread, chatPaneKey, handleStashShortcut, readShortcutContext]);
 
   return {
     stashQueue,
