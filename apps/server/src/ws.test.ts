@@ -1947,6 +1947,15 @@ it.effect(
         const exits = yield* Queue.unbounded<string>();
         const services = Layer.mergeAll(
           layerUnusedConfigRpcServices,
+          Layer.mock(ThreadManagement.ThreadManagementService)({
+            getShellSnapshot: () =>
+              Effect.succeed({
+                schemaVersion: 1,
+                snapshotSequence: 0,
+                threads: [],
+                archivedThreads: [],
+              }),
+          }),
           Layer.mock(TaskFolders.TaskFolders)({
             createForProjectFolder: (_input, options) =>
               Effect.sync(() => seen.push(options.projectCommands)).pipe(
