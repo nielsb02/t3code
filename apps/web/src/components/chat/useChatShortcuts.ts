@@ -115,9 +115,10 @@ export function useChatShortcuts(input: ChatShortcutsInput) {
     event.stopPropagation();
     input.closeThreadFind();
   });
-  const findTarget = input.embedded
-    ? (input.composerElement?.closest<HTMLElement>("[data-side-chat-pane]") ?? null)
-    : window;
+  const findTarget: Pick<HTMLElement, "addEventListener" | "removeEventListener"> | null =
+    input.embedded
+      ? (input.composerElement?.closest<HTMLElement>("[data-side-chat-pane]") ?? null)
+      : window;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- attaches window shortcuts and pane-local find dismissal before the panel sheet handles Escape
   useEffect(() => {
     const onKeyDownCapture = (event: KeyboardEvent) => handleShortcut(event);
