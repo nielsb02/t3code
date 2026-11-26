@@ -160,6 +160,7 @@ function UnavailableTerminalCommand({
 }) {
   useChatShortcuts({
     enabled: true,
+    ownsInput: () => true,
     keybindings: compileResolvedKeybindingsConfig([
       { key: command === "terminal.previous" ? "cmd+shift+[" : "cmd+shift+]", command },
     ]),
