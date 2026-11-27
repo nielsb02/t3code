@@ -205,28 +205,25 @@ function AssistantSideChatButton({
   const runId = projectedItem.item.runId;
 
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            type="button"
-            size="xs"
-            variant="ghost"
-            disabled={busy}
-            onClick={() => {
-              setBusy(true);
-              void onSideChatFromRun(runId).finally(() => setBusy(false));
-            }}
-            aria-label={gt("Side chat from this response")}
-          />
-        }
-      >
-        <MessagesSquareIcon className={cn("size-3", busy && "animate-pulse")} />
-      </TooltipTrigger>
-      <TooltipPopup side="top">
-        <T>Side chat from this response</T>
-      </TooltipPopup>
-    </Tooltip>
+    <SharedTooltipTrigger
+      render={
+        <Button
+          type="button"
+          size="xs"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            void onSideChatFromRun(runId).finally(() => setBusy(false));
+          }}
+          aria-label={gt("Side chat from this response")}
+        />
+      }
+      side="top"
+      label={<T>Side chat from this response</T>}
+    >
+      <MessagesSquareIcon className={cn("size-3", busy && "animate-pulse")} />
+    </SharedTooltipTrigger>
   );
 }
 
