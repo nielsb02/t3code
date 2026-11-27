@@ -37,7 +37,6 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import ChatView from "../ChatView";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
-import { BackgroundThreadContext } from "./backgroundThread";
 import { closeThreadFindIn } from "./threadFindStore";
 import { SharedTooltipTrigger } from "../ui/shared-tooltip";
 
@@ -252,15 +251,13 @@ export default function SideThreadPane(props: {
           )}
         </p>
       ) : renderState === "loading" && thread === null ? null : (
-        <BackgroundThreadContext value>
-          <ChatView
-            environmentId={parentRef.environmentId}
-            threadId={threadId}
-            routeKind="server"
-            embedded={props.parentPanel}
-            {...(isSideChat ? { onCloseSideChat: props.onClose } : {})}
-          />
-        </BackgroundThreadContext>
+        <ChatView
+          environmentId={parentRef.environmentId}
+          threadId={threadId}
+          routeKind="server"
+          embedded={props.parentPanel}
+          {...(isSideChat ? { onCloseSideChat: props.onClose } : {})}
+        />
       )}
     </div>
   );

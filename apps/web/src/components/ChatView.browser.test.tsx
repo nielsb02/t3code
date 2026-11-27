@@ -929,7 +929,7 @@ it("a shortcut conditioned on rightPanelOpen sees the thread's open right panel"
   await expect.element(toggle).toHaveAttribute("aria-pressed", "true");
 });
 
-it("selecting a side-chat tab focuses that side chat's composer", async () => {
+it("selecting a side-chat tab focuses its composer and routes shortcuts to that thread", async () => {
   const parent = threadWithHistory("focus-parent", 1);
   // The shell loaded by the file's first test stays; a family read serves side chats added later.
   const sideChat = (name: string) => ({
@@ -975,6 +975,11 @@ it("selecting a side-chat tab focuses that side chat's composer", async () => {
   await userEvent.click(screen.getByRole("button", { name: side.title, exact: true }));
   await expect.element(sideEditor).toHaveFocus();
   await expect.element(mainEditor).toHaveTextContent("main draft");
+  using clipboard = vi.spyOn(navigator.clipboard, "write").mockResolvedValue(undefined);
+  await userEvent.keyboard("{ControlOrMeta>}{Shift>}c{/Shift}{/ControlOrMeta}");
+  await vi.waitFor(() => expect(clipboard).toHaveBeenCalledTimes(1));
+  const copied = clipboard.mock.calls[0]?.[0][0];
+  expect(await copied?.getType("text/plain").then((blob) => blob.text())).toContain(side.id);
 });
 
 it("a subagent tab shows its read-only bar under no header of its own", async () => {
