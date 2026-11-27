@@ -56,8 +56,8 @@ vi.mock("../../../state/query", () => ({
 vi.mock("../../../state/use-thread-selection", () => ({
   useThreadSelection: () => ({ selectedThread: { environmentId: "environment" } }),
 }));
-vi.mock("../../../state/use-selected-thread-worktree", () => ({
-  useSelectedThreadWorktree: () => ({ selectedThreadCwd: "/repo" }),
+vi.mock("../../../state/use-workspace-repositories", () => ({
+  useWorkspaceRepositories: () => ({ selectedThreadCwd: "/repo" }),
 }));
 vi.mock("../../../state/use-selected-thread-git-state", () => ({
   useSelectedThreadGitState: () => ({ gitOperationLabel: null }),
