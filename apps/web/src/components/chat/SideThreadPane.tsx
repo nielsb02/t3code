@@ -37,8 +37,9 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import ChatView from "../ChatView";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { BackgroundThreadContext } from "./backgroundThread";
 import { closeThreadFindIn } from "./threadFindStore";
+import { SharedTooltipTrigger } from "../ui/shared-tooltip";
 
 /**
  * A side chat or a subagent as a tab: the thread's own chat, which decides its bottom, the
@@ -205,26 +206,24 @@ export default function SideThreadPane(props: {
       {isSideChat ? (
         <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border pr-1 pl-3">
           <h2 className="min-w-0 flex-1 truncate text-xs font-medium">{title}</h2>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  aria-disabled={
-                    bringBackBlockedReason !== null || bringingBack || deleting || undefined
-                  }
-                  onClick={() => void bringBack()}
-                >
-                  <T>Bring back</T>
-                </Button>
-              }
-            />
-            <TooltipPopup side="bottom">
-              {bringBackBlockedReason ??
-                gt("Adds this side chat to the main thread's next message.")}
-            </TooltipPopup>
-          </Tooltip>
+          <SharedTooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="xs"
+                aria-disabled={
+                  bringBackBlockedReason !== null || bringingBack || deleting || undefined
+                }
+                onClick={() => void bringBack()}
+              >
+                <T>Bring back</T>
+              </Button>
+            }
+            label={
+              bringBackBlockedReason ?? gt("Adds this side chat to the main thread's next message.")
+            }
+            side="bottom"
+          />
           <Button
             variant="ghost"
             size="icon-xs"
@@ -253,13 +252,15 @@ export default function SideThreadPane(props: {
           )}
         </p>
       ) : renderState === "loading" && thread === null ? null : (
-        <ChatView
-          environmentId={parentRef.environmentId}
-          threadId={threadId}
-          routeKind="server"
-          embedded={props.parentPanel}
-          {...(isSideChat ? { onCloseSideChat: props.onClose } : {})}
-        />
+        <BackgroundThreadContext value>
+          <ChatView
+            environmentId={parentRef.environmentId}
+            threadId={threadId}
+            routeKind="server"
+            embedded={props.parentPanel}
+            {...(isSideChat ? { onCloseSideChat: props.onClose } : {})}
+          />
+        </BackgroundThreadContext>
       )}
     </div>
   );
