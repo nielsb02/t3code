@@ -62,7 +62,6 @@
       "entry": [
         "src/bin.ts!",
         "src/claude-history-worker.ts!",
-        "src/process-launcher.ts!",
         "scripts/cli.ts",
         "scripts/fetch-expo-schema.ts",
         "scripts/probe-claude-fork-local-rollback-replay.ts",
@@ -112,6 +111,7 @@
       // Worktree setup (scripts/setup-worktree.ts) runs this directly, and evidence
       // fixtures run under node.
       "entry": [
+        "src/epubPreviewMain.tsx!",
         "scripts/warm-dep-cache.ts",
         // The fork runs this upstream release check manually.
         "scripts/verify-built-boot.ts",

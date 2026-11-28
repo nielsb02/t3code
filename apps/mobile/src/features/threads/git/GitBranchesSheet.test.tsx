@@ -82,6 +82,9 @@ vi.mock("../../../state/use-selected-thread-git-state", () => ({
     gitOperationLabel: null,
   }),
 }));
+vi.mock("../../../state/queries", () => ({
+  usePaginatedBranches: () => ({ data: null, refs: [], isPending: false }),
+}));
 vi.mock("../../../state/use-selected-thread-git-actions", () => ({
   useSelectedThreadGitActions: () => ({
     canChangeThreadBranch: true,
