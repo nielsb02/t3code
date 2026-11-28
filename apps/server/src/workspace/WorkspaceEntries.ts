@@ -28,7 +28,7 @@ import type {
   ProjectSearchEntriesResult,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import { isExplicitRelativePath, isWindowsAbsolutePath } from "@t3tools/shared/path";
+import { isExplicitRelativePath, isNetworkPath, isWindowsAbsolutePath } from "@t3tools/shared/path";
 import { normalizeSearchQuery, scoreSubsequenceMatch } from "@t3tools/shared/searchRanking";
 
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
@@ -122,7 +122,7 @@ export class WorkspaceEntries extends Context.Service<
     readonly searchContents: (
       input: ProjectSearchContentsInput,
     ) => Effect.Effect<ProjectSearchContentsResult, WorkspaceEntriesError>;
-    readonly refresh: (cwd: string) => Effect.Effect<void>;
+    readonly refresh: (cwd: string, mode?: "passive") => Effect.Effect<void>;
   }
 >()("t3/workspace/WorkspaceEntries") {}
 
@@ -242,7 +242,7 @@ export const make = Effect.gen(function* () {
   };
 
   const refresh: WorkspaceEntries["Service"]["refresh"] = Effect.fn("WorkspaceEntries.refresh")(
-    function* (cwd) {
+    function* (cwd, mode) {
       const normalizedCwd = yield* normalizeWorkspaceRoot(cwd).pipe(
         Effect.flatMap((root) => fileSystem.realPath(root)),
         Effect.orElseSucceed(() => cwd),
@@ -279,7 +279,7 @@ export const make = Effect.gen(function* () {
           );
           yield* Effect.gen(function* () {
             const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
-            yield* searchIndex.refresh();
+            yield* searchIndex.refresh(mode);
           }).pipe(
             Effect.provide(workspaceSearchIndexes.get(indexKey)),
             Effect.catchTags({
@@ -353,7 +353,9 @@ export const make = Effect.gen(function* () {
 
       return {
         parentPath,
-        entries: entries.toSorted((left, right) => left.name.localeCompare(right.name)),
+        entries: entries.toSorted((left, right) =>
+          left.name.localeCompare(right.name, undefined, { numeric: true }),
+        ),
       };
     },
   );
@@ -582,18 +584,6 @@ export const make = Effect.gen(function* () {
         const { entries, throughSymlink, realRoot, nestedGitRoots } = yield* Effect.tryPromise({
           try: async () => {
             const root = await NodeFSP.realpath(normalizedCwd);
-            const directory = await NodeFSP.realpath(target.absolutePath);
-            const relative = path.relative(root, directory);
-            if (
-              relative === ".." ||
-              relative.startsWith(`..${path.sep}`) ||
-              path.isAbsolute(relative) ||
-              relative.split(path.sep).includes(".git") ||
-              target.relativePath.split("/").includes(".git")
-            ) {
-              throw new Error("Directory must be inside the workspace and outside .git.");
-            }
-            const children = await NodeFSP.readdir(directory, { withFileTypes: true });
             const isSameOrInside = (parent: string, child: string) => {
               const relativeChild = path.relative(parent, child);
               return (
@@ -602,6 +592,18 @@ export const make = Effect.gen(function* () {
                 !path.isAbsolute(relativeChild)
               );
             };
+            // `filesystem:read` covers the whole OS account, so links may lead out of the
+            // root, but not onto a share: Windows signs in to it with the user's credentials.
+            const isListable = (resolved: string) =>
+              isSameOrInside(root, resolved)
+                ? !path.relative(root, resolved).split(path.sep).includes(".git")
+                : !isNetworkPath(resolved) && !resolved.split(path.sep).includes(".git");
+            const directory = await NodeFSP.realpath(target.absolutePath);
+            const relative = path.relative(root, directory);
+            if (!isListable(directory) || target.relativePath.split("/").includes(".git")) {
+              throw new Error("Directory must not be a network share or inside .git.");
+            }
+            const children = await NodeFSP.readdir(directory, { withFileTypes: true });
             // Reject canonical ancestors so "Expand all folders" cannot follow a cycle.
             let visitedFolders: Promise<ReadonlyArray<string>> | undefined;
             const loadVisitedFolders = () =>
@@ -620,13 +622,7 @@ export const make = Effect.gen(function* () {
               const resolved = await NodeFSP.realpath(path.join(directory, name)).catch(
                 () => undefined,
               );
-              if (
-                resolved === undefined ||
-                !isSameOrInside(root, resolved) ||
-                path.relative(root, resolved).split(path.sep).includes(".git")
-              ) {
-                return undefined;
-              }
+              if (resolved === undefined || !isListable(resolved)) return undefined;
               const stat = await NodeFSP.stat(resolved).catch(() => undefined);
               if (stat?.isFile()) return "file";
               if (!stat?.isDirectory()) return undefined;
@@ -842,7 +838,7 @@ export const make = Effect.gen(function* () {
     const files = yield* Effect.promise(() =>
       Promise.all(
         paths.slice(0, IGNORED_FILES_LIMIT).map(async (relativePath) => {
-          // lstat: a symlink usually points outside the workspace, where reads refuse to go.
+          // lstat: following a link could stall on a slow or remote target.
           const stat = await NodeFSP.lstat(path.join(normalizedCwd, relativePath)).catch(
             () => null,
           );

@@ -4,9 +4,10 @@ import {
   AuthTerminalOperateScope,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { getTerminalLabel } from "@t3tools/shared/terminalLabelsCopy";
 import { agentControlledBrowserCloseConfirmation } from "../components/ChatView.logic";
+import { useClosedViewStore } from "../closedViewStore";
 import { closePreviewSession } from "../components/preview/closePreviewSession";
 import { useThreadTerminalActions } from "../components/terminal/useThreadTerminalActions";
 import { msg } from "gt-react";
@@ -89,22 +90,28 @@ export function useRightPanelSurfaceClose(input: {
       () => undefined,
     );
   };
-  // The active surface closes last so the panel does not flash through it.
   const finishClose = (toClose: readonly RightPanelSurface[]) => {
     if (!threadRef) return;
     const store = useRightPanelStore.getState();
-    const activeId = selectThreadRightPanelState(store.byThreadKey, threadRef).activeSurfaceId;
-    const ordered = toClose.toSorted(
-      (left, right) => Number(left.id === activeId) - Number(right.id === activeId),
+    const { activeSurfaceId, surfaces } = selectThreadRightPanelState(store.byThreadKey, threadRef);
+    const openIds = new Set(surfaces.map((surface) => surface.id));
+    const closingSurfaces = toClose.filter((surface) => openIds.has(surface.id));
+    if (closingSurfaces.length === 0) return;
+    const isSideChat = (surface: RightPanelSurface) =>
+      surface.kind === "thread" &&
+      readThreadShell(scopeThreadRef(threadRef.environmentId, surface.threadId))?.lineage
+        .sideChat === true;
+    // Side chats stay open until archiving succeeds; other tabs close before releasing sessions.
+    store.closeSurfaces(
+      threadRef,
+      closingSurfaces.filter((surface) => !isSideChat(surface)).map((surface) => surface.id),
     );
-    for (const surface of ordered) {
-      // Releasing a browser drops its session, which prunes the tab automatically; close it
-      // first so the close stays a user action that hides the panel after the last tab.
-      if (
-        surface.kind === "thread" &&
-        readThreadShell(scopeThreadRef(threadRef.environmentId, surface.threadId))?.lineage
-          .sideChat === true
-      ) {
+    // The active tab's session closes last so reopening restores it first.
+    const releaseOrder = closingSurfaces.toSorted(
+      (left, right) => Number(left.id === activeSurfaceId) - Number(right.id === activeSurfaceId),
+    );
+    for (const surface of releaseOrder) {
+      if (surface.kind === "thread" && isSideChat(surface)) {
         void archiveThread(scopeThreadRef(threadRef.environmentId, surface.threadId)).then(
           (result) => {
             if (result._tag === "Success") {
@@ -118,8 +125,6 @@ export function useRightPanelSurfaceClose(input: {
             }
           },
         );
-      } else {
-        store.closeSurface(threadRef, surface.id);
       }
       releaseSurfaceResources(threadRef, surface);
     }
@@ -130,7 +135,7 @@ export function useRightPanelSurfaceClose(input: {
     if (nextActiveSurface?.kind === "preview" && nextActiveSurface.resourceId) {
       setActivePreviewTab(threadRef, nextActiveSurface.resourceId);
     }
-    focusPanelTerminalAfterClose(threadRef, activeId);
+    focusPanelTerminalAfterClose(threadRef, activeSurfaceId);
   };
   const labelFor = (terminalId: string) =>
     terminalLabelsById.get(terminalId) ?? getTerminalLabel(terminalId, m);
@@ -184,6 +189,13 @@ export function useRightPanelSurfaceClose(input: {
     closeSurfaces(surfaces.slice(surfaceIndex + 1));
   });
   const closeAllSurfaces = useStableCallback(() => closeSurfaces(surfaces));
+  const closeSelectedSurfaces = useStableCallback(closeSurfaces);
 
-  return { closeSurface, closeOtherSurfaces, closeSurfacesToRight, closeAllSurfaces };
+  return {
+    closeSurface,
+    closeSelectedSurfaces,
+    closeOtherSurfaces,
+    closeSurfacesToRight,
+    closeAllSurfaces,
+  };
 }
