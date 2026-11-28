@@ -443,7 +443,11 @@ describe("desktop app control server", () => {
       yield* Effect.gen(function* () {
         const activation = yield* DesktopAppActivation.DesktopAppActivation;
         yield* activation.start;
-        yield* activation.setRendererReady(true);
+        yield* activation.setRendererReady({
+          ready: true,
+          primaryEnvironmentReady: true,
+          readyEnvironmentIds: [],
+        });
 
         const response = exchange(target.address, request("before-crash", platform));
         yield* Effect.promise(() => dispatched);
