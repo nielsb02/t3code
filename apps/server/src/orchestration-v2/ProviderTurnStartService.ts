@@ -2482,13 +2482,14 @@ export const layer: Layer.Layer<
       // A turn recovered in a fresh native session delivers to that session instead.
       let deliveryTarget = {
         providerThread: runningProviderThread,
+        sideChatFrame,
         budget,
         deliveredItemIds,
         retryHandoff,
       };
       const startWithHandoffs = Effect.fn("ProviderTurnStartService.startWithHandoffs")(
         function* (turnInput: Parameters<typeof session.startTurn>[0], compact = false) {
-          const { providerThread: targetThread, retryHandoff } = deliveryTarget;
+          const { providerThread: targetThread, retryHandoff, sideChatFrame } = deliveryTarget;
           const retryHandoffIds = new Set(retryHandoff.handoffs.map((handoff) => handoff.id));
           const delivery = yield* deliverContextHandoffs({
             handoffs: [...effectiveHandoffs, ...retryHandoff.handoffs],
@@ -2717,6 +2718,7 @@ export const layer: Layer.Layer<
           effectiveHandoffs = withRecoveryHandoff(handoff);
           deliveryTarget = {
             providerThread: recoveredThread,
+            sideChatFrame: freshContext.sideChatFrame,
             budget: freshContext.budget,
             deliveredItemIds: freshContext.deliveredItemIds,
             retryHandoff: yield* prepareRetryHandoff(freshContext),

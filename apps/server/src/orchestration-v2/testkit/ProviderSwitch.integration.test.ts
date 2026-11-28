@@ -51,6 +51,7 @@ import {
 } from "../Adapters/CodexAdapterV2.ts";
 import { AcpProviderCapabilitiesV2 } from "@t3tools/provider-acp/server/adapter";
 import * as EventSink from "../EventSink.ts";
+import * as ContextHandoffService from "../ContextHandoffService.ts";
 import * as EventStore from "../EventStore.ts";
 import * as LegacyV1ThreadImporter from "../legacy/LegacyV1ThreadImporter.ts";
 import * as Orchestrator from "../Orchestrator.ts";
@@ -2277,9 +2278,9 @@ describe("orchestration v2 provider switching", () => {
   );
 
   // regression: #44152 agy lost the trajectory while T3 still held the thread as loaded.
-  it.live(
-    "recovers in a fresh native session when the turn start finds the native session gone",
-    () =>
+  it.live.each([false, true])(
+    "recovers in a fresh native session when the turn start finds the native session gone (side chat: %s)",
+    (sideChat) =>
       Effect.gen(function* () {
         const capturedTurns = yield* Ref.make<ReadonlyArray<CapturedTurn>>([]);
         const loseNativeSessionOnce = yield* Ref.make(false);
@@ -2301,6 +2302,43 @@ describe("orchestration v2 provider switching", () => {
             Effect.gen(function* () {
               yield* dispatchRequest(1, GROK_MODEL_SELECTION);
               yield* awaitSettled(1);
+              const parentThreadId = ThreadId.make("recovered-side-chat-parent");
+              if (sideChat) {
+                yield* orchestrator.dispatch({
+                  type: "thread.create",
+                  commandId: CommandId.make("lost-native-session:create-parent"),
+                  threadId: parentThreadId,
+                  projectId,
+                  createdBy: "user",
+                  creationSource: "web",
+                  title: "Side chat parent",
+                  modelSelection: GROK_MODEL_SELECTION,
+                  runtimeMode: "full-access",
+                  interactionMode: "default",
+                  branch: null,
+                  worktreePath: null,
+                });
+                const thread = (yield* orchestrator.getThreadProjection(threadId)).thread;
+                yield* (yield* EventSink.EventSinkV2).write({
+                  events: [
+                    {
+                      id: EventId.make("lost-native-session:side-chat-lineage"),
+                      type: "thread.metadata-updated",
+                      threadId,
+                      occurredAt: yield* DateTime.now,
+                      payload: {
+                        ...thread,
+                        lineage: {
+                          parentThreadId,
+                          relationshipToParent: "fork",
+                          rootThreadId: parentThreadId,
+                          sideChat: true,
+                        },
+                      },
+                    },
+                  ],
+                });
+              }
               yield* Ref.set(loseNativeSessionOnce, true);
               yield* dispatchRequest(2, GROK_MODEL_SELECTION);
               yield* awaitSettled(2);
@@ -2317,6 +2355,20 @@ describe("orchestration v2 provider switching", () => {
               assert.equal(turns.length, 2);
               assert.notEqual(turns[1]!.nativeThreadId, turns[0]!.nativeThreadId);
               assert.isNotEmpty(replacementRecordsFor(projection, run2.id));
+              assert.equal(
+                projection.attempts.find((attempt) => attempt.runId === run2.id)?.nativeThreadId,
+                turns[1]!.nativeThreadId,
+              );
+              if (sideChat) {
+                const frame = ContextHandoffService.makeSideChatContext({
+                  parentThreadId,
+                  digest: [],
+                });
+                assert.include(turns[1]!.text, frame);
+                yield* dispatchRequest(3, GROK_MODEL_SELECTION);
+                yield* awaitSettled(3);
+                assert.notInclude((yield* Ref.get(capturedTurns))[2]!.text, frame);
+              }
             }),
         );
       }),

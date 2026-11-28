@@ -771,6 +771,9 @@ export const layer: Layer.Layer<
         const completedAt = input.completedAt ?? (yield* DateTime.now);
         const finalizedAttempt: OrchestrationV2RunAttempt = {
           ...input.attempt,
+          ...(input.providerThread.nativeThreadRef?.nativeId == null
+            ? {}
+            : { nativeThreadId: input.providerThread.nativeThreadRef.nativeId }),
           status: input.terminal.status,
           completedAt,
         };
